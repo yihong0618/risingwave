@@ -198,7 +198,7 @@ impl<S: StateStore> MaterializeExecutor<S> {
                             }
                         }
                         false => {
-                            self.state_table.write_chunk(chunk.clone());
+                            // self.state_table.write_chunk(chunk.clone());
                             Message::Chunk(chunk)
                         }
                     }
