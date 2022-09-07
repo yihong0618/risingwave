@@ -31,6 +31,7 @@ use risingwave_pb::task_service::{
 };
 use tonic::transport::{Channel, Endpoint};
 use tonic::Streaming;
+use tracing::instrument;
 
 use crate::error::Result;
 use crate::{RpcClient, RpcClientPool};
