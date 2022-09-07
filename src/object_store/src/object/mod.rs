@@ -27,9 +27,9 @@ pub use s3::*;
 mod disk;
 pub mod error;
 pub mod object_metrics;
-
 pub use error::*;
 use object_metrics::ObjectStoreMetrics;
+use tracing::instrument;
 
 use crate::object::disk::DiskObjectStore;
 
