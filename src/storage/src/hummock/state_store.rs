@@ -25,6 +25,7 @@ use minitrace::Span;
 use risingwave_hummock_sdk::key::{key_with_epoch, next_key, user_key};
 use risingwave_hummock_sdk::{can_concat, HummockReadEpoch};
 use risingwave_pb::hummock::LevelType;
+use tracing::instrument;
 
 use super::iterator::{
     BackwardUserIterator, ConcatIteratorInner, DirectedUserIterator, UserIterator,
