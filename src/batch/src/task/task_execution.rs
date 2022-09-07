@@ -27,6 +27,7 @@ use risingwave_pb::batch_plan::{
 use risingwave_pb::task_service::task_info::TaskStatus;
 use risingwave_pb::task_service::{GetDataResponse, TaskInfo, TaskInfoResponse};
 use tokio::sync::oneshot::{Receiver, Sender};
+use tokio::time::Instant;
 use tokio_metrics::TaskMonitor;
 
 use crate::error::BatchError::SenderError;
@@ -220,6 +221,7 @@ impl<C: BatchTaskContext> BatchTaskExecution<C> {
     /// To obtain the result, one must pick one of the channels to consume via [`TaskOutputId`]. As
     /// such, parallel consumers are able to consume the result independently.
     pub async fn async_execute(self: Arc<Self>) -> Result<()> {
+        let timer = Instant::now();
         trace!(
             "Prepare executing plan [{:?}]: {}",
             self.task_id,
@@ -319,6 +321,8 @@ impl<C: BatchTaskContext> BatchTaskExecution<C> {
                 }
             }
         });
+
+        info!("async_execute: {:?}", timer.elapsed());
         Ok(())
     }
 
@@ -354,6 +358,7 @@ impl<C: BatchTaskContext> BatchTaskExecution<C> {
         mut shutdown_rx: Receiver<u64>,
         state_tx: &mut tokio::sync::mpsc::Sender<TaskInfoResponseResult>,
     ) -> Result<()> {
+        let timer = Instant::now();
         let mut data_chunk_stream = root.execute();
         let mut state = TaskStatus::Unspecified;
         loop {
@@ -403,6 +408,9 @@ impl<C: BatchTaskContext> BatchTaskExecution<C> {
             }
         }
         if let Err(_e) = self.change_state_notify(state, state_tx).await {}
+
+        info!("try_execute: {:?}", timer.elapsed());
+
         Ok(())
     }
 

@@ -33,6 +33,7 @@ use risingwave_pb::plan_common::{OrderType as ProstOrderType, StorageTableDesc};
 use risingwave_storage::table::batch_table::storage_table::{StorageTable, StorageTableIter};
 use risingwave_storage::table::{Distribution, TableIter};
 use risingwave_storage::{dispatch_state_store, Keyspace, StateStore, StateStoreImpl};
+use tokio::time::Instant;
 
 use super::BatchTaskMetrics;
 use crate::executor::{
@@ -268,7 +269,9 @@ impl BoxedExecutorBuilder for RowSeqScanExecutorBuilder {
                 futures.push(scan_type);
             }
 
+            let timer = Instant::now();
             let scan_types: Result<Vec<ScanType<_>>> = try_join_all(futures).await;
+            info!("storage get: {:?}", timer.elapsed());
 
             Ok(Box::new(RowSeqScanExecutor::new(
                 table.schema().clone(),
