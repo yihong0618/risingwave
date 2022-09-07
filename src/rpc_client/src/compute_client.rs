@@ -122,6 +122,7 @@ impl ComputeClient {
             .into_inner())
     }
 
+    #[instrument(skip_all)]
     pub async fn execute(&self, req: ExecuteRequest) -> Result<Streaming<GetDataResponse>> {
         Ok(self.task_client.to_owned().execute(req).await?.into_inner())
     }

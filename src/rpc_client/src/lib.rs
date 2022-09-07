@@ -31,6 +31,7 @@
 #![feature(type_alias_impl_trait)]
 #![feature(associated_type_defaults)]
 #![feature(generators)]
+#![recursion_limit = "1024"]
 
 mod meta_client;
 
