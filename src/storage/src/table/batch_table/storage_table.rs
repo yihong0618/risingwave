@@ -32,7 +32,7 @@ use risingwave_common::util::sort_util::OrderType;
 use risingwave_hummock_sdk::key::{end_bound_of_prefix, next_key, prefixed_range};
 use risingwave_hummock_sdk::HummockReadEpoch;
 use risingwave_pb::catalog::Table;
-use tracing::trace;
+use tracing::{instrument, trace};
 
 use super::iter_utils;
 use crate::error::{StorageError, StorageResult};
@@ -516,6 +516,7 @@ impl<S: StateStore> StorageTable<S> {
     }
 
     // The returned iterator will iterate data from a snapshot corresponding to the given `epoch`.
+    #[instrument(skip_all)]
     pub async fn batch_iter(&self, epoch: HummockReadEpoch) -> StorageResult<StorageTableIter<S>> {
         self.batch_iter_with_pk_bounds(epoch, Row::empty(), ..)
             .await
