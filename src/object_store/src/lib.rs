@@ -16,6 +16,7 @@
 #![feature(generic_associated_types)]
 #![feature(trait_alias)]
 #![feature(type_alias_impl_trait)]
+#![recursion_limit = "1024"]
 
 extern crate core;
 

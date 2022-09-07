@@ -50,6 +50,7 @@
 #![feature(assert_matches)]
 #![feature(is_sorted)]
 #![feature(btree_drain_filter)]
+#![recursion_limit = "1024"]
 
 pub mod hummock;
 pub mod keyspace;
