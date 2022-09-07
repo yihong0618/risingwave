@@ -25,6 +25,7 @@ use risingwave_object_store::object::{
     get_local_path, BlockLocation, ObjectMetadata, ObjectStoreRef, ObjectStreamingUploader,
 };
 use tokio::task::JoinHandle;
+use tracing::instrument;
 use zstd::zstd_safe::WriteBuf;
 
 use super::utils::MemoryTracker;
