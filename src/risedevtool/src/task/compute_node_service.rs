@@ -98,11 +98,12 @@ impl ComputeNodeService {
         add_meta_node(provide_meta_node, cmd)?;
 
         let provide_compactor = config.provide_compactor.as_ref().unwrap();
-        if is_shared_backend && provide_compactor.is_empty() {
-            return Err(anyhow!(
-                "When using a shared backend (minio, aws-s3, or shared in-memory with `risedev playground`), at least one compactor is required. Consider adding `use: compactor` in risedev config."
-            ));
-        }
+        // if is_shared_backend && provide_compactor.is_empty() {
+        //     return Err(anyhow!(
+        //         "When using a shared backend (minio, aws-s3, or shared in-memory with `risedev
+        // playground`), at least one compactor is required. Consider adding `use: compactor` in
+        // risedev config."     ));
+        // }
 
         Ok(())
     }
