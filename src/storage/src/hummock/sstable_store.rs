@@ -225,6 +225,7 @@ impl SstableStore {
             .map_err(HummockError::object_io_error)
     }
 
+    #[instrument(skip_all)]
     pub async fn get(
         &self,
         sst: &Sstable,

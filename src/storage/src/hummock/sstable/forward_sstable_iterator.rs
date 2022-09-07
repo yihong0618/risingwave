@@ -17,6 +17,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use risingwave_hummock_sdk::VersionedComparator;
+use tracing::instrument;
 
 use super::super::{HummockResult, HummockValue};
 use crate::hummock::iterator::{Forward, HummockIterator};
@@ -63,6 +64,7 @@ impl SstableIterator {
     }
 
     /// Seeks to a block, and then seeks to the key if `seek_key` is given.
+    #[instrument(skip_all)]
     async fn seek_idx(&mut self, idx: usize, seek_key: Option<&[u8]>) -> HummockResult<()> {
         tracing::trace!(
             target: "events::storage::sstable::block_seek",
@@ -74,7 +76,7 @@ impl SstableIterator {
         // When all data are in block cache, it is highly possible that this iterator will stay on a
         // worker thread for a full time. Therefore, we use tokio's unstable API consume_budget to
         // do cooperative scheduling.
-        tokio::task::consume_budget().await;
+        // tokio::task::consume_budget().await;
 
         if idx >= self.sst.value().block_count() {
             self.block_iter = None;
@@ -143,6 +145,7 @@ impl HummockIterator for SstableIterator {
         async move { self.seek_idx(0, None).await }
     }
 
+    #[instrument(skip_all)]
     fn seek<'a>(&'a mut self, key: &'a [u8]) -> Self::SeekFuture<'a> {
         async move {
             let block_idx = self
