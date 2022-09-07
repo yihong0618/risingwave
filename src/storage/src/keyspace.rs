@@ -18,6 +18,7 @@ use std::ops::RangeBounds;
 use bytes::Bytes;
 use risingwave_common::catalog::TableId;
 use risingwave_hummock_sdk::key::{prefixed_range, table_prefix};
+use tracing::instrument;
 
 use crate::error::StorageResult;
 use crate::store::{ReadOptions, WriteOptions};
