@@ -16,6 +16,7 @@ use std::hash::{BuildHasher, Hash};
 use std::marker::PhantomData;
 
 use risingwave_common::cache::CacheableEntry;
+use tracing::instrument;
 
 pub trait HashBuilder = BuildHasher + Clone + Send + Sync + 'static;
 
@@ -202,6 +203,7 @@ where
     }
 
     #[allow(unused_variables, clippy::unused_async)]
+    #[instrument(skip_all)]
     pub async fn get(&self, key: &K) -> Result<Option<TieredCacheEntryHolder<K, V>>> {
         match self {
             TieredCache::NoneCache(_) => Ok(None),

@@ -295,6 +295,7 @@ impl ObjectStoreImpl {
         object_store_impl_method_body!(self, streaming_upload, path)
     }
 
+    #[instrument(skip_all)]
     pub async fn read(&self, path: &str, block_loc: Option<BlockLocation>) -> ObjectResult<Bytes> {
         object_store_impl_method_body!(self, read, path, block_loc)
     }

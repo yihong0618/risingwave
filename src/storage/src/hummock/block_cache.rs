@@ -21,6 +21,7 @@ use async_stack_trace::StackTrace;
 use futures::Future;
 use risingwave_common::cache::{CacheableEntry, LruCache, LruCacheEventListener};
 use risingwave_hummock_sdk::HummockSstableId;
+use tracing::instrument;
 
 use super::{Block, HummockResult, TieredCacheEntry};
 use crate::hummock::HummockError;
@@ -145,6 +146,7 @@ impl BlockCache {
         ))
     }
 
+    #[instrument(skip_all)]
     pub async fn get_or_insert_with<F, Fut>(
         &self,
         sst_id: HummockSstableId,

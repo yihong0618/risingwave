@@ -25,7 +25,7 @@ use risingwave_object_store::object::{
     get_local_path, BlockLocation, ObjectMetadata, ObjectStoreRef, ObjectStreamingUploader,
 };
 use tokio::task::JoinHandle;
-use tracing::instrument;
+use tracing::{info_span, instrument, Instrument};
 use zstd::zstd_safe::WriteBuf;
 
 use super::utils::MemoryTracker;
@@ -236,25 +236,26 @@ impl SstableStore {
         stats.cache_data_block_total += 1;
         let tiered_cache = self.tiered_cache.clone();
         let fetch_block = || {
-            stats.cache_data_block_miss += 1;
-            let block_meta = sst
-                .meta
-                .block_metas
-                .get(block_index as usize)
-                .ok_or_else(HummockError::invalid_block)
-                .unwrap(); // FIXME: don't unwrap here.
-            let block_loc = BlockLocation {
-                offset: block_meta.offset as usize,
-                size: block_meta.len as usize,
-            };
-            let data_path = self.get_sst_data_path(sst.id);
-            let store = self.store.clone();
-            let sst_id = sst.id;
-            let use_tiered_cache = !matches!(policy, CachePolicy::Disable);
-            let uncompressed_capacity = block_meta.uncompressed_size as usize;
+            {
+                stats.cache_data_block_miss += 1;
+                let block_meta = sst
+                    .meta
+                    .block_metas
+                    .get(block_index as usize)
+                    .ok_or_else(HummockError::invalid_block)
+                    .unwrap(); // FIXME: don't unwrap here.
+                let block_loc = BlockLocation {
+                    offset: block_meta.offset as usize,
+                    size: block_meta.len as usize,
+                };
+                let data_path = self.get_sst_data_path(sst.id);
+                let store = self.store.clone();
+                let sst_id = sst.id;
+                let use_tiered_cache = !matches!(policy, CachePolicy::Disable);
+                let uncompressed_capacity = block_meta.uncompressed_size as usize;
 
-            async move {
-                if use_tiered_cache && let Some(holder) = tiered_cache
+                async move {
+                    if use_tiered_cache && let Some(holder) = tiered_cache
                     .get(&(sst_id, block_index))
                     .await
                     .map_err(HummockError::tiered_cache)?
@@ -263,10 +264,12 @@ impl SstableStore {
                     return Ok(holder.into_owned());
                 }
 
-                let block_data = store.read(&data_path, Some(block_loc)).await?;
-                let block = Block::decode(&block_data, uncompressed_capacity)?;
-                Ok(Box::new(block))
+                    let block_data = store.read(&data_path, Some(block_loc)).await?;
+                    let block = Block::decode(&block_data, uncompressed_capacity)?;
+                    Ok(Box::new(block))
+                }
             }
+            .instrument(info_span!("fetch_block"))
         };
 
         let disable_cache: fn() -> bool = || {
