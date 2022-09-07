@@ -36,6 +36,7 @@
 #![feature(assert_matches)]
 #![feature(map_first_last)]
 #![feature(lint_reasons)]
+#![recursion_limit = "256"]
 
 #[macro_use]
 mod catalog;
