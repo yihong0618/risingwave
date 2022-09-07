@@ -63,6 +63,7 @@ pub use sort_agg::*;
 pub use table_function::*;
 pub use top_n::*;
 pub use trace::*;
+use tracing::instrument;
 pub use union::*;
 pub use update::*;
 pub use values::*;
@@ -158,6 +159,7 @@ impl<'a, C: Clone> ExecutorBuilder<'a, C> {
 }
 
 impl<'a, C: BatchTaskContext> ExecutorBuilder<'a, C> {
+    #[instrument(skip_all)]
     pub async fn build(&self) -> Result<BoxedExecutor> {
         self.try_build().await.map_err(|e| {
             anyhow!(format!(
@@ -170,6 +172,7 @@ impl<'a, C: BatchTaskContext> ExecutorBuilder<'a, C> {
     }
 
     #[async_recursion]
+    #[instrument(skip_all)]
     async fn try_build(&self) -> Result<BoxedExecutor> {
         let mut inputs = Vec::with_capacity(self.plan_node.children.len());
         for input_node in &self.plan_node.children {

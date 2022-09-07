@@ -19,7 +19,7 @@ use risingwave_batch::executor::BoxedDataChunkStream;
 use risingwave_common::error::Result;
 use risingwave_common::session_config::QueryMode;
 use risingwave_sqlparser::ast::Statement;
-use tracing::debug;
+use tracing::{debug, instrument};
 
 use crate::binder::{Binder, BoundStatement};
 use crate::handler::privilege::{check_privileges, resolve_privileges};
@@ -30,6 +30,7 @@ use crate::scheduler::{
 };
 use crate::session::OptimizerContext;
 
+#[instrument]
 pub async fn handle_query(
     context: OptimizerContext,
     stmt: Statement,
@@ -122,6 +123,7 @@ pub async fn distribute_execute(
     ))
 }
 
+#[instrument]
 fn local_execute(
     context: OptimizerContext,
     stmt: BoundStatement,

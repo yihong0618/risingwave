@@ -67,6 +67,7 @@ use clap::Parser;
 use pgwire::pg_server::pg_serve;
 use serde::{Deserialize, Serialize};
 use session::SessionManagerImpl;
+use tracing::instrument;
 
 #[derive(Parser, Clone, Debug)]
 pub struct FrontendOpts {
@@ -102,6 +103,7 @@ use std::pin::Pin;
 use risingwave_common::config::ServerConfig;
 
 /// Start frontend
+#[instrument(target = "risingwave", skip_all)]
 pub fn start(opts: FrontendOpts) -> Pin<Box<dyn Future<Output = ()> + Send>> {
     // WARNING: don't change the function signature. Making it `async fn` will cause
     // slow compile in release mode.

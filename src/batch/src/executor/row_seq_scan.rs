@@ -33,6 +33,7 @@ use risingwave_pb::plan_common::{OrderType as ProstOrderType, StorageTableDesc};
 use risingwave_storage::table::batch_table::storage_table::{StorageTable, StorageTableIter};
 use risingwave_storage::table::{Distribution, TableIter};
 use risingwave_storage::{dispatch_state_store, Keyspace, StateStore, StateStoreImpl};
+use tracing::instrument;
 
 use crate::executor::monitor::BatchMetrics;
 use crate::executor::{
@@ -126,6 +127,7 @@ fn get_scan_bound(
 
 #[async_trait::async_trait]
 impl BoxedExecutorBuilder for RowSeqScanExecutorBuilder {
+    #[instrument(skip_all)]
     async fn new_boxed_executor<C: BatchTaskContext>(
         source: &ExecutorBuilder<C>,
         inputs: Vec<BoxedExecutor>,

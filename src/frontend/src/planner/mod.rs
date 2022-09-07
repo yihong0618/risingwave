@@ -28,6 +28,7 @@ mod statement;
 mod update;
 mod values;
 pub use query::LIMIT_ALL_COUNT;
+use tracing::instrument;
 
 /// `Planner` converts a bound statement to a [`crate::optimizer::plan_node::PlanNode`] tree
 pub struct Planner {
@@ -40,6 +41,7 @@ impl Planner {
     }
 
     /// Plan a [`BoundStatement`]. Need to bind a statement before plan.
+    #[instrument(skip_all)]
     pub fn plan(&mut self, stmt: BoundStatement) -> Result<PlanRoot> {
         self.plan_statement(stmt)
     }

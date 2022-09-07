@@ -23,6 +23,7 @@ use risingwave_pb::batch_plan::TaskOutputId;
 use risingwave_pb::task_service::{ExecuteRequest, GetDataResponse};
 use risingwave_rpc_client::ComputeClient;
 use tonic::Streaming;
+use tracing::instrument;
 
 use crate::exchange_source::ExchangeSource;
 use crate::task::TaskId;
@@ -35,6 +36,7 @@ pub struct GrpcExchangeSource {
 }
 
 impl GrpcExchangeSource {
+    #[instrument(skip_all)]
     pub async fn create(
         client: ComputeClient,
         task_output_id: TaskOutputId,

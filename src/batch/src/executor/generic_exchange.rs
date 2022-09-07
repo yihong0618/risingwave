@@ -30,8 +30,11 @@ use crate::executor::ExecutorBuilder;
 use crate::task::{BatchTaskContext, TaskId};
 
 pub type ExchangeExecutor<C> = GenericExchangeExecutor<C>;
+use minitrace::trace;
+
 use super::BatchTaskMetrics;
 use crate::executor::{BoxedDataChunkStream, BoxedExecutor, BoxedExecutorBuilder, Executor};
+
 pub struct GenericExchangeExecutor<C> {
     sources: Vec<ExchangeSourceImpl>,
     context: C,
@@ -108,6 +111,7 @@ pub struct GenericExchangeExecutorBuilder {}
 
 #[async_trait::async_trait]
 impl BoxedExecutorBuilder for GenericExchangeExecutorBuilder {
+    #[trace("GenericExchangeExecutorBuilder")]
     async fn new_boxed_executor<C: BatchTaskContext>(
         source: &ExecutorBuilder<C>,
         inputs: Vec<BoxedExecutor>,
@@ -163,6 +167,7 @@ impl<C: BatchTaskContext> Executor for GenericExchangeExecutor<C> {
 
 impl<C: BatchTaskContext> GenericExchangeExecutor<C> {
     #[try_stream(boxed, ok = DataChunk, error = RwError)]
+    #[trace("GenericExchangeExecutor")]
     async fn do_execute(self: Box<Self>) {
         let mut stream = select_all(
             self.sources

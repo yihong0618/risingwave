@@ -23,6 +23,7 @@ use risingwave_pb::task_service::{
 };
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
+use tracing::instrument;
 
 use crate::rpc::service::exchange::GrpcExchangeWriter;
 use crate::task::{
@@ -100,6 +101,7 @@ impl TaskService for BatchServiceImpl {
     }
 
     #[cfg_attr(coverage, no_coverage)]
+    #[instrument(skip_all, target = "risingwave")]
     async fn execute(
         &self,
         req: Request<ExecuteRequest>,

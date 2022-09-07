@@ -30,7 +30,7 @@ use risingwave_pb::batch_plan::{
     ExchangeInfo, ExchangeSource, LocalExecutePlan, PlanFragment, PlanNode as PlanNodeProst,
     TaskId as ProstTaskId, TaskOutputId,
 };
-use tracing::debug;
+use tracing::{debug, instrument};
 use uuid::Uuid;
 
 use super::plan_fragmenter::{PartitionInfo, QueryStageRef};
@@ -66,6 +66,7 @@ impl LocalQueryExecution {
     }
 
     #[try_stream(ok = DataChunk, error = RwError)]
+    #[instrument(skip_all)]
     pub async fn run(mut self) {
         debug!(
             "Starting to run query: {:?}, sql: '{}'",
@@ -111,6 +112,7 @@ impl LocalQueryExecution {
     /// which part should be executed on the backend is `the first exchange operator` when looking
     /// from the the root of the plan to the leaves. The first exchange operator contains
     /// the pushed-down plan fragment.
+    #[instrument(skip_all)]
     fn create_plan_fragment(&self) -> SchedulerResult<PlanFragment> {
         let root_stage_id = self.query.root_stage_id();
         let root_stage = self.query.stage_graph.stages.get(&root_stage_id).unwrap();

@@ -18,10 +18,13 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use futures::Future;
+use tracing::subscriber::set_global_default;
 use tracing::Level;
-use tracing_subscriber::filter;
+use tracing_opentelemetry::OpenTelemetryLayer;
+use tracing_subscriber::filter::Targets;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::prelude::*;
+use tracing_subscriber::{filter, Registry};
 
 /// Configure log targets for all `RisingWave` crates. When new crates are added and TRACE level
 /// logs are needed, add them here.
@@ -132,12 +135,29 @@ pub fn init_risingwave_logger(settings: LoggerSettings) {
         None
     };
 
+    let tracing_layer = {
+        let tracer = opentelemetry_jaeger::new_pipeline()
+            .with_service_name("risingwave")
+            .with_agent_endpoint("localhost:6831")
+            .install_simple()
+            .unwrap();
+
+        OpenTelemetryLayer::new(tracer).with_filter(
+            Targets::new()
+                .with_target("tokio", Level::WARN)
+                .with_target("runtime", Level::WARN)
+                .with_target("risingwave", Level::INFO),
+        )
+    };
+
     match tokio_console_layer {
         Some((tokio_console_layer, server)) => {
-            tracing_subscriber::registry()
+            let s = Registry::default()
                 .with(fmt_layer)
-                .with(tokio_console_layer)
-                .init();
+                .with(tracing_layer)
+                .with(tokio_console_layer);
+
+            set_global_default(s).unwrap();
             std::thread::spawn(|| {
                 tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -150,7 +170,8 @@ pub fn init_risingwave_logger(settings: LoggerSettings) {
             });
         }
         None => {
-            tracing_subscriber::registry().with(fmt_layer).init();
+            let s = Registry::default().with(fmt_layer).with(tracing_layer);
+            set_global_default(s).unwrap();
         }
     }
 
