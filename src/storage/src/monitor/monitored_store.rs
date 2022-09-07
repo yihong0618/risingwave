@@ -19,7 +19,7 @@ use async_stack_trace::StackTrace;
 use bytes::Bytes;
 use futures::Future;
 use risingwave_hummock_sdk::HummockReadEpoch;
-use tracing::error;
+use tracing::{error, instrument};
 
 use super::StateStoreMetrics;
 use crate::error::StorageResult;
@@ -232,6 +232,7 @@ where
         }
     }
 
+    #[instrument(skip_all)]
     fn wait_epoch(&self, epoch: HummockReadEpoch) -> Self::WaitEpochFuture<'_> {
         async move {
             self.inner

@@ -268,6 +268,7 @@ impl<S: StateStore> StorageTable<S> {
     }
 
     /// Get a single row by point get
+    #[instrument(skip_all)]
     pub async fn get_row(&mut self, pk: &Row, epoch: u64) -> StorageResult<Option<Row>> {
         let serialized_pk =
             serialize_pk_with_vnode(pk, &self.pk_serializer, self.compute_vnode_by_pk(pk));
@@ -505,6 +506,7 @@ impl<S: StateStore> StorageTable<S> {
 
     /// Construct a [`StorageTableIter`] for batch executors.
     /// Differs from the streaming one, this iterator will wait for the epoch before iteration
+    #[instrument(skip_all)]
     pub async fn batch_iter_with_pk_bounds(
         &self,
         epoch: HummockReadEpoch,
