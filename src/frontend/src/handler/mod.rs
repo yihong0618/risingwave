@@ -18,6 +18,7 @@ use pgwire::pg_response::PgResponse;
 use pgwire::pg_response::StatementType::{ABORT, START_TRANSACTION};
 use risingwave_common::error::{ErrorCode, Result};
 use risingwave_sqlparser::ast::{DropStatement, ObjectType, Statement};
+use tracing::instrument;
 
 use self::util::handle_with_properties;
 use crate::session::{OptimizerContext, SessionImpl};
@@ -50,6 +51,7 @@ mod show;
 pub mod util;
 pub mod variable;
 
+#[instrument(skip_all)]
 pub async fn handle(
     session: Arc<SessionImpl>,
     stmt: Statement,

@@ -21,6 +21,7 @@ use std::{str, vec};
 
 use bytes::{Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tracing::instrument;
 use tracing::log::trace;
 
 use crate::error::{PsqlError, PsqlResult};
@@ -97,10 +98,12 @@ where
     }
 
     /// Processes one message. Returns true if the connection is terminated.
+    #[instrument(skip_all)]
     pub async fn process(&mut self) -> bool {
         self.do_process().await || self.is_terminate
     }
 
+    #[instrument(skip_all)]
     async fn do_process(&mut self) -> bool {
         match self.do_process_inner().await {
             Ok(v) => v,
@@ -157,6 +160,7 @@ where
         }
     }
 
+    #[instrument(skip_all)]
     async fn do_process_inner(&mut self) -> PsqlResult<bool> {
         let msg = self.read_message().await?;
         match msg {
@@ -177,6 +181,7 @@ where
         Ok(false)
     }
 
+    #[instrument(skip_all)]
     async fn read_message(&mut self) -> PsqlResult<FeMessage> {
         match self.state {
             PgProtocolState::Startup => self.stream.read_startup().await,
@@ -263,6 +268,7 @@ where
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn process_query_msg(&mut self, query_string: io::Result<&str>) -> PsqlResult<()> {
         let sql = query_string.map_err(|err| PsqlError::QueryError(Box::new(err)))?;
         tracing::trace!("(simple query)receive query: {}", sql);

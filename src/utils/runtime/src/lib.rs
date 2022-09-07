@@ -147,6 +147,8 @@ pub fn init_risingwave_logger(settings: LoggerSettings) {
                 .with_target("tokio", Level::WARN)
                 .with_target("runtime", Level::WARN)
                 .with_target("hyper", Level::TRACE)
+                .with_target("h2", Level::TRACE)
+                .with_target("tower", Level::TRACE)
                 .with_target("risingwave", Level::INFO),
         )
     };
