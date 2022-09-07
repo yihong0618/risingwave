@@ -161,6 +161,7 @@ impl HummockStorage {
         Ok(instance)
     }
 
+    #[instrument(skip_all)]
     async fn get_from_table(
         &self,
         sstable: TableHolder,
@@ -213,6 +214,7 @@ impl HummockStorage {
         &self.local_version_manager
     }
 
+    #[instrument(skip_all)]
     async fn get_compaction_group_id(&self, table_id: TableId) -> HummockResult<CompactionGroupId> {
         self.compaction_group_client
             .get_compaction_group_id(table_id.table_id)
@@ -239,6 +241,7 @@ impl HummockStorage {
     }
 
     /// Get `user_value` from `OrderSortedUncommittedData`. If not get successful, return None.
+    #[instrument(skip_all)]
     async fn get_from_order_sorted_uncommitted_data(
         &self,
         order_sorted_uncommitted_data: OrderSortedUncommittedData,

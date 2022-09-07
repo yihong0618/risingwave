@@ -351,6 +351,7 @@ impl SstableStore {
         self.meta_cache.clear();
     }
 
+    #[instrument(skip_all)]
     pub async fn sstable(
         &self,
         sst_id: HummockSstableId,

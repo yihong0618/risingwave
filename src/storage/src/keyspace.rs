@@ -95,6 +95,7 @@ impl<S: StateStore> Keyspace<S> {
 
     /// Gets from the keyspace with the `prefixed_key` of given key.
     /// The returned value is based on a snapshot corresponding to the given `epoch`.
+    #[instrument(skip_all)]
     pub async fn get(
         &self,
         key: impl AsRef<[u8]>,

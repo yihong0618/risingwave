@@ -280,6 +280,7 @@ impl HummockStorage {
     /// If `Ok(Some())` is returned, the key is found. If `Ok(None)` is returned,
     /// the key is not found. If `Err()` is returned, the searching for the key
     /// failed due to other non-EOF errors.
+    #[instrument(skip_all)]
     pub async fn get<'a>(
         &'a self,
         key: &'a [u8],
@@ -418,6 +419,7 @@ impl HummockStorage {
         Ok(None)
     }
 
+    #[instrument(skip_all)]
     fn read_filter<R, B>(
         &self,
         read_options: &ReadOptions,
@@ -442,6 +444,7 @@ impl StateStore for HummockStorage {
 
     define_state_store_associated_type!();
 
+    #[instrument(skip_all)]
     fn get<'a>(
         &'a self,
         key: &'a [u8],
