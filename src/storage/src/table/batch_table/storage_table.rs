@@ -103,6 +103,7 @@ impl<S: StateStore> StorageTable<S> {
     /// set of `column_ids`. The output will only contains columns with the given ids in the same
     /// order.
     #[allow(clippy::too_many_arguments)]
+    #[instrument(skip_all)]
     pub fn new_partial(
         store: S,
         table_id: TableId,

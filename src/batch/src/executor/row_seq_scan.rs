@@ -85,6 +85,7 @@ fn is_full_range<T>(bounds: &impl RangeBounds<T>) -> bool {
         && matches!(bounds.end_bound(), Bound::Unbounded)
 }
 
+#[instrument(skip_all)]
 fn get_scan_bound(
     scan_range: ScanRange,
     mut pk_types: impl Iterator<Item = DataType>,

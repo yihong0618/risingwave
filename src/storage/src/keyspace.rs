@@ -44,6 +44,7 @@ impl<S: StateStore> Keyspace<S> {
     /// here.
 
     /// Creates a root [`Keyspace`] for a table.
+    #[instrument(skip_all)]
     pub fn table_root(store: S, id: &TableId) -> Self {
         let prefix = table_prefix(id.table_id);
         Self {
