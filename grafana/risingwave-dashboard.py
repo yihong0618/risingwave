@@ -862,51 +862,27 @@ def section_hummock_tiered_cache(outer_panels):
                     "sum(rate(file_cache_disk_latency_count[$__rate_interval])) by (op, instance)", "file cache disk {{op}} @ {{instance}}"
                 ),
             ]),
-            panels.timeseries_latency("Latency", [
-                panels.target(
-                    "histogram_quantile(0.5, sum(rate(file_cache_latency_bucket[$__rate_interval])) by (le, op, instance))", "p50 - file cache {{op}} @ {{instance}}"
-                ),
-                panels.target(
-                    "histogram_quantile(0.9, sum(rate(file_cache_latency_bucket[$__rate_interval])) by (le, op, instance))", "p90 - file cache {{op}} @ {{instance}}"
-                ),
-                panels.target(
-                    "histogram_quantile(0.99, sum(rate(file_cache_latency_bucket[$__rate_interval])) by (le, op, instance))", "p99 - file cache {{op}} @ {{instance}}"
-                ),
-                panels.target(
-                    "histogram_quantile(0.5, sum(rate(file_cache_disk_latency_bucket[$__rate_interval])) by (le, op, instance))", "p50 - file cache disk {{op}} @ {{instance}}"
-                ),
-                panels.target(
-                    "histogram_quantile(0.9, sum(rate(file_cache_disk_latency_bucket[$__rate_interval])) by (le, op, instance))", "p90 - file cache disk {{op}} @ {{instance}}"
-                ),
-                panels.target(
-                    "histogram_quantile(0.99, sum(rate(file_cache_disk_latency_bucket[$__rate_interval])) by (le, op, instance))", "p99 - file cache disk {{op}} @ {{instance}}"
-                ),
-            ]),
+            panels.timeseries_latency("Latency", 
+                *quantile(lambda quantile, legend: panels.target(
+                    f"histogram_quantile({quantile}, sum(rate(file_cache_latency_bucket[$__rate_interval])) by (le, op, instance))", f"p{legend} - file cache" + " - {{op}} @ {{instance}}"
+                ), [50, 90, 99, "max"]),
+                *quantile(lambda quantile, legend: panels.target(
+                    f"histogram_quantile({quantile}, sum(rate(file_cache_disk_latency_bucket[$__rate_interval])) by (le, op, instance))", f"p{legend} - file cache disk" + " - {{op}} @ {{instance}}"
+                ), [50, 90, 99, "max"]),
+            ),
             panels.timeseries_bytes_per_sec("Throughput", [
                 panels.target(
                     "sum(rate(file_cache_disk_bytes[$__rate_interval])) by (op, instance)", "disk {{op}} @ {{instance}}"
                 ),
             ]),
-            panels.timeseries_bytes("Disk IO Size", [
-                panels.target(
-                    "histogram_quantile(0.5, sum(rate(file_cache_disk_io_size_bucket[$__rate_interval])) by (le, op, instance))", "p50 - file cache disk {{op}} @ {{instance}}"
-                ),
-                panels.target(
-                    "histogram_quantile(0.9, sum(rate(file_cache_disk_io_size_bucket[$__rate_interval])) by (le, op, instance))", "p90 - file cache disk {{op}} @ {{instance}}"
-                ),
-                panels.target(
-                    "histogram_quantile(0.99, sum(rate(file_cache_disk_io_size_bucket[$__rate_interval])) by (le, op, instance))", "p99 - file cache disk {{op}} @ {{instance}}"
-                ),
-                 panels.target(
-                    "histogram_quantile(0.5, sum(rate(file_cache_disk_read_entry_size_bucket[$__rate_interval])) by (le, instance))", "p50 - file cache disk read entry @ {{instance}}"
-                ),
-                panels.target(
-                    "histogram_quantile(0.9, sum(rate(file_cache_disk_read_entry_size_bucket[$__rate_interval])) by (le, instance))", "p90 - file cache disk read entry @ {{instance}}"
-                ),
-                panels.target(
-                    "histogram_quantile(0.99, sum(rate(file_cache_disk_read_entry_size_bucket[$__rate_interval])) by (le, instance))", "p99 - file cache disk read entry @ {{instance}}"
-                ),
-            ]),
+            panels.timeseries_bytes("Disk IO Size",
+                *quantile(lambda quantile, legend: panels.target(
+                    f"histogram_quantile({quantile}, sum(rate(file_cache_disk_io_size_bucket[$__rate_interval])) by (le, op, instance))", f"p{legend} - file cache disk" + " - {{op}} @ {{instance}}"
+                ), [50, 90, 99, "max"]),
+                *quantile(lambda quantile, legend: panels.target(
+                    f"histogram_quantile({quantile}, sum(rate(file_cache_disk_read_entry_size_bucket[$__rate_interval])) by (le, op, instance))", f"p{legend} - file cache disk read entry" + " - {{op}} @ {{instance}}"
+                ), [50, 90, 99, "max"]),
+            ),
         ])
     ]
 
@@ -915,28 +891,16 @@ def section_hummock_manager(outer_panels):
     panels = outer_panels.sub_panel()
     return [
         outer_panels.row_collapsed("Hummock Manager", [
-            panels.timeseries_latency("Lock Time", [
-                panels.target(
-                    "histogram_quantile(0.50, sum(rate(hummock_manager_lock_time_bucket[$__rate_interval])) by (le, lock_name, lock_type))", "Lock Time p50 - {{lock_type}} {{lock_name}}"
-                ),
-                panels.target(
-                    "histogram_quantile(0.99, sum(rate(hummock_manager_lock_time_bucket[$__rate_interval])) by (le, lock_name, lock_type))", "Lock Time p99 - {{lock_type}} {{lock_name}}"
-                ),
-                panels.target(
-                    "histogram_quantile(0.999, sum(rate(hummock_manager_lock_time_bucket[$__rate_interval])) by (le, lock_name, lock_type))", "Lock Time p999 - {{lock_type}} {{lock_name}}"
-                ),
-            ]),
-            panels.timeseries_latency("Real Process Time", [
-                panels.target(
-                    "histogram_quantile(0.50, sum(rate(meta_hummock_manager_real_process_time_bucket[$__rate_interval])) by (le, method))", "Real Process Time P50 - {{method}}"
-                ),
-                panels.target(
-                    "histogram_quantile(0.99, sum(rate(meta_hummock_manager_real_process_time_bucket[$__rate_interval])) by (le, method))", "Real Process Time P99 - {{method}}"
-                ),
-                panels.target(
-                    "histogram_quantile(0.999, sum(rate(meta_hummock_manager_real_process_time_bucket[$__rate_interval])) by (le, method))", "Real Process Time P999 - {{method}}"
-                ),
-            ]),
+            panels.timeseries_latency("Lock Time",
+                *quantile(lambda quantile, legend: panels.target(
+                    f"histogram_quantile({quantile}, sum(rate(hummock_manager_lock_time_bucket[$__rate_interval])) by (le, lock_name, lock_type))", f"Lock Time p{legend}" + " - {{lock_type}} @ {{lock_name}}"
+                ), [50, 99, 999, "max"]),
+            ),
+            panels.timeseries_latency("Real Process Time", 
+                *quantile(lambda quantile, legend: panels.target(
+                    f"histogram_quantile({quantile}, sum(rate(meta_hummock_manager_real_process_time_bucket[$__rate_interval])) by (le, method))", f"Real Process Time p{legend}" + " - {{method}}"
+                ), [50, 99, 999, "max"]),
+            ),
         ])
     ]
 
@@ -1083,54 +1047,30 @@ def section_grpc_meta_hummock_manager(outer_panels):
         outer_panels.row_collapsed("gRPC Meta: Hummock Manager", [
             panels.timeseries_latency_small("version latency", [
                 panels.target(
-                    "histogram_quantile(0.5, sum(irate(meta_grpc_duration_seconds_bucket{path=\"/hummock.HummockManagerService/UnpinVersion\"}[$__rate_interval])) by (le))", "UnpinVersion_p50"
+                    "histogram_quantile(0.5, sum(irate(meta_grpc_duration_seconds_bucket{path=\"/hummock.HummockManagerService/UnpinVersionBefore\"}[$__rate_interval])) by (le))", "UnpinVersionBefore_p50"
                 ),
                 panels.target(
-                    "histogram_quantile(0.9, sum(irate(meta_grpc_duration_seconds_bucket{path=\"/hummock.HummockManagerService/UnpinVersion\"}[$__rate_interval])) by (le))", "UnpinVersion_p90"
+                    "histogram_quantile(0.9, sum(irate(meta_grpc_duration_seconds_bucket{path=\"/hummock.HummockManagerService/UnpinVersionBefore\"}[$__rate_interval])) by (le))", "UnpinVersionBefore_p90"
                 ),
                 panels.target(
-                    "histogram_quantile(0.99, sum(irate(meta_grpc_duration_seconds_bucket{path=\"/hummock.HummockManagerService/UnpinVersion\"}[$__rate_interval])) by (le))", "UnpinVersion_p99"
+                    "histogram_quantile(0.99, sum(irate(meta_grpc_duration_seconds_bucket{path=\"/hummock.HummockManagerService/UnpinVersionBefore\"}[$__rate_interval])) by (le))", "UnpinVersionBefore_p99"
                 ),
                 panels.target(
-                    "sum(irate(meta_grpc_duration_seconds_sum{path=\"/hummock.HummockManagerService/UnpinVersion\"}[$__rate_interval])) / sum(irate(meta_grpc_duration_seconds_count{path=\"/hummock.HummockManagerService/UnpinVersion\"}[$__rate_interval]))", "UnpinVersion_avg"
-                ),
-                panels.target(
-                    "histogram_quantile(0.5, sum(irate(meta_grpc_duration_seconds_bucket{path=\"/hummock.HummockManagerService/PinVersion\"}[$__rate_interval])) by (le))", "PinVersion_p50"
-                ),
-                panels.target(
-                    "histogram_quantile(0.9, sum(irate(meta_grpc_duration_seconds_bucket{path=\"/hummock.HummockManagerService/PinVersion\"}[$__rate_interval])) by (le))", "PinVersion_p90"
-                ),
-                panels.target(
-                    "histogram_quantile(0.99, sum(irate(meta_grpc_duration_seconds_bucket{path=\"/hummock.HummockManagerService/PinVersion\"}[$__rate_interval])) by (le))", "PinVersion_p99"
-                ),
-                panels.target(
-                    "sum(irate(meta_grpc_duration_seconds_sum{path=\"/hummock.HummockManagerService/PinVersion\"}[$__rate_interval])) / sum(irate(meta_grpc_duration_seconds_count{path=\"/hummock.HummockManagerService/PinVersion\"}[$__rate_interval]))", "PinVersion_avg"
+                    "sum(irate(meta_grpc_duration_seconds_sum{path=\"/hummock.HummockManagerService/UnpinVersionBefore\"}[$__rate_interval])) / sum(irate(meta_grpc_duration_seconds_count{path=\"/hummock.HummockManagerService/UnpinVersionBefore\"}[$__rate_interval]))", "UnpinVersionBefore_avg"
                 ),
             ]),
             panels.timeseries_latency_small("snapshot latency", [
                 panels.target(
-                    "histogram_quantile(0.5, sum(irate(meta_grpc_duration_seconds_bucket{path=\"/hummock.HummockManagerService/UnpinSnapshot\"}[$__rate_interval])) by (le))", "UnpinSnapshot_p50"
+                    "histogram_quantile(0.5, sum(irate(meta_grpc_duration_seconds_bucket{path=\"/hummock.HummockManagerService/UnpinSnapshotBefore\"}[$__rate_interval])) by (le))", "UnpinSnapshotBefore_p50"
                 ),
                 panels.target(
-                    "histogram_quantile(0.9, sum(irate(meta_grpc_duration_seconds_bucket{path=\"/hummock.HummockManagerService/UnpinSnapshot\"}[$__rate_interval])) by (le))", "UnpinSnapshot_p90"
+                    "histogram_quantile(0.9, sum(irate(meta_grpc_duration_seconds_bucket{path=\"/hummock.HummockManagerService/UnpinSnapshotBefore\"}[$__rate_interval])) by (le))", "UnpinSnapshotBefore_p90"
                 ),
                 panels.target(
-                    "histogram_quantile(0.99, sum(irate(meta_grpc_duration_seconds_bucket{path=\"/hummock.HummockManagerService/UnpinSnapshot\"}[$__rate_interval])) by (le))", "UnpinSnapshot_p99"
+                    "histogram_quantile(0.99, sum(irate(meta_grpc_duration_seconds_bucket{path=\"/hummock.HummockManagerService/UnpinSnapshotBefore\"}[$__rate_interval])) by (le))", "UnpinSnapshotBefore_p99"
                 ),
                 panels.target(
-                    "sum(irate(meta_grpc_duration_seconds_sum{path=\"/hummock.HummockManagerService/UnpinSnapshot\"}[$__rate_interval])) / sum(irate(meta_grpc_duration_seconds_count{path=\"/hummock.HummockManagerService/UnpinSnapshot\"}[$__rate_interval]))", "UnpinSnapshot_avg"
-                ),
-                panels.target(
-                    "histogram_quantile(0.5, sum(irate(meta_grpc_duration_seconds_bucket{path=\"/hummock.HummockManagerService/PinSnapshot\"}[$__rate_interval])) by (le))", "PinSnapshot_p50"
-                ),
-                panels.target(
-                    "histogram_quantile(0.9, sum(irate(meta_grpc_duration_seconds_bucket{path=\"/hummock.HummockManagerService/PinSnapshot\"}[$__rate_interval])) by (le))", "PinSnapshot_p90"
-                ),
-                panels.target(
-                    "histogram_quantile(0.99, sum(irate(meta_grpc_duration_seconds_bucket{path=\"/hummock.HummockManagerService/PinSnapshot\"}[$__rate_interval])) by (le))", "PinSnapshot_p99"
-                ),
-                panels.target(
-                    "sum(irate(meta_grpc_duration_seconds_sum{path=\"/hummock.HummockManagerService/PinSnapshot\"}[$__rate_interval])) / sum(irate(meta_grpc_duration_seconds_count{path=\"/hummock.HummockManagerService/PinSnapshot\"}[$__rate_interval]))", "PinSnapshot_avg"
+                    "sum(irate(meta_grpc_duration_seconds_sum{path=\"/hummock.HummockManagerService/UnpinSnapshotBefore\"}[$__rate_interval])) / sum(irate(meta_grpc_duration_seconds_count{path=\"/hummock.HummockManagerService/UnpinSnapshotBefore\"}[$__rate_interval]))", "UnpinSnapshotBefore_avg"
                 ),
             ]),
             panels.timeseries_latency_small("compaction latency", [
@@ -1176,36 +1116,16 @@ def section_grpc_hummock_meta_client(outer_panels):
             ]),
             panels.timeseries_latency("version_latency", [
                 panels.target(
-                    "histogram_quantile(0.5, sum(irate(state_store_pin_version_latency_bucket[$__rate_interval])) by (le, job, instance))", "pin_version_latency_p50 - {{instance}} "
+                    "histogram_quantile(0.5, sum(irate(state_store_unpin_version_before_latency_bucket[$__rate_interval])) by (le, job, instance))", "unpin_version_before_latency_p50 - {{instance}} "
                 ),
                 panels.target(
-                    "histogram_quantile(0.99, sum(irate(state_store_pin_version_latency_bucket[$__rate_interval])) by (le, job, instance))", "pin_version_latency_p99 - {{instance}} "
+                    "histogram_quantile(0.99, sum(irate(state_store_unpin_version_before_latency_bucket[$__rate_interval])) by (le, job, instance))", "unpin_version_before_latency_p99 - {{instance}} "
                 ),
                 panels.target(
-                    "histogram_quantile(0.9, sum(irate(state_store_pin_version_latency_bucket[$__rate_interval])) by (le, job, instance))", "pin_version_latencyp90 - {{instance}} "
+                    "sum(irate(state_store_unpin_version_before_latency_sum[$__rate_interval])) / sum(irate(state_store_unpin_version_before_latency_count[$__rate_interval]))", "unpin_version_before_latency_avg"
                 ),
                 panels.target(
-                    "sum(irate(state_store_pin_version_latency_sum[$__rate_interval])) / sum(irate(state_store_pin_version_latency_count[$__rate_interval]))", "pin_version_latency_avg"
-                ),
-                panels.target(
-                    "histogram_quantile(0.5, sum(irate(state_store_unpin_version_latency_bucket[$__rate_interval])) by (le, job, instance))", "unpin_version_latency_p50 - {{instance}} "
-                ),
-                panels.target(
-                    "histogram_quantile(0.99, sum(irate(state_store_unpin_version_latency_bucket[$__rate_interval])) by (le, job, instance))", "unpin_version_latency_p99 - {{instance}} "
-                ),
-                panels.target(
-                    "sum(irate(state_store_unpin_version_latency_sum[$__rate_interval])) / sum(irate(state_store_unpin_version_latency_count[$__rate_interval]))", "unpin_version_latency_avg"
-                ),
-                panels.target(
-                    "histogram_quantile(0.90, sum(irate(state_store_unpin_version_latency_bucket[$__rate_interval])) by (le, job, instance))", "unpin_version_latency_p90 - {{instance}} "
-                ),
-            ]),
-            panels.timeseries_count("version_count", [
-                panels.target(
-                    "sum(irate(state_store_pin_version_counts[$__rate_interval])) by(job,instance)", "pin_version_counts - {{instance}} "
-                ),
-                panels.target(
-                    "sum(irate(state_store_unpin_version_counts[$__rate_interval])) by(job,instance)", "unpin_version_counts - {{instance}} "
+                    "histogram_quantile(0.90, sum(irate(state_store_unpin_version_before_latency_bucket[$__rate_interval])) by (le, job, instance))", "unpin_version_before_latency_p90 - {{instance}} "
                 ),
             ]),
             panels.timeseries_latency("snapshot_latency", [
