@@ -722,70 +722,30 @@ def section_hummock(panels):
                 "sum by(le, job, instance)(rate(state_store_get_duration_sum[$__rate_interval])) / sum by(le, job, instance) (rate(state_store_get_duration_count[$__rate_interval]))", "avg - {{job}} @ {{instance}}"
             ),
         ]),
-        panels.timeseries_latency("Read Duration - Scan", [
-            panels.target(
-                "histogram_quantile(0.50, sum(rate(state_store_range_scan_duration_bucket[$__rate_interval])) by (le, job, instance))", "Forward p50 - {{job}} @ {{instance}}"
-            ),
-            panels.target(
-                "histogram_quantile(0.90, sum(rate(state_store_range_scan_duration_bucket[$__rate_interval])) by (le,job, instance))", "Forward p90 - {{job}} @ {{instance}}"
-            ),
-            panels.target(
-                "histogram_quantile(0.99, sum(rate(state_store_range_scan_duration_bucket[$__rate_interval])) by (le, job, instance))", "Forward p99 - {{job}} @ {{instance}}"
-            ),
-            panels.target(
-                "sum by(le, job, instance)(rate(state_store_range_scan_duration_sum[$__rate_interval])) / sum by(le, job,instance) (rate(state_store_range_scan_duration_count[$__rate_interval]))", "Forward avg - {{job}} @ {{instance}}"
-            ),
-            panels.target(
-                "histogram_quantile(0.50, sum(rate(state_store_range_reverse_scan_duration_bucket[$__rate_interval])) by (le, job, instance))", "Backward p50 - {{job}} @ {{instance}}"
-            ),
-            panels.target(
-                "histogram_quantile(0.90, sum(rate(state_store_range_reverse_scan_duration_bucket[$__rate_interval])) by (le, job, instance))", "Backward p90 - {{job}} @ {{instance}}"
-            ),
-            panels.target(
-                "histogram_quantile(0.99, sum(rate(state_store_range_reverse_scan_duration_bucket[$__rate_interval])) by (le, job, instance))", "Backward p99 - {{job}} @ {{instance}}"
-            ),
-            panels.target(
-                "sum by(le, job, instance)(rate(state_store_range_reverse_scan_duration_sum[$__rate_interval])) / sum by(le, job, instance) (rate(state_store_range_reverse_scan_duration_count[$__rate_interval]))", "Backward avg - {{job}} @ {{instance}}"
-            ),
-        ]),
         panels.timeseries_latency("Read Duration - Iter", [
             *quantile(lambda quantile, legend:
                       panels.target(
-                          f"histogram_quantile({quantile}, sum(rate(state_store_iter_duration_bucket[$__rate_interval])) by (le, job, instance))", f"p{legend} - {{{{job}}}} @ {{{{instance}}}}",
+                          f"histogram_quantile({quantile}, sum(rate(state_store_iter_duration_bucket[$__rate_interval])) by (le, job, instance))", f"total_time p{legend} - {{{{job}}}} @ {{{{instance}}}}",
                           legend == "max"
                       ),
                       [90, 99, 999, "max"]),
             panels.target(
-                "sum by(le, job, instance)(rate(state_store_iter_duration_sum[$__rate_interval])) / sum by(le, job,instance) (rate(state_store_iter_duration_count[$__rate_interval]))", "avg - {{job}} @ {{instance}}"
+                "sum by(le, job, instance)(rate(state_store_iter_duration_sum[$__rate_interval])) / sum by(le, job,instance) (rate(state_store_iter_duration_count[$__rate_interval]))", "total_time avg - {{job}} @ {{instance}}"
             ),
-        ]),
-        panels.timeseries_latency("Read Duration - Iter Pure Scan", [
             *quantile(lambda quantile, legend:
                       panels.target(
-                          f"histogram_quantile({quantile}, sum(rate(state_store_iter_scan_duration_bucket[$__rate_interval])) by (le, job, instance))", f"p{legend} - {{{{job}}}} @ {{{{instance}}}}",
+                          f"histogram_quantile({quantile}, sum(rate(state_store_iter_scan_duration_bucket[$__rate_interval])) by (le, job, instance))", f"pure_scan_time p{legend} - {{{{job}}}} @ {{{{instance}}}}",
                           legend == "max"
                       ),
                       [90, 99, 999, "max"]),
             panels.target(
-                "sum by(le, job, instance)(rate(state_store_scan_iter_duration_sum[$__rate_interval])) / sum by(le, job,instance) (rate(state_store_iter_scan_duration_count[$__rate_interval]))", "avg - {{job}} @ {{instance}}"
+                "sum by(le, job, instance)(rate(state_store_scan_iter_duration_sum[$__rate_interval])) / sum by(le, job,instance) (rate(state_store_iter_scan_duration_count[$__rate_interval]))", "pure_scan_time avg - {{job}} @ {{instance}}"
             ),
         ]),
         panels.timeseries_bytes("Read Item Size - Get", [
             *quantile(lambda quantile, legend:
                       panels.target(
                           f"histogram_quantile({quantile}, sum(rate(state_store_get_key_size_bucket[$__rate_interval])) by (le, job, instance)) + histogram_quantile({quantile}, sum(rate(state_store_get_value_size_bucket[$__rate_interval])) by (le, job, instance))", f"p{legend} - {{{{job}}}} @ {{{{instance}}}}"
-                      ),
-                      [90, 99, 999]),
-        ]),
-        panels.timeseries_bytes("Read Item Size - Scan", [
-            *quantile(lambda quantile, legend:
-                      panels.target(
-                          f"histogram_quantile({quantile}, sum(rate(state_store_range_scan_size_bucket[$__rate_interval])) by (le, job, instance))", f"forward scan p{legend} - {{{{job}}}} @ {{{{instance}}}}"
-                      ),
-                      [90, 99, 999]),
-            *quantile(lambda quantile, legend:
-                      panels.target(
-                          f"histogram_quantile({quantile}, sum(rate(state_store_range_reverse_scan_size_bucket[$__rate_interval])) by (le, job, instance))", f"backward scan p{legend} - {{{{job}}}} @ {{{{instance}}}}"
                       ),
                       [90, 99, 999]),
         ]),
@@ -805,16 +765,7 @@ def section_hummock(panels):
         ]),
         panels.timeseries_bytes_per_sec("Read Throughput - Get", [
             panels.target(
-                "(sum(rate(state_store_get_key_size_sum[$__rate_interval])) by(job, instance) + sum(rate(state_store_get_value_size_sum[$__rate_interval])) by(job, instance)) / " +
-                "(sum(rate(state_store_get_key_size_count[$__rate_interval])) by (job, instance) + sum(rate(state_store_get_value_size_count[$__rate_interval])) by (job, instance))", "{{job}} @ {{instance}}"
-            ),
-        ]),
-        panels.timeseries_bytes_per_sec("Read Throughput - Scan", [
-            panels.target(
-                "sum(rate(state_store_range_scan_size_sum[$__rate_interval])) by(job, instance) / sum(rate(state_store_range_scan_size_count[$__rate_interval])) by (job, instance)", "forward - {{job}} @ {{instance}}"
-            ),
-            panels.target(
-                "sum(rate(state_store_range_reverse_scan_size_sum[$__rate_interval])) by(job, instance) / sum(rate(state_store_range_reverse_scan_size_count[$__rate_interval])) by (job, instance)", "backward - {{job}} @ {{instance}}"
+                "sum(rate(state_store_get_key_size_sum[$__rate_interval])) by(job, instance) + sum(rate(state_store_get_value_size_sum[$__rate_interval])) by(job, instance), "{{job}} @ {{instance}}"
             ),
         ]),
         panels.timeseries_bytes_per_sec("Read Throughput - Iter", [
