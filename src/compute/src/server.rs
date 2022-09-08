@@ -250,6 +250,8 @@ pub async fn compute_node_serve(
     let join_handle = tokio::spawn(async move {
         tonic::transport::Server::builder()
             .initial_connection_window_size(MAX_CONNECTION_WINDOW_SIZE)
+            .tcp_nodelay(true)
+            .tcp_keepalive(Some(Duration::from_secs(10)))
             .layer(StackTraceMiddlewareLayer::new_optional(
                 opts.enable_async_stack_trace
                     .then_some(grpc_stack_trace_mgr),
