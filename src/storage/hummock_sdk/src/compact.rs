@@ -31,6 +31,7 @@ pub fn compact_task_to_string(compact_task: &CompactTask) -> String {
         compact_task.target_file_size
     )
     .unwrap();
+    writeln!(s, "Compaction task status: {:?}", compact_task.task_status().as_str_name()).unwrap();
     writeln!(s, "Compaction # splits: {:?} ", compact_task.splits.len()).unwrap();
     writeln!(s, "Compaction task status: {:?} ", compact_task.task_status).unwrap();
     s.push_str("Compaction Sstables structure: \n");

@@ -27,6 +27,7 @@ use hyper::Body;
 use itertools::Itertools;
 use tokio::io::AsyncRead;
 use tokio::task::JoinHandle;
+use tracing::info;
 
 use super::object_metrics::ObjectStoreMetrics;
 use super::{
@@ -260,6 +261,7 @@ impl StreamingUploader for S3StreamingUploader {
             };
         }
         if let Err(e) = self.flush_and_complete().await {
+            info!("multipart error: {:?}", e);
             self.abort().await?;
             return Err(e);
         }

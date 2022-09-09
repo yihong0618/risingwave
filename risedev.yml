@@ -91,6 +91,8 @@ risedev:
       persist-data: true
     - use: kafka
       persist-data: true
+    - use: aws-s3
+      bucket: patrick-5220-bug
 
   full-benchmark:
     - use: minio
