@@ -214,7 +214,7 @@ def section_compaction(outer_panels):
                 ),
             ]),
 
-            panels.timeseries_latency("Compaction Duration", 
+            panels.timeseries_latency("Compaction Duration", [
                 *quantile(lambda quantile, legend: panels.target(
                     f"histogram_quantile({quantile}, sum(rate(state_store_compact_task_duration_bucket[$__rate_interval])) by (le, job, instance))", f"compact-task p{legend}" + " - {{job}} @ {{instance}}"
                 ), [50, 90, "max"]),
@@ -228,12 +228,12 @@ def section_compaction(outer_panels):
                     f"histogram_quantile({quantile}, sum(rate(state_store_remote_read_time_per_task_bucket[$__rate_interval])) by (le, job, instance))", f"remote-io p{legend}" + " - {{job}} @ {{instance}}"
                 ), [90, "max"]),
                 panels.target(
-                    "rate(state_store_compact_task_duration_sum[$__rate_interval])) / rate(state_store_compact_task_duration_count[$__rate_interval])", "compact-task avg"
+                    "sum by(le)(rate(state_store_compact_task_duration_sum[$__rate_interval])) / sum by(le)(rate(state_store_compact_task_duration_count[$__rate_interval]))", "compact-task avg"
                 ),
                 panels.target(
-                    "rate(state_store_compact_sst_duration_sum[$__rate_interval])) / rate(state_store_compact_sst_duration_count[$__rate_interval])", "compact-key-range avg"
+                    "sum by(le)(rate(state_store_compact_sst_duration_sum[$__rate_interval])) / sum by(le)(rate(state_store_compact_sst_duration_count[$__rate_interval]))", "compact-key-range avg"
                 ),
-            ),
+            ]),
             panels.timeseries_bytes_per_sec("Compaction Throughput", [
                 panels.target(
                     "sum(rate(storage_level_compact_read_next[$__rate_interval])) by(job,instance) + sum(rate("
@@ -315,14 +315,16 @@ def section_object_storage(outer_panels):
                     "sum(rate(object_store_write_bytes[$__rate_interval]))by(job,instance)", "write - {{job}} @ {{instance}}"
                 ),
             ]),
-            panels.timeseries_latency("Operation Duration",
+            panels.timeseries_latency("Operation Duration", [
                 *quantile(lambda quantile, legend: panels.target(
-                    f"histogram_quantile({quantile}, sum(rate(object_store_operation_latency_bucket[$__rate_interval])) by (le, type, job, instance))", "{{type}}" + f" p{legend}" + " - {{job}} @ {{instance}}"
+                    f"histogram_quantile({quantile}, sum(rate(object_store_operation_latency_bucket[$__rate_interval])) by (le, type, job, instance))", "{{type}}" +
+                    f" p{legend}" +
+                    " - {{job}} @ {{instance}}"
                 ), [50, 90, 99, "max"]),
                 panels.target(
                     "sum by(le, type)(rate(object_store_operation_latency_sum[$__rate_interval])) / sum by(le, type) (rate(object_store_operation_latency_count[$__rate_interval]))", "{{type}} avg"
                 ),
-            ),
+            ]),
             panels.timeseries_ops("Operation Rate", [
                 panels.target(
                     "sum(rate(object_store_operation_latency_count[$__rate_interval])) by (le, type, job, instance)", "{{type}} - {{job}} @ {{instance}}"
@@ -335,10 +337,10 @@ def section_object_storage(outer_panels):
                 ),
             ]),
             panels.timeseries_bytes("Operation Size",
-                quantile(lambda quantile, legend: panels.target(
-                    f"histogram_quantile({quantile}, sum(rate(object_store_operation_bytes_bucket[$__rate_interval])) by (le, type))", "{{type}}" + f" p{legend}"
-                ), [50, 90, "max"])
-            ),
+                                    quantile(lambda quantile, legend: panels.target(
+                                        f"histogram_quantile({quantile}, sum(rate(object_store_operation_bytes_bucket[$__rate_interval])) by (le, type))", "{{type}}" + f" p{legend}"
+                                    ), [50, 90, "max"])
+                                    ),
             panels.timeseries_dollar("Estimated S3 Cost (Realtime)", [
                 panels.target(
                     "sum(object_store_read_bytes) * 0.01 / 1000 / 1000 / 1000", "(Cross Region) Data Transfer Cost",
@@ -654,14 +656,14 @@ def section_batch_exchange(outer_panels):
 def section_hummock(panels):
     return [
         panels.row("Hummock"),
-        panels.timeseries_latency("Build and Sync Sstable Duration", 
+        panels.timeseries_latency("Build and Sync Sstable Duration", [
             *quantile(lambda quantile, legend: panels.target(
-                    f"histogram_quantile({quantile}, sum(rate(state_store_shared_buffer_to_l0_duration_bucket[$__rate_interval])) by (le, job, instance))", f"p{legend}" + " - {{job}} @ {{instance}}"
-                ), [50, 90, 99, "max"]),
+                f"histogram_quantile({quantile}, sum(rate(state_store_shared_buffer_to_l0_duration_bucket[$__rate_interval])) by (le, job, instance))", f"p{legend}" + " - {{job}} @ {{instance}}"
+            ), [50, 90, 99, "max"]),
             panels.target(
                 "sum by(le, job, instance) (rate(state_store_shared_buffer_to_l0_duration_sum[$__rate_interval])) / sum by(le, job, instance) (rate(state_store_shared_buffer_to_l0_duration_count[$__rate_interval]))", "avg - {{job}} @ {{instance}}"
             ),
-        ),
+        ]),
         panels.timeseries_ops("Cache Ops", [
             panels.target(
                 "sum(rate(state_store_sst_store_block_request_counts[$__rate_interval])) by (job, instance, type)", "{{type}} - {{job}} @ {{instance}}"
@@ -690,14 +692,15 @@ def section_hummock(panels):
                 "sum(rate(state_store_iter_in_process_counts[$__rate_interval])) by(job,instance)", "iter - {{job}} @ {{instance}}"
             ),
         ]),
-        panels.timeseries_latency("Read Duration - Get", 
+        panels.timeseries_latency("Read Duration - Get", [
             *quantile(lambda quantile, legend: panels.target(
-                    f"histogram_quantile({quantile}, sum(rate(state_store_get_duration_bucket[$__rate_interval])) by (le, job, instance))", f"p{legend}" + " - {{job}} @ {{instance}}"
-                ), [50, 90, 99, "max"]),
+                f"histogram_quantile({quantile}, sum(rate(state_store_get_duration_bucket[$__rate_interval])) by (le, job, instance))", f"p{legend}" +
+                " - {{job}} @ {{instance}}"
+            ), [50, 90, 99, "max"]),
             panels.target(
                 "sum by(le, job, instance)(rate(state_store_get_duration_sum[$__rate_interval])) / sum by(le, job, instance) (rate(state_store_get_duration_count[$__rate_interval]))", "avg - {{job}} @ {{instance}}"
             ),
-        ),
+        ]),
         panels.timeseries_latency("Read Duration - Iter", [
             *quantile(lambda quantile, legend:
                       panels.target(
@@ -763,27 +766,27 @@ def section_hummock(panels):
         ]),
         panels.timeseries_percentage(" Filter/Cache Miss Rate", [
             panels.target(
-                "1 - (sum(rate(state_store_bloom_filter_true_negative_counts[$__rate_interval])) by (job,instance)) / (sum(rate(state_bloom_filter_check_counts[$__rate_interval])) by (job,instance))", "bloom filter hit rate - {{job}} @ {{instance}}"
+                "1 - (sum(rate(state_store_bloom_filter_true_negative_counts[$__rate_interval])) by (job,instance)) / (sum(rate(state_bloom_filter_check_counts[$__rate_interval])) by (job,instance))", "bloom filter miss rate - {{job}} @ {{instance}}"
             ),
             panels.target(
-                "(sum(rate(state_store_sst_store_block_request_counts{type='meta_miss'}[$__rate_interval])) by (job,instance))) / (sum(rate(state_store_sst_store_block_request_counts{type='meta_total'}[$__rate_interval])) by (job,instance))", "meta cache hit rate - {{job}} @ {{instance}}"
+                "(sum(rate(state_store_sst_store_block_request_counts{type='meta_miss'}[$__rate_interval])) by (job,instance)) / (sum(rate(state_store_sst_store_block_request_counts{type='meta_total'}[$__rate_interval])) by (job,instance))", "meta cache miss rate - {{job}} @ {{instance}}"
             ),
             panels.target(
-                "(sum(rate(state_store_sst_store_block_request_counts{type='data_miss'}[$__rate_interval])) by (job,instance))) / (sum(rate(state_store_sst_store_block_request_counts{type='data_total'}[$__rate_interval])) by (job,instance))", "block cache hit rate - {{job}} @ {{instance}}"
+                "(sum(rate(state_store_sst_store_block_request_counts{type='data_miss'}[$__rate_interval])) by (job,instance)) / (sum(rate(state_store_sst_store_block_request_counts{type='data_total'}[$__rate_interval])) by (job,instance))", "block cache miss rate - {{job}} @ {{instance}}"
             ),
             panels.target(
-                "(sum(rate(file_cache_miss[$__rate_interval])) by (instance))) / (sum(rate(file_cache_latency_count{op='get'}[$__rate_interval])) by (instance))", "file cache hit rate @ {{instance}}"
+                "(sum(rate(file_cache_miss[$__rate_interval])) by (instance)) / (sum(rate(file_cache_latency_count{op='get'}[$__rate_interval])) by (instance))", "file cache miss rate @ {{instance}}"
             ),
         ]),
 
-        panels.timeseries_count("Read Merged SSTs", 
+        panels.timeseries_count("Read Merged SSTs", [
             *quantile(lambda quantile, legend: panels.target(
-                    f"histogram_quantile({quantile}, sum(rate(state_store_iter_merge_sstable_counts_bucket[$__rate_interval])) by (le, job, instance))", f"# merged ssts p{legend}" + " - {{job}} @ {{instance}}"
-                ), [90, 99, "max"]),
+                f"histogram_quantile({quantile}, sum(rate(state_store_iter_merge_sstable_counts_bucket[$__rate_interval])) by (le, job, instance))", f"# merged ssts p{legend}" + " - {{job}} @ {{instance}}"
+            ), [90, 99, "max"]),
             panels.target(
                 "sum by(le, job, instance)(rate(state_store_iter_merge_sstable_counts_sum[$__rate_interval]))  / sum by(le, job, instance)(rate(state_store_iter_merge_sstable_counts_count[$__rate_interval]))", "# merged ssts avg  - {{job}} @ {{instance}}"
             ),
-        ),
+        ]),
         panels.timeseries_ops("Write Ops", [
             panels.target(
                 "sum(rate(state_store_write_batch_duration_count[$__rate_interval])) by (job,instance)", "write batch - {{job}} @ {{instance}} "
@@ -792,20 +795,20 @@ def section_hummock(panels):
                 "sum(rate(state_store_shared_buffer_to_l0_duration_count[$__rate_interval])) by (job,instance)", "l0 - {{job}} @ {{instance}} "
             ),
         ]),
-        panels.timeseries_latency("Write Duration", 
+        panels.timeseries_latency("Write Duration", [
             *quantile(lambda quantile, legend: panels.target(
-                    f"histogram_quantile({quantile}, sum(rate(state_store_write_batch_duration_bucket[$__rate_interval])) by (le, job, instance))", f"write to shared_buffer p{legend}" + " - {{job}} @ {{instance}}"
-                ), [50, 90, 99, "max"]),
+                f"histogram_quantile({quantile}, sum(rate(state_store_write_batch_duration_bucket[$__rate_interval])) by (le, job, instance))", f"write to shared_buffer p{legend}" + " - {{job}} @ {{instance}}"
+            ), [50, 90, 99, "max"]),
             panels.target(
                 "sum by(le, job, instance)(rate(state_store_write_batch_duration_sum[$__rate_interval]))  / sum by(le, job, instance)(rate(state_store_write_batch_duration_count[$__rate_interval]))", "write to shared_buffer avg - {{job}} @ {{instance}}"
             ),
             *quantile(lambda quantile, legend: panels.target(
-                    f"histogram_quantile({quantile}, sum(rate(state_store_write_shared_buffer_sync_time_bucket[$__rate_interval])) by (le, job, instance))", f"write to object_store p{legend}" + " - {{job}} @ {{instance}}"
-                ), [50, 90, 99, "max"]),
+                f"histogram_quantile({quantile}, sum(rate(state_store_write_shared_buffer_sync_time_bucket[$__rate_interval])) by (le, job, instance))", f"write to object_store p{legend}" + " - {{job}} @ {{instance}}"
+            ), [50, 90, 99, "max"]),
             panels.target(
                 "sum by(le, job, instance)(rate(state_store_write_shared_buffer_sync_time_sum[$__rate_interval]))  / sum by(le, job, instance)(rate(state_store_write_shared_buffer_sync_time_count[$__rate_interval]))", "write to object_store - {{job}} @ {{instance}}"
             ),
-        ),
+        ]),
 
         panels.timeseries_ops("Write Item Count", [
             panels.target(
@@ -821,6 +824,9 @@ def section_hummock(panels):
             ),
         ]),
         panels.timeseries_bytes("Checkpoint Sync Size", [
+            *quantile(lambda quantile, legend: panels.target(
+                f"histogram_quantile({quantile}, sum(rate(state_store_write_l0_size_per_epoch_bucket[$__rate_interval])) by (le, job, instance))", f"p{legend}" + " - {{job}} @ {{instance}}"
+            ), [50, 90, 99, "max"]),
             panels.target(
                 "sum by(le, job, instance) (rate(state_store_write_l0_size_per_epoch_sum[$__rate_interval])) / sum by(le, job, instance) (rate(state_store_write_l0_size_per_epoch_count[$__rate_interval]))", "avg - {{job}} @ {{instance}}"
             ),
@@ -836,14 +842,14 @@ def section_hummock(panels):
                 "sum(state_store_limit_memory_size) by (job)", "uploading memory - {{job}}"
             ),
         ]),
-        panels.timeseries_latency("Row SeqScan Next Duration", 
+        panels.timeseries_latency("Row SeqScan Next Duration", [
             *quantile(lambda quantile, legend: panels.target(
-                    f"histogram_quantile({quantile}, sum(rate(batch_row_seq_scan_next_duration_bucket[$__rate_interval])) by (le, job, instance))", f"row_seq_scan next p{legend}" + " - {{job}} @ {{instance}}"
-                ), [50, 90, 99, "max"]),
+                f"histogram_quantile({quantile}, sum(rate(batch_row_seq_scan_next_duration_bucket[$__rate_interval])) by (le, job, instance))", f"row_seq_scan next p{legend}" + " - {{job}} @ {{instance}}"
+            ), [50, 90, 99, "max"]),
             panels.target(
                 "sum by(le, job, instance) (rate(batch_row_seq_scan_next_duration_sum[$__rate_interval])) / sum by(le, job, instance) (rate(batch_row_seq_scan_next_duration_count[$__rate_interval]))", "row_seq_scan next avg - {{job}} @ {{instance}}"
             ),
-        ),
+        ]),
     ]
 
 
@@ -862,27 +868,28 @@ def section_hummock_tiered_cache(outer_panels):
                     "sum(rate(file_cache_disk_latency_count[$__rate_interval])) by (op, instance)", "file cache disk {{op}} @ {{instance}}"
                 ),
             ]),
-            panels.timeseries_latency("Latency", 
+            panels.timeseries_latency("Latency", [
                 *quantile(lambda quantile, legend: panels.target(
-                    f"histogram_quantile({quantile}, sum(rate(file_cache_latency_bucket[$__rate_interval])) by (le, op, instance))", f"p{legend} - file cache" + " - {{op}} @ {{instance}}"
+                    f"histogram_quantile({quantile}, sum(rate(file_cache_latency_bucket[$__rate_interval])) by (le, op, instance))", f"p{legend} - file cache" +
+                    " - {{op}} @ {{instance}}"
                 ), [50, 90, 99, "max"]),
                 *quantile(lambda quantile, legend: panels.target(
                     f"histogram_quantile({quantile}, sum(rate(file_cache_disk_latency_bucket[$__rate_interval])) by (le, op, instance))", f"p{legend} - file cache disk" + " - {{op}} @ {{instance}}"
                 ), [50, 90, 99, "max"]),
-            ),
+            ]),
             panels.timeseries_bytes_per_sec("Throughput", [
                 panels.target(
                     "sum(rate(file_cache_disk_bytes[$__rate_interval])) by (op, instance)", "disk {{op}} @ {{instance}}"
                 ),
             ]),
-            panels.timeseries_bytes("Disk IO Size",
+            panels.timeseries_bytes("Disk IO Size", [
                 *quantile(lambda quantile, legend: panels.target(
                     f"histogram_quantile({quantile}, sum(rate(file_cache_disk_io_size_bucket[$__rate_interval])) by (le, op, instance))", f"p{legend} - file cache disk" + " - {{op}} @ {{instance}}"
                 ), [50, 90, 99, "max"]),
                 *quantile(lambda quantile, legend: panels.target(
                     f"histogram_quantile({quantile}, sum(rate(file_cache_disk_read_entry_size_bucket[$__rate_interval])) by (le, op, instance))", f"p{legend} - file cache disk read entry" + " - {{op}} @ {{instance}}"
                 ), [50, 90, 99, "max"]),
-            ),
+            ]),
         ])
     ]
 
@@ -891,16 +898,17 @@ def section_hummock_manager(outer_panels):
     panels = outer_panels.sub_panel()
     return [
         outer_panels.row_collapsed("Hummock Manager", [
-            panels.timeseries_latency("Lock Time",
+            panels.timeseries_latency("Lock Time", [
                 *quantile(lambda quantile, legend: panels.target(
-                    f"histogram_quantile({quantile}, sum(rate(hummock_manager_lock_time_bucket[$__rate_interval])) by (le, lock_name, lock_type))", f"Lock Time p{legend}" + " - {{lock_type}} @ {{lock_name}}"
+                    f"histogram_quantile({quantile}, sum(rate(hummock_manager_lock_time_bucket[$__rate_interval])) by (le, lock_name, lock_type))", f"Lock Time p{legend}" +
+                    " - {{lock_type}} @ {{lock_name}}"
                 ), [50, 99, 999, "max"]),
-            ),
-            panels.timeseries_latency("Real Process Time", 
+            ]),
+            panels.timeseries_latency("Real Process Time", [
                 *quantile(lambda quantile, legend: panels.target(
                     f"histogram_quantile({quantile}, sum(rate(meta_hummock_manager_real_process_time_bucket[$__rate_interval])) by (le, method))", f"Real Process Time p{legend}" + " - {{method}}"
                 ), [50, 99, 999, "max"]),
-            ),
+            ]),
         ])
     ]
 
