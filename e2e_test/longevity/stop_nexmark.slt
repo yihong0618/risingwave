@@ -1,0 +1,4 @@
+statement ok
+drop materialized view nexmark_q7;
+
+include ../nexmark/drop_sources.slt.part

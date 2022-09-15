@@ -1,0 +1,3 @@
+include ../nexmark/create_sources.slt.part
+
+include ../streaming/nexmark/views/q7.slt.part

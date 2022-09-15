@@ -1,0 +1,46 @@
+cargo-cache: &cargo-cache
+  id: cache
+  key: "v1-cache-{{ id }}-{{ runner.os }}-{{ checksum 'Cargo.lock' }}"
+  restore-keys:
+    - 'v1-cache-{{ id }}-{{ runner.os }}-'
+    - 'v1-cache-{{ id }}-'
+  backend: s3
+  s3:
+    bucket: ci-cache-bucket
+  paths:
+    - ".cargo/registry/index"
+    - ".cargo/registry/cache"
+    - ".cargo/git/db"
+
+auto-retry: &auto-retry
+  automatic:
+    - exit_status: -1  # Agent was lost
+      limit: 2
+    - exit_status: 255 # Forced agent shutdown
+      limit: 2
+
+steps:
+  - label: "build"
+    command: "ci/scripts/build.sh -t ci-dev -p ci-dev"
+    key: "build"
+    plugins:
+      - gencer/cache#v2.4.10: *cargo-cache
+      - docker-compose#v3.9.0:
+          run: rw-build-env
+          config: ci/docker-compose.yml
+          mount-buildkite-agent: true
+    timeout_in_minutes: 10
+    retry: *auto-retry
+
+  - label: "end-to-end test"
+    command: "ci/scripts/cron-nexmark-test.sh -p ci-dev"
+    depends_on: "build"
+    plugins:
+      - gencer/cache#v2.4.10: *cargo-cache
+      - docker-compose#v3.9.0:
+          run: rw-build-env
+          config: ci/docker-compose.yml
+          mount-buildkite-agent: true
+      - ./ci/plugins/upload-failure-logs
+    timeout_in_minutes: 10
+    retry: *auto-retry
