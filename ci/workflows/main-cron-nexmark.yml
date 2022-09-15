@@ -33,7 +33,7 @@ steps:
     retry: *auto-retry
 
   - label: "longevity test (Nexmark)"
-    command: "ci/scripts/cron-nexmark-test.sh -p ci-dev"
+    command: "ci/scripts/cron-nexmark-test.sh -p ci-release"
     depends_on: "build"
     plugins:
       - gencer/cache#v2.4.10: *cargo-cache
