@@ -32,7 +32,7 @@ steps:
     timeout_in_minutes: 10
     retry: *auto-retry
 
-  - label: "end-to-end test"
+  - label: "longevity test (Nexmark)"
     command: "ci/scripts/cron-nexmark-test.sh -p ci-dev"
     depends_on: "build"
     plugins:
