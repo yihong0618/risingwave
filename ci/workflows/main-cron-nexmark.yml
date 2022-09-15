@@ -20,8 +20,8 @@ auto-retry: &auto-retry
       limit: 2
 
 steps:
-  - label: "build"
-    command: "ci/scripts/build.sh -t ci-dev -p ci-dev"
+  - label: "build (release mode)"
+    command: "ci/scripts/build.sh -t ci-release -p ci-release"
     key: "build"
     plugins:
       - gencer/cache#v2.4.10: *cargo-cache
@@ -29,7 +29,7 @@ steps:
           run: rw-build-env
           config: ci/docker-compose.yml
           mount-buildkite-agent: true
-    timeout_in_minutes: 10
+    timeout_in_minutes: 20
     retry: *auto-retry
 
   - label: "longevity test (Nexmark)"
