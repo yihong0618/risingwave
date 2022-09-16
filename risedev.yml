@@ -342,7 +342,7 @@ risedev:
       exporter-port: 1224
       enable-tiered-cache: true
     - use: frontend
-      listen-address: 10.0.2.143
+      address: "10.0.2.143"
     - use: compactor
     - use: grafana
     - use: prometheus
