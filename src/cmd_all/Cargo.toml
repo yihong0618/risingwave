@@ -27,6 +27,7 @@ tokio = { version = "0.2", package = "madsim-tokio", features = [
     "time",
     "signal",
     "fs",
+    "tracing"
 ] }
 tracing = { version = "0.1", features = ["release_max_level_info"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
