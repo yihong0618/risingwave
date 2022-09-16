@@ -90,92 +90,93 @@ pub fn set_panic_abort() {
 
 /// Init logger for RisingWave binaries.
 pub fn init_risingwave_logger(settings: LoggerSettings) {
-    let fmt_layer = {
-        // Configure log output to stdout
-        let fmt_layer = tracing_subscriber::fmt::layer()
-            .compact()
-            .with_ansi(settings.colorful);
-
-        let filter = filter::Targets::new()
-            // Only enable WARN and ERROR for 3rd-party crates
-            .with_target("aws_endpoint", Level::WARN)
-            .with_target("hyper", Level::WARN)
-            .with_target("h2", Level::WARN)
-            .with_target("tower", Level::WARN)
-            .with_target("isahc", Level::WARN)
-            .with_target("console_subscriber", Level::WARN);
-
-        // Configure RisingWave's own crates to log at TRACE level, uncomment the following line if
-        // needed.
-
-        let filter = configure_risingwave_targets_fmt(filter);
-
-        // Enable DEBUG level for all other crates
-        // TODO: remove this in release mode
-        let filter = filter.with_default(Level::DEBUG);
-
-        fmt_layer.with_filter(filter)
-    };
-
-    if settings.enable_jaeger_tracing {
-        todo!("jaeger tracing is not supported for now, and it will be replaced with minitrace jaeger tracing. Tracking issue: https://github.com/risingwavelabs/risingwave/issues/4120");
-    }
-
-    let tokio_console_layer = {
-        let (console_layer, server) = console_subscriber::ConsoleLayer::builder()
-            .with_default_env()
-            .build();
-        let console_layer = console_layer.with_filter(
-            Targets::new()
-                .with_target("tokio", Level::TRACE)
-                .with_target("runtime", Level::TRACE)
-                .with_target("hyper", Level::TRACE)
-                .with_target("h2", Level::TRACE)
-                .with_target("tower", Level::TRACE)
-                .with_target("risingwave", Level::TRACE),
-        );
-        Some((console_layer, server))
-    };
-
-    // let tracing_layer = {
-    //     let tracer = opentelemetry_jaeger::new_pipeline()
-    //         .with_service_name("risingwave")
-    //         .with_agent_endpoint("localhost:6831")
-    //         .install_simple()
-    //         .unwrap();
+    // let fmt_layer = {
+    //     // Configure log output to stdout
+    //     let fmt_layer = tracing_subscriber::fmt::layer()
+    //         .compact()
+    //         .with_ansi(settings.colorful);
     //
-    //     OpenTelemetryLayer::new(tracer).with_filter(
+    //     let filter = filter::Targets::new()
+    //         // Only enable WARN and ERROR for 3rd-party crates
+    //         .with_target("aws_endpoint", Level::WARN)
+    //         .with_target("hyper", Level::WARN)
+    //         .with_target("h2", Level::WARN)
+    //         .with_target("tower", Level::WARN)
+    //         .with_target("isahc", Level::WARN)
+    //         .with_target("console_subscriber", Level::WARN);
+    //
+    //     // Configure RisingWave's own crates to log at TRACE level, uncomment the following line
+    // if     // needed.
+    //
+    //     let filter = configure_risingwave_targets_fmt(filter);
+    //
+    //     // Enable DEBUG level for all other crates
+    //     // TODO: remove this in release mode
+    //     let filter = filter.with_default(Level::DEBUG);
+    //
+    //     fmt_layer.with_filter(filter)
+    // };
+    //
+    // if settings.enable_jaeger_tracing {
+    //     todo!("jaeger tracing is not supported for now, and it will be replaced with minitrace jaeger tracing. Tracking issue: https://github.com/risingwavelabs/risingwave/issues/4120");
+    // }
+    //
+    // let tokio_console_layer = {
+    //     let (console_layer, server) = console_subscriber::ConsoleLayer::builder()
+    //         .with_default_env()
+    //         .build();
+    //     let console_layer = console_layer.with_filter(
     //         Targets::new()
-    //             .with_target("tokio", Level::WARN)
-    //             .with_target("runtime", Level::WARN)
+    //             .with_target("tokio", Level::TRACE)
+    //             .with_target("runtime", Level::TRACE)
     //             .with_target("hyper", Level::TRACE)
     //             .with_target("h2", Level::TRACE)
     //             .with_target("tower", Level::TRACE)
-    //             .with_target("risingwave", Level::INFO),
-    //     )
+    //             .with_target("risingwave", Level::TRACE),
+    //     );
+    //     Some((console_layer, server))
     // };
-
-    match tokio_console_layer {
-        Some((tokio_console_layer, server)) => {
-            Registry::default()
-                .with(tokio_console_layer)
-                .with(fmt_layer)
-                .init();
-            // .with(tracing_layer)
-
-            std::thread::spawn(|| {
-                tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .unwrap()
-                    .block_on(async move {
-                        tracing::info!("serving console subscriber");
-                        server.serve().await.unwrap();
-                    });
-            });
-        }
-        None => {}
-    }
+    //
+    // // let tracing_layer = {
+    // //     let tracer = opentelemetry_jaeger::new_pipeline()
+    // //         .with_service_name("risingwave")
+    // //         .with_agent_endpoint("localhost:6831")
+    // //         .install_simple()
+    // //         .unwrap();
+    // //
+    // //     OpenTelemetryLayer::new(tracer).with_filter(
+    // //         Targets::new()
+    // //             .with_target("tokio", Level::WARN)
+    // //             .with_target("runtime", Level::WARN)
+    // //             .with_target("hyper", Level::TRACE)
+    // //             .with_target("h2", Level::TRACE)
+    // //             .with_target("tower", Level::TRACE)
+    // //             .with_target("risingwave", Level::INFO),
+    // //     )
+    // // };
+    //
+    // match tokio_console_layer {
+    //     Some((tokio_console_layer, server)) => {
+    //         Registry::default()
+    //             .with(tokio_console_layer)
+    //             .with(fmt_layer)
+    //             .init();
+    //         // .with(tracing_layer)
+    //
+    //         std::thread::spawn(|| {
+    //             tokio::runtime::Builder::new_current_thread()
+    //                 .enable_all()
+    //                 .build()
+    //                 .unwrap()
+    //                 .block_on(async move {
+    //                     tracing::info!("serving console subscriber");
+    //                     server.serve().await.unwrap();
+    //                 });
+    //         });
+    //     }
+    //     None => {}
+    // }
+    console_subscriber::init();
 
     // TODO: add file-appender tracing subscriber in the future
 }
