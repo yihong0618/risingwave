@@ -174,11 +174,7 @@ pub fn init_risingwave_logger(settings: LoggerSettings) {
                     });
             });
         }
-        None => {
-            let s = Registry::default().with(fmt_layer);
-            // .with(tracing_layer);
-            set_global_default(s).unwrap();
-        }
+        None => {}
     }
 
     // TODO: add file-appender tracing subscriber in the future
