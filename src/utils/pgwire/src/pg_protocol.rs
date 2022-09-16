@@ -98,12 +98,12 @@ where
     }
 
     /// Processes one message. Returns true if the connection is terminated.
-    #[instrument(skip_all)]
+    #[instrument(skip_all, target = "risingwave")]
     pub async fn process(&mut self) -> bool {
         self.do_process().await || self.is_terminate
     }
 
-    #[instrument(skip_all)]
+    #[instrument(skip_all, target = "risingwave")]
     async fn do_process(&mut self) -> bool {
         match self.do_process_inner().await {
             Ok(v) => v,
