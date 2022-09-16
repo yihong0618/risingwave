@@ -112,7 +112,10 @@ impl Task for MetaNodeService {
 
         let mut cmd = self.meta_node()?;
 
-        cmd.env("RUST_BACKTRACE", "1");
+        cmd.env("RUST_BACKTRACE", "1").env(
+            "TOKIO_CONSOLE_BIND",
+            format!("127.0.0.1:{}", self.config.port + 1000),
+        );
 
         if crate::util::is_env_set("RISEDEV_ENABLE_PROFILE") {
             cmd.env(

@@ -78,7 +78,10 @@ impl Task for FrontendService {
 
         let mut cmd = self.frontend()?;
 
-        cmd.env("RUST_BACKTRACE", "1");
+        cmd.env("RUST_BACKTRACE", "1").env(
+            "TOKIO_CONSOLE_BIND",
+            format!("127.0.0.1:{}", self.config.port + 1000),
+        );
 
         let prefix_config = env::var("PREFIX_CONFIG")?;
         cmd.arg("--config-path")
