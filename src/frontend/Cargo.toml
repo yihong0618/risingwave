@@ -54,6 +54,7 @@ tokio = { version = "0.2", package = "madsim-tokio", features = [
     "time",
     "signal",
     "fs",
+    "tracing"
 ] }
 tonic = { version = "0.2", package = "madsim-tonic" }
 tracing = "0.1"
