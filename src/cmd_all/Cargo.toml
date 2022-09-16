@@ -20,13 +20,7 @@ risingwave_meta = { path = "../meta" }
 risingwave_rt = { path = "../utils/runtime" }
 tikv-jemallocator = { version = "0.5", features = ["profiling", "stats"] }
 tokio = { version = "0.2", package = "madsim-tokio", features = [
-    "rt",
-    "rt-multi-thread",
-    "sync",
-    "macros",
-    "time",
-    "signal",
-    "fs",
+    "full",
     "tracing"
 ] }
 tracing = { version = "0.1", features = ["release_max_level_info"] }

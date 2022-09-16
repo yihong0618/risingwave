@@ -12,13 +12,7 @@ futures = { version = "0.3", default-features = false, features = ["alloc"] }
 parking_lot = { version = "0.12", features = ["deadlock_detection"] }
 pprof = { version = "0.10", features = ["flamegraph"] }
 tokio = { version = "0.2", package = "madsim-tokio", features = [
-    "rt",
-    "rt-multi-thread",
-    "sync",
-    "macros",
-    "time",
-    "signal",
-    "fs",
+    "full",
     "tracing"
 ] }
 tokio-stream = "0.1"

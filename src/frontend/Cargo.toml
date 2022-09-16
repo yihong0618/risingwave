@@ -47,13 +47,7 @@ smallvec = { version = "1.6.1", features = ["serde"] }
 tempfile = "3"
 thiserror = "1"
 tokio = { version = "0.2", package = "madsim-tokio", features = [
-    "rt",
-    "rt-multi-thread",
-    "sync",
-    "macros",
-    "time",
-    "signal",
-    "fs",
+    "full",
     "tracing"
 ] }
 tonic = { version = "0.2", package = "madsim-tonic" }
