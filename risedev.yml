@@ -322,7 +322,8 @@ risedev:
     - use: compactor
 
   ci-3cn-1fe:
-    - use: minio
+    - use: aws-s3
+      bucket: renjie-batch-bench-risingwave-hummock
     - use: etcd
       unsafe-no-fsync: true
     - use: meta-node
@@ -342,6 +343,9 @@ risedev:
       enable-tiered-cache: true
     - use: frontend
     - use: compactor
+    - use: grafana
+    - use: prometheus
+
 
   ci-3cn-3fe:
     - use: minio

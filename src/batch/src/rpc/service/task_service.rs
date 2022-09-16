@@ -50,6 +50,7 @@ impl TaskService for BatchServiceImpl {
     type ExecuteStream = ReceiverStream<std::result::Result<GetDataResponse, Status>>;
 
     #[cfg_attr(coverage, no_coverage)]
+    #[instrument(skip_all, target = "risingwave")]
     async fn create_task(
         &self,
         request: Request<CreateTaskRequest>,
