@@ -582,7 +582,7 @@ impl SessionManagerImpl {
 
 #[async_trait::async_trait]
 impl Session for SessionImpl {
-    #[instrument(skip_all)]
+    #[instrument(skip_all, target = "risingwave")]
     async fn run_statement(
         self: Arc<Self>,
         sql: &str,

@@ -41,7 +41,7 @@ impl Planner {
     }
 
     /// Plan a [`BoundStatement`]. Need to bind a statement before plan.
-    #[instrument(skip_all)]
+    #[instrument(skip_all, target = "risingwave")]
     pub fn plan(&mut self, stmt: BoundStatement) -> Result<PlanRoot> {
         self.plan_statement(stmt)
     }

@@ -36,7 +36,7 @@ pub struct GrpcExchangeSource {
 }
 
 impl GrpcExchangeSource {
-    #[instrument(skip_all)]
+    #[instrument(skip_all, target = "risingwave")]
     pub async fn create(
         client: ComputeClient,
         task_output_id: TaskOutputId,

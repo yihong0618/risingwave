@@ -220,7 +220,7 @@ impl<C: BatchTaskContext> BatchTaskExecution<C> {
     /// hash partitioned across multiple channels.
     /// To obtain the result, one must pick one of the channels to consume via [`TaskOutputId`]. As
     /// such, parallel consumers are able to consume the result independently.
-    #[instrument(skip_all)]
+    #[instrument(skip_all, target = "risingwave")]
     pub async fn async_execute(self: Arc<Self>) -> Result<()> {
         trace!(
             "Prepare executing plan [{:?}]: {}",

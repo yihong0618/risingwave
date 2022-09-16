@@ -51,7 +51,7 @@ mod show;
 pub mod util;
 pub mod variable;
 
-#[instrument(skip_all)]
+#[instrument(skip_all, target = "risingwave")]
 pub async fn handle(
     session: Arc<SessionImpl>,
     stmt: Statement,
