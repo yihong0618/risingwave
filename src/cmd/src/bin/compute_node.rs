@@ -27,7 +27,7 @@ fn main() {
 
     risingwave_rt::init_risingwave_logger(risingwave_rt::LoggerSettings::new(
         opts.enable_jaeger_tracing,
-        false,
+        true,
     ));
 
     risingwave_rt::main_okk(risingwave_compute::start(opts))

@@ -121,43 +121,45 @@ pub fn init_risingwave_logger(settings: LoggerSettings) {
         todo!("jaeger tracing is not supported for now, and it will be replaced with minitrace jaeger tracing. Tracking issue: https://github.com/risingwavelabs/risingwave/issues/4120");
     }
 
-    let tokio_console_layer = if settings.enable_tokio_console {
+    let tokio_console_layer = {
         let (console_layer, server) = console_subscriber::ConsoleLayer::builder()
             .with_default_env()
             .build();
         let console_layer = console_layer.with_filter(
-            filter::Targets::new()
-                .with_target("tokio", Level::TRACE)
-                .with_target("runtime", Level::TRACE),
-        );
-        Some((console_layer, server))
-    } else {
-        None
-    };
-
-    let tracing_layer = {
-        let tracer = opentelemetry_jaeger::new_pipeline()
-            .with_service_name("risingwave")
-            .with_agent_endpoint("localhost:6831")
-            .install_simple()
-            .unwrap();
-
-        OpenTelemetryLayer::new(tracer).with_filter(
             Targets::new()
-                .with_target("tokio", Level::WARN)
-                .with_target("runtime", Level::WARN)
+                .with_target("tokio", Level::TRACE)
+                .with_target("runtime", Level::TRACE)
                 .with_target("hyper", Level::TRACE)
                 .with_target("h2", Level::TRACE)
                 .with_target("tower", Level::TRACE)
                 .with_target("risingwave", Level::INFO),
-        )
+        );
+        Some((console_layer, server))
     };
+
+    // let tracing_layer = {
+    //     let tracer = opentelemetry_jaeger::new_pipeline()
+    //         .with_service_name("risingwave")
+    //         .with_agent_endpoint("localhost:6831")
+    //         .install_simple()
+    //         .unwrap();
+    //
+    //     OpenTelemetryLayer::new(tracer).with_filter(
+    //         Targets::new()
+    //             .with_target("tokio", Level::WARN)
+    //             .with_target("runtime", Level::WARN)
+    //             .with_target("hyper", Level::TRACE)
+    //             .with_target("h2", Level::TRACE)
+    //             .with_target("tower", Level::TRACE)
+    //             .with_target("risingwave", Level::INFO),
+    //     )
+    // };
 
     match tokio_console_layer {
         Some((tokio_console_layer, server)) => {
             let s = Registry::default()
                 .with(fmt_layer)
-                .with(tracing_layer)
+                // .with(tracing_layer)
                 .with(tokio_console_layer);
 
             set_global_default(s).unwrap();
@@ -173,7 +175,8 @@ pub fn init_risingwave_logger(settings: LoggerSettings) {
             });
         }
         None => {
-            let s = Registry::default().with(fmt_layer).with(tracing_layer);
+            let s = Registry::default().with(fmt_layer);
+            // .with(tracing_layer);
             set_global_default(s).unwrap();
         }
     }
