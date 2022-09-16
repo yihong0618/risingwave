@@ -50,6 +50,7 @@ impl ExchangeService for ExchangeServiceImpl {
     type GetStreamStream = StreamDataStream;
 
     #[cfg_attr(coverage, no_coverage)]
+    #[instrument(skip_all, target = "risingwave")]
     async fn get_data(
         &self,
         request: Request<GetDataRequest>,
