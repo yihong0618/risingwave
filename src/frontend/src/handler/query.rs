@@ -83,7 +83,6 @@ fn to_statement_type(stmt: &Statement) -> StatementType {
     }
 }
 
-#[instrument(skip_all, target = "risingwave")]
 pub async fn distribute_execute(
     context: OptimizerContext,
     stmt: BoundStatement,
