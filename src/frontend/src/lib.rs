@@ -113,7 +113,7 @@ pub fn start(opts: FrontendOpts) -> Pin<Box<dyn Future<Output = ()> + Send>> {
             let session_mgr = Arc::new(SessionManagerImpl::new(&opts).await.unwrap());
             pg_serve(&opts.host, session_mgr).await.unwrap();
         }
-        .instrument(info_span!(target = "risingwave", "pg_serve")),
+        .instrument(info_span!(target: "risingwave", "pg_serve")),
     )
 }
 
