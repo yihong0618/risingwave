@@ -68,7 +68,7 @@ use clap::Parser;
 use pgwire::pg_server::pg_serve;
 use serde::{Deserialize, Serialize};
 use session::SessionManagerImpl;
-use tracing::instrument;
+use tracing::{info_span, instrument, Instrument};
 
 #[derive(Parser, Clone, Debug)]
 pub struct FrontendOpts {
@@ -108,10 +108,13 @@ use risingwave_common::config::ServerConfig;
 pub fn start(opts: FrontendOpts) -> Pin<Box<dyn Future<Output = ()> + Send>> {
     // WARNING: don't change the function signature. Making it `async fn` will cause
     // slow compile in release mode.
-    Box::pin(async move {
-        let session_mgr = Arc::new(SessionManagerImpl::new(&opts).await.unwrap());
-        pg_serve(&opts.host, session_mgr).await.unwrap();
-    })
+    Box::pin(
+        async move {
+            let session_mgr = Arc::new(SessionManagerImpl::new(&opts).await.unwrap());
+            pg_serve(&opts.host, session_mgr).await.unwrap();
+        }
+        .instrument(info_span!(target = "risingwave", "pg_serve")),
+    )
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
