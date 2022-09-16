@@ -157,12 +157,12 @@ pub fn init_risingwave_logger(settings: LoggerSettings) {
 
     match tokio_console_layer {
         Some((tokio_console_layer, server)) => {
-            let s = Registry::default()
+            Registry::default()
                 .with(tokio_console_layer)
-                .with(fmt_layer);
+                .with(fmt_layer)
+                .init();
             // .with(tracing_layer)
 
-            set_global_default(s).unwrap();
             std::thread::spawn(|| {
                 tokio::runtime::Builder::new_current_thread()
                     .enable_all()
