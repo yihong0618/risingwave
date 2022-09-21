@@ -14,6 +14,7 @@
 
 use std::ops::Bound::{self, *};
 
+use risingwave_common::util::epoch::INVALID_EPOCH;
 use risingwave_hummock_sdk::key::{get_epoch, key_with_epoch, user_key as to_user_key};
 use risingwave_hummock_sdk::HummockEpoch;
 
@@ -117,6 +118,14 @@ impl DirectedUserIterator {
             DirectedUserIterator::Backward(iter) => iter.collect_local_statistic(stats),
         }
     }
+
+    #[inline(always)]
+    pub fn key_epoch(&self) -> u64 {
+        match self {
+            DirectedUserIterator::Forward(iter) => iter.key_epoch(),
+            DirectedUserIterator::Backward(iter) => iter.key_epoch(),
+        }
+    }
 }
 
 /// [`UserIterator`] can be used by user directly.
@@ -126,6 +135,9 @@ pub struct UserIterator {
 
     /// Last user key
     last_key: Vec<u8>,
+
+    /// Epoch of the last user key
+    last_key_epoch: u64,
 
     /// Last user value
     last_val: Vec<u8>,
@@ -182,6 +194,7 @@ impl UserIterator {
             out_of_range: false,
             key_range,
             last_key: Vec::new(),
+            last_key_epoch: INVALID_EPOCH,
             last_val: Vec::new(),
             read_epoch,
             min_epoch,
@@ -211,6 +224,7 @@ impl UserIterator {
             if self.last_key.as_slice() != key {
                 self.last_key.clear();
                 self.last_key.extend_from_slice(key);
+                self.last_key_epoch = epoch;
 
                 // handle delete operation
                 match self.iterator.value() {
@@ -265,6 +279,10 @@ impl UserIterator {
         self.last_val.as_slice()
     }
 
+    pub fn key_epoch(&self) -> u64 {
+        self.last_key_epoch
+    }
+
     /// Resets the iterating position to the beginning.
     pub async fn rewind(&mut self) -> HummockResult<()> {
         // Handle range scan
@@ -279,6 +297,7 @@ impl UserIterator {
 
         // Handle multi-version
         self.last_key.clear();
+        self.last_key_epoch = INVALID_EPOCH;
         // Handles range scan when key > end_key
         self.next().await
     }
@@ -303,6 +322,7 @@ impl UserIterator {
 
         // Handle multi-version
         self.last_key.clear();
+        self.last_key_epoch = INVALID_EPOCH;
         // Handle range scan when key > end_key
 
         self.next().await

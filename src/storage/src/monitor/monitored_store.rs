@@ -140,7 +140,7 @@ where
 
             self.stats
                 .range_scan_size
-                .observe(result.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>() as _);
+                .observe(result.iter().map(|(k, v, _)| k.len() + v.len()).sum::<usize>() as _);
 
             Ok(result)
         }
@@ -168,7 +168,7 @@ where
 
             self.stats
                 .range_backward_scan_size
-                .observe(result.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>() as _);
+                .observe(result.iter().map(|(k, v, _)| k.len() + v.len()).sum::<usize>() as _);
 
             Ok(result)
         }
@@ -308,9 +308,9 @@ pub struct MonitoredStateStoreIter<I> {
 
 impl<I> StateStoreIter for MonitoredStateStoreIter<I>
 where
-    I: StateStoreIter<Item = (Bytes, Bytes)>,
+    I: StateStoreIter<Item = (Bytes, Bytes, u64)>,
 {
-    type Item = (Bytes, Bytes);
+    type Item = (Bytes, Bytes, u64);
 
     type NextFuture<'a> =
         impl Future<Output = crate::error::StorageResult<Option<Self::Item>>> + Send;
@@ -326,7 +326,7 @@ where
             self.total_items += 1;
             self.total_size += pair
                 .as_ref()
-                .map(|(k, v)| k.len() + v.len())
+                .map(|(k, v, _)| k.len() + v.len())
                 .unwrap_or_default();
 
             Ok(pair)

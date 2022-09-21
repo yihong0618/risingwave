@@ -27,8 +27,8 @@ use crate::storage_value::StorageValue;
 use crate::write_batch::WriteBatch;
 
 pub trait GetFutureTrait<'a> = Future<Output = StorageResult<Option<Bytes>>> + Send;
-pub trait ScanFutureTrait<'a, R, B> = Future<Output = StorageResult<Vec<(Bytes, Bytes)>>> + Send;
-pub trait IterFutureTrait<'a, I: StateStoreIter<Item = (Bytes, Bytes)>, R, B> =
+pub trait ScanFutureTrait<'a, R, B> = Future<Output = StorageResult<Vec<(Bytes, Bytes, u64)>>> + Send;
+pub trait IterFutureTrait<'a, I: StateStoreIter<Item = (Bytes, Bytes, u64)>, R, B> =
     Future<Output = StorageResult<I>> + Send;
 pub trait EmptyFutureTrait<'a> = Future<Output = StorageResult<()>> + Send;
 pub trait SyncFutureTrait<'a> = Future<Output = StorageResult<SyncResult>> + Send;
@@ -67,7 +67,7 @@ macro_rules! define_state_store_associated_type {
 }
 
 pub trait StateStore: Send + Sync + 'static + Clone {
-    type Iter: StateStoreIter<Item = (Bytes, Bytes)>;
+    type Iter: StateStoreIter<Item = (Bytes, Bytes, u64)>;
 
     type GetFuture<'a>: GetFutureTrait<'a>;
 

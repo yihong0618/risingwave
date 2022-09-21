@@ -219,7 +219,7 @@ impl StateStore for MemoryStateStore {
 
             Ok(match res.as_slice() {
                 [] => None,
-                [(_, value)] => Some(value.clone()),
+                [(_, value, _)] => Some(value.clone()),
                 _ => unreachable!(),
             })
         }
@@ -251,7 +251,7 @@ impl StateStore for MemoryStateStore {
                 }
                 if Some(key) != last_key {
                     if let Some(value) = value {
-                        data.push((key.clone(), value.clone()));
+                        data.push((key.clone(), value.clone(), *key_epoch));
                     }
                     last_key = Some(key);
                 }
@@ -365,7 +365,7 @@ impl MemoryStateStoreIter {
 }
 
 impl StateStoreIter for MemoryStateStoreIter {
-    type Item = (Bytes, Bytes);
+    type Item = (Bytes, Bytes, u64);
 
     type NextFuture<'a> = impl Future<Output = StorageResult<Option<Self::Item>>> + Send;
 
@@ -378,7 +378,7 @@ impl StateStoreIter for MemoryStateStoreIter {
                 if Some(&key) != self.last_key.as_ref() {
                     self.last_key = Some(key.clone());
                     if let Some(value) = value {
-                        return Ok(Some((key, value)));
+                        return Ok(Some((key, value, key_epoch)));
                     }
                 }
             }

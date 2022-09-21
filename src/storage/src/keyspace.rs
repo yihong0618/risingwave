@@ -111,7 +111,7 @@ impl<S: StateStore> Keyspace<S> {
         &self,
         limit: Option<usize>,
         read_options: ReadOptions,
-    ) -> StorageResult<Vec<(Bytes, Bytes)>> {
+    ) -> StorageResult<Vec<(Bytes, Bytes, u64)>> {
         self.scan_with_range::<_, &[u8]>(.., limit, read_options)
             .await
     }
@@ -126,7 +126,7 @@ impl<S: StateStore> Keyspace<S> {
         range: R,
         limit: Option<usize>,
         read_options: ReadOptions,
-    ) -> StorageResult<Vec<(Bytes, Bytes)>>
+    ) -> StorageResult<Vec<(Bytes, Bytes, u64)>>
     where
         R: RangeBounds<B> + Send,
         B: AsRef<[u8]> + Send,
@@ -135,7 +135,7 @@ impl<S: StateStore> Keyspace<S> {
         let mut pairs = self.store.scan(None, range, limit, read_options).await?;
         pairs
             .iter_mut()
-            .for_each(|(k, _v)| *k = k.slice(self.prefix.len()..));
+            .for_each(|(k, _v, _epoch)| *k = k.slice(self.prefix.len()..));
         Ok(pairs)
     }
 
@@ -191,12 +191,12 @@ impl<S: StateStore> Keyspace<S> {
     }
 }
 
-pub struct StripPrefixIterator<I: StateStoreIter<Item = (Bytes, Bytes)>> {
+pub struct StripPrefixIterator<I: StateStoreIter<Item = (Bytes, Bytes, u64)>> {
     iter: I,
     prefix_len: usize,
 }
 
-impl<I: StateStoreIter<Item = (Bytes, Bytes)>> StateStoreIter for StripPrefixIterator<I> {
+impl<I: StateStoreIter<Item = (Bytes, Bytes, u64)>> StateStoreIter for StripPrefixIterator<I> {
     type Item = (Bytes, Bytes);
 
     type NextFuture<'a> =
@@ -208,7 +208,7 @@ impl<I: StateStoreIter<Item = (Bytes, Bytes)>> StateStoreIter for StripPrefixIte
                 .iter
                 .next()
                 .await?
-                .map(|(key, value)| (key.slice(self.prefix_len..), value)))
+                .map(|(key, value, _)| (key.slice(self.prefix_len..), value)))
         }
     }
 }

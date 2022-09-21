@@ -653,7 +653,7 @@ impl HummockStateStoreIter {
         Self { inner, metrics }
     }
 
-    async fn collect(mut self, limit: Option<usize>) -> StorageResult<Vec<(Bytes, Bytes)>> {
+    async fn collect(mut self, limit: Option<usize>) -> StorageResult<Vec<(Bytes, Bytes, u64)>> {
         let mut kvs = Vec::with_capacity(limit.unwrap_or_default());
 
         for _ in 0..limit.unwrap_or(usize::MAX) {
@@ -673,7 +673,7 @@ impl HummockStateStoreIter {
 
 impl StateStoreIter for HummockStateStoreIter {
     // TODO: directly return `&[u8]` to user instead of `Bytes`.
-    type Item = (Bytes, Bytes);
+    type Item = (Bytes, Bytes, u64);
 
     type NextFuture<'a> =
         impl Future<Output = crate::error::StorageResult<Option<Self::Item>>> + Send;
@@ -686,6 +686,7 @@ impl StateStoreIter for HummockStateStoreIter {
                 let kv = (
                     Bytes::copy_from_slice(iter.key()),
                     Bytes::copy_from_slice(iter.value()),
+                    iter.key_epoch(),
                 );
                 iter.next().await?;
                 Ok(Some(kv))

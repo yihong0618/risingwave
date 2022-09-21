@@ -14,6 +14,7 @@
 
 use std::ops::Bound::{self, *};
 
+use risingwave_common::util::epoch::INVALID_EPOCH;
 use risingwave_hummock_sdk::key::{get_epoch, key_with_epoch, user_key as to_user_key};
 use risingwave_hummock_sdk::HummockEpoch;
 
@@ -38,6 +39,8 @@ pub struct BackwardUserIterator {
 
     /// Last user key
     last_key: Vec<u8>,
+
+    last_key_epoch: u64,
 
     /// Last user value
     last_val: Vec<u8>,
@@ -92,6 +95,7 @@ impl BackwardUserIterator {
             key_range,
             just_met_new_key: false,
             last_key: Vec::new(),
+            last_key_epoch: INVALID_EPOCH,
             last_val: Vec::new(),
             last_delete: true,
             read_epoch,
@@ -159,6 +163,7 @@ impl BackwardUserIterator {
                 if self.just_met_new_key {
                     self.last_key.clear();
                     self.last_key.extend_from_slice(key);
+                    self.last_key_epoch = epoch;
                     self.just_met_new_key = false;
                     // If we encounter an out-of-range key, stop early.
                     if self.out_of_range(&self.last_key) {
@@ -176,6 +181,7 @@ impl BackwardUserIterator {
                         // 2(b)
                         self.last_key.clear();
                         self.last_key.extend_from_slice(key);
+                        self.last_key_epoch = epoch;
                         // If we encounter an out-of-range key, stop early.
                         if self.out_of_range(&self.last_key) {
                             self.out_of_range = true;
@@ -216,6 +222,10 @@ impl BackwardUserIterator {
     pub fn key(&self) -> &[u8] {
         assert!(self.is_valid());
         self.last_key.as_slice()
+    }
+
+    pub fn key_epoch(&self) -> u64 {
+        self.last_key_epoch
     }
 
     /// The returned value is in the form of user value.

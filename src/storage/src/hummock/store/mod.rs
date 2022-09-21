@@ -26,7 +26,7 @@ use crate::error::StorageResult;
 use crate::StateStoreIter;
 
 pub trait GetFutureTrait<'a> = Future<Output = StorageResult<Option<Bytes>>> + Send;
-pub trait IterFutureTrait<'a, I: StateStoreIter<Item = (Bytes, Bytes)>, R, B> =
+pub trait IterFutureTrait<'a, I: StateStoreIter<Item = (Bytes, Bytes, u64)>, R, B> =
     Future<Output = StorageResult<I>> + Send;
 
 #[macro_export]
@@ -44,7 +44,7 @@ macro_rules! define_local_state_store_associated_type {
 /// It provides the basic functionalities streaming/batch executor needs to access the underlying
 /// state store.
 pub trait StateStore: Send + Sync + 'static + Clone {
-    type Iter: StateStoreIter<Item = (Bytes, Bytes)>;
+    type Iter: StateStoreIter<Item = (Bytes, Bytes, u64)>;
 
     type GetFuture<'a>: GetFutureTrait<'a>;
 

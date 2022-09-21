@@ -14,6 +14,7 @@
 
 use bytes::{Buf, BufMut, BytesMut};
 use risingwave_common::catalog::TableId;
+use risingwave_common::util::epoch::Epoch;
 use risingwave_hummock_sdk::key::next_key;
 use risingwave_storage::store::ReadOptions;
 use risingwave_storage::StateStore;
@@ -67,7 +68,7 @@ pub async fn list_kv(epoch: u64, table_id: Option<u32>) -> anyhow::Result<()> {
                 .await?
         }
     };
-    for (k, v) in scan_result {
+    for (k, v, e) in scan_result {
         let print_string = match k[0] {
             b't' => {
                 let mut buf = &k[1..];
@@ -83,7 +84,8 @@ pub async fn list_kv(epoch: u64, table_id: Option<u32>) -> anyhow::Result<()> {
             }
             _ => "no title".to_string(),
         };
-        println!("{} {:?} => {:?}", print_string, k, v)
+        let epoch = Epoch(e);
+        println!("{} {}[{:?}] {:?} => {:?}", print_string, e, epoch.as_system_time(), k, v)
     }
 
     hummock_opts.shutdown().await;

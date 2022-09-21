@@ -139,7 +139,7 @@ impl StateStore for PanicStateStore {
 pub struct PanicStateStoreIter {}
 
 impl StateStoreIter for PanicStateStoreIter {
-    type Item = (Bytes, Bytes);
+    type Item = (Bytes, Bytes, u64);
 
     type NextFuture<'a> =
         impl Future<Output = crate::error::StorageResult<Option<Self::Item>>> + Send;
