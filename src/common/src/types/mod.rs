@@ -303,22 +303,7 @@ impl DataType {
     }
 
     pub fn is_scalar(&self) -> bool {
-        matches!(
-            self,
-            DataType::Boolean
-                | DataType::Int16
-                | DataType::Int32
-                | DataType::Int64
-                | DataType::Decimal
-                | DataType::Float32
-                | DataType::Float64
-                | DataType::Varchar
-                | DataType::Date
-                | DataType::Timestamp
-                | DataType::Timestampz
-                | DataType::Time
-                | DataType::Interval
-        )
+        DataTypeName::from(self).is_scalar()
     }
 
     pub fn is_int(&self) -> bool {

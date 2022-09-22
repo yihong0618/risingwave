@@ -17,7 +17,7 @@ use std::sync::LazyLock;
 
 use itertools::Itertools as _;
 use risingwave_common::error::{ErrorCode, Result};
-use risingwave_common::types::{DataType, DataTypeName};
+use risingwave_common::types::{unnested_list_type, DataType, DataTypeName};
 
 use crate::expr::{Expr as _, ExprImpl};
 
@@ -28,11 +28,7 @@ use crate::expr::{Expr as _, ExprImpl};
 /// `get_inner_type(List{DataType::Boolean}) -> Boolean`
 /// `get_inner_type(List{List{DataType::Boolean}}) -> Boolean`
 pub fn get_inner_type(dt: DataType) -> DataType {
-    let return_val = match dt {
-        DataType::List { datatype: inner } => Some(get_inner_type(*inner)),
-        _ => Some(dt),
-    };
-    return_val.unwrap()
+    unnested_list_type(dt)
 }
 
 // helper for determine_nesting_level
@@ -80,20 +76,6 @@ pub fn get_most_nested(lhs: DataType, rhs: DataType) -> DataType {
     rhs
 }
 
-// helper for add_nesting
-pub fn add_nesting_inner(target_dt: DataType, target_nesting: DataType, level: i32) -> DataType {
-    if level <= 0 {
-        return target_dt;
-    }
-    add_nesting_inner(
-        DataType::List {
-            datatype: Box::new(target_dt),
-        },
-        target_nesting,
-        level - 1,
-    )
-}
-
 /// Add levels to target dt until it is as nested as `target_nesting`
 ///
 /// Examples:
@@ -103,12 +85,15 @@ pub fn add_nesting_inner(target_dt: DataType, target_nesting: DataType, level: i
 /// already more nested`
 pub fn add_nesting(target_dt: DataType, target_nesting: DataType) -> DataType {
     let target_dt_level = calc_nesting_level(target_dt.clone());
-    let target_nesting_level = calc_nesting_level(target_nesting.clone());
-    add_nesting_inner(
-        target_dt,
-        target_nesting,
-        target_nesting_level - target_dt_level,
-    )
+    let target_nesting_level = calc_nesting_level(target_nesting);
+
+    let mut ret = target_dt;
+    for _ in 0..(target_nesting_level - target_dt_level) {
+        ret = DataType::List {
+            datatype: Box::new(ret),
+        };
+    }
+    ret
 }
 
 /// Find the least restrictive type. Used by `VALUES`, `CASE`, `UNION`, etc.
