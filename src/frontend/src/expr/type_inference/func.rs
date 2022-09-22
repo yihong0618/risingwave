@@ -294,54 +294,38 @@ fn infer_type_for_special(
             // get input types
             let left_type = inputs[0].return_type();
             let right_type = inputs[1].return_type();
-            let right_ele_type_opt = match &right_type {
-                DataType::List { datatype: right_et } => Some(right_et),
-                _ => None,
+
+            let DataType::List { datatype: right_ele_type } = &right_type else {
+                return Err(ErrorCode::BindError(format!("Cannot prepend {} to {}", right_type, left_type)).into());
             };
-            let right_ele_type = right_ele_type_opt.ok_or_else(|| {
-                ErrorCode::BindError(format!("Cannot prepend {} to {}", right_type, left_type))
-            })?;
 
             // cast to least restrictive type or return error
-            let common_ele_type = least_restrictive(*right_ele_type.clone(), left_type.clone());
-            let nesting_level_diff = (calc_nesting_level(left_type.clone())
-                - calc_nesting_level(right_type.clone()))
-            .abs();
-            if common_ele_type.is_err() || nesting_level_diff > 1 {
-                return Err(ErrorCode::BindError(format!(
-                    "unable to find least restrictive type between {} and {}",
-                    left_type, right_type
-                ))
-                .into());
-            }
-
-            // found common type
-            let common_ele_type = common_ele_type.unwrap();
-            let most_nested = get_most_nested(left_type.clone(), right_type.clone());
-            let array_type = add_nesting(common_ele_type.clone(), most_nested);
+            let common_ele_type = least_restrictive(*right_ele_type.clone(), left_type.clone())
+                .map_err(|_| {
+                    ErrorCode::BindError(format!(
+                        "unable to find least restrictive type between {} and {}",
+                        left_type, right_type
+                    ))
+                })?;
 
             // try to cast inputs to inputs to common type
             let inputs_owned = std::mem::take(inputs);
-            let try_cast = inputs_owned
+            let casted = inputs_owned
                 .into_iter()
                 .map(|input| {
                     let x = input.return_type();
-                    input.cast_explicit(add_nesting(common_ele_type.clone(), x))
+                    input.cast_implicit(add_nesting(common_ele_type.clone(), x))
                 })
-                .try_collect();
+                .try_collect()
+                .map_err(|_| {
+                    ErrorCode::BindError(format!("Cannot prepend {} to {}", left_type, right_type))
+                })?;
+            *inputs = casted;
 
-            match try_cast {
-                Ok(casted) => {
-                    // apply type conversion and return common type
-                    *inputs = casted;
-                    Ok(Some(array_type))
-                }
-                Err(_) => Err(ErrorCode::BindError(format!(
-                    "Cannot prepend {} to {}",
-                    left_type, right_type
-                ))
-                .into()),
-            }
+            // found common type
+            let most_nested = get_most_nested(left_type, right_type);
+            let array_type = add_nesting(common_ele_type, most_nested);
+            Ok(Some(array_type))
         }
         ExprType::Vnode => {
             ensure_arity!("vnode", 1 <= | inputs |);
