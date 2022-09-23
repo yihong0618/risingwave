@@ -20,10 +20,8 @@ use num_integer::Integer as _;
 use risingwave_common::error::{ErrorCode, Result};
 use risingwave_common::types::{DataType, DataTypeName};
 
-use super::{align_types, cast_ok_base, least_restrictive, CastContext};
-use crate::expr::type_inference::cast::{
-    add_nesting, align_array_and_element, calc_nesting_level, get_inner_type, get_most_nested,
-};
+use super::{align_types, cast_ok_base, CastContext};
+use crate::expr::type_inference::cast::align_array_and_element;
 use crate::expr::{Expr as _, ExprImpl, ExprType};
 
 /// Infers the return type of a function. Returns `Err` if the function with specified data types
