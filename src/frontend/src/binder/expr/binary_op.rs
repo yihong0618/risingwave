@@ -75,6 +75,7 @@ impl Binder {
 
     /// Bind `||`. Based on the types of the inputs, this can be string concat or array concat.
     fn bind_concat_op(&mut self, left: ExprImpl, right: ExprImpl) -> Result<ExprImpl> {
+        // TODO: handle unknown before dispatching based on return_type
         let func_type = match (left.return_type(), right.return_type()) {
             // array concatenation
             (DataType::List { .. }, DataType::List { .. }) => ExprType::ArrayCat,

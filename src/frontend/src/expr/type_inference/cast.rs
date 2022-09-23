@@ -114,6 +114,39 @@ pub fn least_restrictive(lhs: DataType, rhs: DataType) -> Result<DataType> {
     }
 }
 
+pub fn align_array_and_element(array: &mut ExprImpl, element: &mut ExprImpl) -> Option<DataType> {
+    use std::mem::swap;
+
+    let common = if array.is_unknown() {
+        if element.is_unknown() {
+            return None;
+        } else {
+            element.return_type()
+        }
+    } else {
+        let DataType::List { datatype: type_arr } = array.return_type() else {
+            return None;
+        };
+        if element.is_unknown() {
+            *type_arr
+        } else {
+            least_restrictive(*type_arr, element.return_type()).ok()?
+        }
+    };
+    let common_arr = DataType::List {
+        datatype: Box::new(common.clone()),
+    };
+
+    let mut dummy = ExprImpl::literal_bool(false);
+    swap(&mut dummy, array);
+    *array = dummy.cast_implicit(common_arr.clone()).ok()?;
+
+    let mut dummy = ExprImpl::literal_bool(false);
+    swap(&mut dummy, element);
+    *element = dummy.cast_implicit(common).ok()?;
+    Some(common_arr)
+}
+
 /// Find the `least_restrictive` type over a list of `exprs`, and add implicit cast when necessary.
 /// Used by `VALUES`, `CASE`, `UNION`, etc. See [PG](https://www.postgresql.org/docs/current/typeconv-union-case.html).
 pub fn align_types<'a>(exprs: impl Iterator<Item = &'a mut ExprImpl>) -> Result<DataType> {

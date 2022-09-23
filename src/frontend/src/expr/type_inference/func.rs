@@ -22,7 +22,7 @@ use risingwave_common::types::{DataType, DataTypeName};
 
 use super::{align_types, cast_ok_base, least_restrictive, CastContext};
 use crate::expr::type_inference::cast::{
-    add_nesting, calc_nesting_level, get_inner_type, get_most_nested,
+    add_nesting, align_array_and_element, calc_nesting_level, get_inner_type, get_most_nested,
 };
 use crate::expr::{Expr as _, ExprImpl, ExprType};
 
@@ -174,54 +174,20 @@ fn infer_type_for_special(
         }
         ExprType::ArrayCat => {
             ensure_arity!("array_cat", | inputs | == 2);
+            // TODO: handle unknown before using return_type
             let left_type = inputs[0].return_type();
             let right_type = inputs[1].return_type();
             let return_type = match (&left_type, &right_type) {
-                (
-                    DataType::List {
-                        datatype: left_elem_type,
-                    },
-                    DataType::List {
-                        datatype: right_elem_type,
-                    },
-                ) => {
+                (DataType::List { datatype: _ }, DataType::List { datatype: _ }) => {
                     if let Ok(res) = align_types(inputs.iter_mut()) {
                         Some(res)
-                    } else if **left_elem_type == right_type {
-                        Some(left_type.clone())
-                    } else if left_type == **right_elem_type {
-                        Some(right_type.clone())
                     } else {
-                        let common_ele_type = least_restrictive(
-                            get_inner_type(left_type.clone()),
-                            get_inner_type(right_type.clone()),
-                        );
-                        let nesting_level_diff = (calc_nesting_level(left_type.clone())
-                            - calc_nesting_level(right_type.clone()))
-                        .abs();
-                        if common_ele_type.is_err() || nesting_level_diff > 1 {
-                            return Err(ErrorCode::BindError(format!(
-                                "Cannot concatenate {} and {}",
-                                left_type, right_type
-                            ))
-                            .into());
+                        let (lhs, rhs) = inputs.iter_mut().collect_tuple().unwrap();
+                        if let Some(res) = align_array_and_element(lhs, rhs) {
+                            Some(res)
+                        } else {
+                            align_array_and_element(rhs, lhs)
                         }
-
-                        // found common type
-                        let common_ele_type = common_ele_type.unwrap();
-                        let most_nested = get_most_nested(left_type.clone(), right_type.clone());
-                        let array_type = add_nesting(common_ele_type.clone(), most_nested);
-
-                        // try to cast inputs to inputs to common type
-                        let inputs_owned = std::mem::take(inputs);
-                        *inputs = inputs_owned
-                            .into_iter()
-                            .map(|input| {
-                                let x = input.return_type();
-                                input.cast_implicit(add_nesting(common_ele_type.clone(), x))
-                            })
-                            .try_collect()?;
-                        Some(array_type)
                     }
                 }
                 _ => None,
@@ -237,79 +203,31 @@ fn infer_type_for_special(
             // TODO: ArrayAppend and ArrayPrepend are basically the same. Refactor in one common
             // function
             ensure_arity!("array_append", | inputs | == 2);
-            // get input types
-            let left_type = inputs[0].return_type();
-            let right_type = inputs[1].return_type();
-
-            let DataType::List { datatype: left_ele_type } = &left_type else {
-                return Err(ErrorCode::BindError(format!("Cannot append {} to {}", right_type, left_type)).into());
-            };
-
-            // cast to least restrictive type or return error
-            let common_ele_type = least_restrictive(*left_ele_type.clone(), right_type.clone())
-                .map_err(|_| {
+            let (lhs, rhs) = inputs.iter_mut().collect_tuple().unwrap();
+            align_array_and_element(lhs, rhs)
+                .ok_or_else(|| {
                     ErrorCode::BindError(format!(
-                        "unable to find least restrictive type between {} and {}",
-                        left_type, right_type
+                        "Cannot append {} to {}",
+                        rhs.return_type(),
+                        lhs.return_type()
                     ))
-                })?;
-
-            // try to cast inputs to inputs to common type
-            let inputs_owned = std::mem::take(inputs);
-            let casted = inputs_owned
-                .into_iter()
-                .map(|input| {
-                    let x = input.return_type();
-                    input.cast_explicit(add_nesting(common_ele_type.clone(), x))
+                    .into()
                 })
-                .try_collect()
-                .map_err(|_| {
-                    ErrorCode::BindError(format!("Cannot append {} to {}", right_type, left_type))
-                })?;
-            *inputs = casted;
-
-            // found common type
-            let most_nested = get_most_nested(left_type, right_type);
-            let array_type = add_nesting(common_ele_type, most_nested);
-            Ok(Some(array_type))
+                .map(Some)
         }
         ExprType::ArrayPrepend => {
             ensure_arity!("array_prepend", | inputs | == 2);
-            // get input types
-            let left_type = inputs[0].return_type();
-            let right_type = inputs[1].return_type();
-
-            let DataType::List { datatype: right_ele_type } = &right_type else {
-                return Err(ErrorCode::BindError(format!("Cannot prepend {} to {}", right_type, left_type)).into());
-            };
-
-            // cast to least restrictive type or return error
-            let common_ele_type = least_restrictive(*right_ele_type.clone(), left_type.clone())
-                .map_err(|_| {
+            let (lhs, rhs) = inputs.iter_mut().collect_tuple().unwrap();
+            align_array_and_element(rhs, lhs)
+                .ok_or_else(|| {
                     ErrorCode::BindError(format!(
-                        "unable to find least restrictive type between {} and {}",
-                        left_type, right_type
+                        "Cannot prepend {} to {}",
+                        lhs.return_type(),
+                        rhs.return_type()
                     ))
-                })?;
-
-            // try to cast inputs to inputs to common type
-            let inputs_owned = std::mem::take(inputs);
-            let casted = inputs_owned
-                .into_iter()
-                .map(|input| {
-                    let x = input.return_type();
-                    input.cast_implicit(add_nesting(common_ele_type.clone(), x))
+                    .into()
                 })
-                .try_collect()
-                .map_err(|_| {
-                    ErrorCode::BindError(format!("Cannot prepend {} to {}", left_type, right_type))
-                })?;
-            *inputs = casted;
-
-            // found common type
-            let most_nested = get_most_nested(left_type, right_type);
-            let array_type = add_nesting(common_ele_type, most_nested);
-            Ok(Some(array_type))
+                .map(Some)
         }
         ExprType::Vnode => {
             ensure_arity!("vnode", 1 <= | inputs |);
