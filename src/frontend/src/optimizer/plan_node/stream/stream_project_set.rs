@@ -14,47 +14,48 @@
 
 use std::fmt;
 
+use itertools::Itertools;
 use risingwave_pb::stream_plan::stream_node::NodeBody as ProstStreamNode;
-use risingwave_pb::stream_plan::HopWindowNode;
+use risingwave_pb::stream_plan::ProjectSetNode;
 
-use super::{LogicalHopWindow, PlanBase, PlanRef, PlanTreeNodeUnary, StreamNode};
+use super::super::{LogicalProjectSet, PlanBase, PlanRef, PlanTreeNodeUnary, StreamNode};
 use crate::stream_fragmenter::BuildFragmentGraphState;
 
-/// [`StreamHopWindow`] represents a hop window table function.
 #[derive(Debug, Clone)]
-pub struct StreamHopWindow {
+pub struct StreamProjectSet {
     pub base: PlanBase,
-    logical: LogicalHopWindow,
+    logical: LogicalProjectSet,
 }
 
-impl StreamHopWindow {
-    pub fn new(logical: LogicalHopWindow) -> Self {
+impl StreamProjectSet {
+    pub fn new(logical: LogicalProjectSet) -> Self {
         let ctx = logical.base.ctx.clone();
-        let pk_indices = logical.base.logical_pk.to_vec();
         let input = logical.input();
-
-        let i2o = logical.i2o_col_mapping();
-        let dist = i2o.rewrite_provided_distribution(input.distribution());
-
+        let pk_indices = logical.base.logical_pk.to_vec();
+        let distribution = logical
+            .i2o_col_mapping()
+            .rewrite_provided_distribution(input.distribution());
+        // ProjectSet executor won't change the append-only behavior of the stream, so it depends on
+        // input's `append_only`.
         let base = PlanBase::new_stream(
             ctx,
             logical.schema().clone(),
             pk_indices,
             logical.functional_dependency().clone(),
-            dist,
+            distribution,
             logical.input().append_only(),
         );
-        Self { base, logical }
+        StreamProjectSet { base, logical }
     }
 }
 
-impl fmt::Display for StreamHopWindow {
+impl fmt::Display for StreamProjectSet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.logical.fmt_with_name(f, "StreamHopWindow")
+        self.logical.fmt_with_name(f, "StreamProjectSet")
     }
 }
 
-impl PlanTreeNodeUnary for StreamHopWindow {
+impl PlanTreeNodeUnary for StreamProjectSet {
     fn input(&self) -> PlanRef {
         self.logical.input()
     }
@@ -64,20 +65,17 @@ impl PlanTreeNodeUnary for StreamHopWindow {
     }
 }
 
-impl_plan_tree_node_for_unary! {StreamHopWindow}
+impl_plan_tree_node_for_unary! { StreamProjectSet }
 
-impl StreamNode for StreamHopWindow {
+impl StreamNode for StreamProjectSet {
     fn to_stream_prost_body(&self, _state: &mut BuildFragmentGraphState) -> ProstStreamNode {
-        ProstStreamNode::HopWindow(HopWindowNode {
-            time_col: Some(self.logical.time_col.to_proto()),
-            window_slide: Some(self.logical.window_slide.into()),
-            window_size: Some(self.logical.window_size.into()),
-            output_indices: self
+        ProstStreamNode::ProjectSet(ProjectSetNode {
+            select_list: self
                 .logical
-                .output_indices
+                .select_list()
                 .iter()
-                .map(|&x| x as u32)
-                .collect(),
+                .map(|select_item| select_item.to_project_set_select_item_proto())
+                .collect_vec(),
         })
     }
 }

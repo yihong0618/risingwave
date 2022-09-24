@@ -15,53 +15,51 @@
 use std::fmt;
 
 use risingwave_pb::stream_plan::stream_node::NodeBody as ProstStreamNode;
-use risingwave_pb::stream_plan::ProjectNode;
+use risingwave_pb::stream_plan::FilterNode;
 
-use super::{LogicalProject, PlanBase, PlanRef, PlanTreeNodeUnary, StreamNode};
-use crate::expr::Expr;
+use super::super::{LogicalFilter, PlanRef, PlanTreeNodeUnary, StreamNode};
+use crate::expr::{Expr, ExprImpl};
+use crate::optimizer::plan_node::PlanBase;
 use crate::stream_fragmenter::BuildFragmentGraphState;
+use crate::utils::Condition;
 
-/// `StreamProject` implements [`super::LogicalProject`] to evaluate specified expressions on input
-/// rows.
+/// `StreamFilter` implements [`super::LogicalFilter`]
 #[derive(Debug, Clone)]
-pub struct StreamProject {
+pub struct StreamFilter {
     pub base: PlanBase,
-    logical: LogicalProject,
+    logical: LogicalFilter,
 }
 
-impl fmt::Display for StreamProject {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.logical.fmt_with_name(f, "StreamProject")
-    }
-}
-
-impl StreamProject {
-    pub fn new(logical: LogicalProject) -> Self {
+impl StreamFilter {
+    pub fn new(logical: LogicalFilter) -> Self {
         let ctx = logical.base.ctx.clone();
         let input = logical.input();
         let pk_indices = logical.base.logical_pk.to_vec();
-        let distribution = logical
-            .i2o_col_mapping()
-            .rewrite_provided_distribution(input.distribution());
-        // Project executor won't change the append-only behavior of the stream, so it depends on
-        // input's `append_only`.
+        let dist = input.distribution().clone();
+        // Filter executor won't change the append-only behavior of the stream.
         let base = PlanBase::new_stream(
             ctx,
             logical.schema().clone(),
             pk_indices,
             logical.functional_dependency().clone(),
-            distribution,
+            dist,
             logical.input().append_only(),
         );
-        StreamProject { base, logical }
+        StreamFilter { base, logical }
     }
 
-    pub fn as_logical(&self) -> &LogicalProject {
-        &self.logical
+    pub fn predicate(&self) -> &Condition {
+        self.logical.predicate()
     }
 }
 
-impl PlanTreeNodeUnary for StreamProject {
+impl fmt::Display for StreamFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.logical.fmt_with_name(f, "StreamFilter")
+    }
+}
+
+impl PlanTreeNodeUnary for StreamFilter {
     fn input(&self) -> PlanRef {
         self.logical.input()
     }
@@ -70,17 +68,13 @@ impl PlanTreeNodeUnary for StreamProject {
         Self::new(self.logical.clone_with_input(input))
     }
 }
-impl_plan_tree_node_for_unary! {StreamProject}
 
-impl StreamNode for StreamProject {
+impl_plan_tree_node_for_unary! { StreamFilter }
+
+impl StreamNode for StreamFilter {
     fn to_stream_prost_body(&self, _state: &mut BuildFragmentGraphState) -> ProstStreamNode {
-        ProstStreamNode::Project(ProjectNode {
-            select_list: self
-                .logical
-                .exprs()
-                .iter()
-                .map(Expr::to_expr_proto)
-                .collect(),
+        ProstStreamNode::Filter(FilterNode {
+            search_condition: Some(ExprImpl::from(self.predicate().clone()).to_expr_proto()),
         })
     }
 }

@@ -14,58 +14,64 @@
 
 use std::fmt;
 
-use itertools::Itertools;
 use risingwave_pb::stream_plan::stream_node::NodeBody as ProstStreamNode;
 
-use super::logical_agg::PlanAggCall;
-use super::{LogicalAgg, PlanBase, PlanRef, PlanTreeNodeUnary, StreamNode};
-use crate::optimizer::property::RequiredDist;
+use super::super::logical_agg::PlanAggCall;
+use super::super::{LogicalAgg, PlanBase, PlanRef, PlanTreeNodeUnary, StreamNode};
+use crate::optimizer::plan_node::PlanAggCallDisplay;
+use crate::optimizer::property::Distribution;
 use crate::stream_fragmenter::BuildFragmentGraphState;
 
-/// Streaming local simple agg.
-///
-/// Should only be used for stateless agg, including `sum`, `count` and *append-only* `min`/`max`.
-///
-/// The output of `StreamLocalSimpleAgg` doesn't have pk columns, so the result can only
-/// be used by `StreamGlobalSimpleAgg` with `ManagedValueState`s.
 #[derive(Debug, Clone)]
-pub struct StreamLocalSimpleAgg {
+pub struct StreamGlobalSimpleAgg {
     pub base: PlanBase,
     logical: LogicalAgg,
 }
 
-impl StreamLocalSimpleAgg {
+impl StreamGlobalSimpleAgg {
     pub fn new(logical: LogicalAgg) -> Self {
         let ctx = logical.base.ctx.clone();
         let pk_indices = logical.base.logical_pk.to_vec();
         let input = logical.input();
         let input_dist = input.distribution();
-        debug_assert!(input_dist.satisfies(&RequiredDist::AnyShard));
+        let dist = match input_dist {
+            Distribution::Single => Distribution::Single,
+            _ => panic!(),
+        };
 
+        // Simple agg executor might change the append-only behavior of the stream.
         let base = PlanBase::new_stream(
             ctx,
             logical.schema().clone(),
             pk_indices,
             logical.functional_dependency().clone(),
-            input_dist.clone(),
-            input.append_only(),
+            dist,
+            false,
         );
-        StreamLocalSimpleAgg { base, logical }
+        StreamGlobalSimpleAgg { base, logical }
     }
 
     pub fn agg_calls(&self) -> &[PlanAggCall] {
         self.logical.agg_calls()
     }
-}
 
-impl fmt::Display for StreamLocalSimpleAgg {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.logical
-            .fmt_with_name(f, "StreamStatelessLocalSimpleAgg")
+    pub fn agg_calls_verbose_display(&self) -> Vec<PlanAggCallDisplay<'_>> {
+        self.logical.agg_calls_display()
     }
 }
 
-impl PlanTreeNodeUnary for StreamLocalSimpleAgg {
+impl fmt::Display for StreamGlobalSimpleAgg {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.input().append_only() {
+            self.logical
+                .fmt_with_name(f, "StreamAppendOnlyGlobalSimpleAgg")
+        } else {
+            self.logical.fmt_with_name(f, "StreamGlobalSimpleAgg")
+        }
+    }
+}
+
+impl PlanTreeNodeUnary for StreamGlobalSimpleAgg {
     fn input(&self) -> PlanRef {
         self.logical.input()
     }
@@ -74,12 +80,13 @@ impl PlanTreeNodeUnary for StreamLocalSimpleAgg {
         Self::new(self.logical.clone_with_input(input))
     }
 }
-impl_plan_tree_node_for_unary! { StreamLocalSimpleAgg }
+impl_plan_tree_node_for_unary! { StreamGlobalSimpleAgg }
 
-impl StreamNode for StreamLocalSimpleAgg {
-    fn to_stream_prost_body(&self, _state: &mut BuildFragmentGraphState) -> ProstStreamNode {
+impl StreamNode for StreamGlobalSimpleAgg {
+    fn to_stream_prost_body(&self, state: &mut BuildFragmentGraphState) -> ProstStreamNode {
         use risingwave_pb::stream_plan::*;
-        ProstStreamNode::LocalSimpleAgg(SimpleAggNode {
+        let (internal_tables, column_mappings) = self.logical.infer_internal_table_catalog(None);
+        ProstStreamNode::GlobalSimpleAgg(SimpleAggNode {
             agg_calls: self
                 .agg_calls()
                 .iter()
@@ -91,9 +98,21 @@ impl StreamNode for StreamLocalSimpleAgg {
                 .dist_column_indices()
                 .iter()
                 .map(|idx| *idx as u32)
-                .collect_vec(),
-            internal_tables: Vec::new(), // `LocalSimpleAgg` is stateless, so no internal tables.
-            column_mappings: Vec::new(), // no state tables, so no column mappings.
+                .collect(),
+            internal_tables: internal_tables
+                .into_iter()
+                .map(|table| {
+                    table
+                        .with_id(state.gen_table_id_wrapped())
+                        .to_internal_table_prost()
+                })
+                .collect(),
+            column_mappings: column_mappings
+                .into_iter()
+                .map(|v| ColumnMapping {
+                    indices: v.iter().map(|x| *x as u32).collect(),
+                })
+                .collect(),
             is_append_only: self.input().append_only(),
         })
     }

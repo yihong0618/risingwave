@@ -14,28 +14,36 @@
 
 use std::fmt;
 
-use itertools::Itertools;
 use risingwave_pb::stream_plan::stream_node::NodeBody as ProstStreamNode;
-use risingwave_pb::stream_plan::ProjectSetNode;
+use risingwave_pb::stream_plan::ProjectNode;
 
-use super::{LogicalProjectSet, PlanBase, PlanRef, PlanTreeNodeUnary, StreamNode};
+use super::super::{LogicalProject, PlanBase, PlanRef, PlanTreeNodeUnary, StreamNode};
+use crate::expr::Expr;
 use crate::stream_fragmenter::BuildFragmentGraphState;
 
+/// `StreamProject` implements [`super::LogicalProject`] to evaluate specified expressions on input
+/// rows.
 #[derive(Debug, Clone)]
-pub struct StreamProjectSet {
+pub struct StreamProject {
     pub base: PlanBase,
-    logical: LogicalProjectSet,
+    logical: LogicalProject,
 }
 
-impl StreamProjectSet {
-    pub fn new(logical: LogicalProjectSet) -> Self {
+impl fmt::Display for StreamProject {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.logical.fmt_with_name(f, "StreamProject")
+    }
+}
+
+impl StreamProject {
+    pub fn new(logical: LogicalProject) -> Self {
         let ctx = logical.base.ctx.clone();
         let input = logical.input();
         let pk_indices = logical.base.logical_pk.to_vec();
         let distribution = logical
             .i2o_col_mapping()
             .rewrite_provided_distribution(input.distribution());
-        // ProjectSet executor won't change the append-only behavior of the stream, so it depends on
+        // Project executor won't change the append-only behavior of the stream, so it depends on
         // input's `append_only`.
         let base = PlanBase::new_stream(
             ctx,
@@ -45,17 +53,15 @@ impl StreamProjectSet {
             distribution,
             logical.input().append_only(),
         );
-        StreamProjectSet { base, logical }
+        StreamProject { base, logical }
+    }
+
+    pub fn as_logical(&self) -> &LogicalProject {
+        &self.logical
     }
 }
 
-impl fmt::Display for StreamProjectSet {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.logical.fmt_with_name(f, "StreamProjectSet")
-    }
-}
-
-impl PlanTreeNodeUnary for StreamProjectSet {
+impl PlanTreeNodeUnary for StreamProject {
     fn input(&self) -> PlanRef {
         self.logical.input()
     }
@@ -64,18 +70,17 @@ impl PlanTreeNodeUnary for StreamProjectSet {
         Self::new(self.logical.clone_with_input(input))
     }
 }
+impl_plan_tree_node_for_unary! {StreamProject}
 
-impl_plan_tree_node_for_unary! { StreamProjectSet }
-
-impl StreamNode for StreamProjectSet {
+impl StreamNode for StreamProject {
     fn to_stream_prost_body(&self, _state: &mut BuildFragmentGraphState) -> ProstStreamNode {
-        ProstStreamNode::ProjectSet(ProjectSetNode {
+        ProstStreamNode::Project(ProjectNode {
             select_list: self
                 .logical
-                .select_list()
+                .exprs()
                 .iter()
-                .map(|select_item| select_item.to_project_set_select_item_proto())
-                .collect_vec(),
+                .map(Expr::to_expr_proto)
+                .collect(),
         })
     }
 }

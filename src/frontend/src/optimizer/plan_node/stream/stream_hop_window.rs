@@ -15,28 +15,27 @@
 use std::fmt;
 
 use risingwave_pb::stream_plan::stream_node::NodeBody as ProstStreamNode;
-use risingwave_pb::stream_plan::FilterNode;
+use risingwave_pb::stream_plan::HopWindowNode;
 
-use super::{LogicalFilter, PlanRef, PlanTreeNodeUnary, StreamNode};
-use crate::expr::{Expr, ExprImpl};
-use crate::optimizer::plan_node::PlanBase;
+use super::super::{LogicalHopWindow, PlanBase, PlanRef, PlanTreeNodeUnary, StreamNode};
 use crate::stream_fragmenter::BuildFragmentGraphState;
-use crate::utils::Condition;
 
-/// `StreamFilter` implements [`super::LogicalFilter`]
+/// [`StreamHopWindow`] represents a hop window table function.
 #[derive(Debug, Clone)]
-pub struct StreamFilter {
+pub struct StreamHopWindow {
     pub base: PlanBase,
-    logical: LogicalFilter,
+    logical: LogicalHopWindow,
 }
 
-impl StreamFilter {
-    pub fn new(logical: LogicalFilter) -> Self {
+impl StreamHopWindow {
+    pub fn new(logical: LogicalHopWindow) -> Self {
         let ctx = logical.base.ctx.clone();
-        let input = logical.input();
         let pk_indices = logical.base.logical_pk.to_vec();
-        let dist = input.distribution().clone();
-        // Filter executor won't change the append-only behavior of the stream.
+        let input = logical.input();
+
+        let i2o = logical.i2o_col_mapping();
+        let dist = i2o.rewrite_provided_distribution(input.distribution());
+
         let base = PlanBase::new_stream(
             ctx,
             logical.schema().clone(),
@@ -45,21 +44,17 @@ impl StreamFilter {
             dist,
             logical.input().append_only(),
         );
-        StreamFilter { base, logical }
-    }
-
-    pub fn predicate(&self) -> &Condition {
-        self.logical.predicate()
+        Self { base, logical }
     }
 }
 
-impl fmt::Display for StreamFilter {
+impl fmt::Display for StreamHopWindow {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.logical.fmt_with_name(f, "StreamFilter")
+        self.logical.fmt_with_name(f, "StreamHopWindow")
     }
 }
 
-impl PlanTreeNodeUnary for StreamFilter {
+impl PlanTreeNodeUnary for StreamHopWindow {
     fn input(&self) -> PlanRef {
         self.logical.input()
     }
@@ -69,12 +64,20 @@ impl PlanTreeNodeUnary for StreamFilter {
     }
 }
 
-impl_plan_tree_node_for_unary! { StreamFilter }
+impl_plan_tree_node_for_unary! {StreamHopWindow}
 
-impl StreamNode for StreamFilter {
+impl StreamNode for StreamHopWindow {
     fn to_stream_prost_body(&self, _state: &mut BuildFragmentGraphState) -> ProstStreamNode {
-        ProstStreamNode::Filter(FilterNode {
-            search_condition: Some(ExprImpl::from(self.predicate().clone()).to_expr_proto()),
+        ProstStreamNode::HopWindow(HopWindowNode {
+            time_col: Some(self.logical.time_col.to_proto()),
+            window_slide: Some(self.logical.window_slide.into()),
+            window_size: Some(self.logical.window_size.into()),
+            output_indices: self
+                .logical
+                .output_indices
+                .iter()
+                .map(|&x| x as u32)
+                .collect(),
         })
     }
 }
