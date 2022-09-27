@@ -313,7 +313,7 @@ impl<S: StateStore> StateTable<S> {
         self.disable_sanity_check = true;
     }
 
-    fn table_id(&self) -> TableId {
+    pub fn table_id(&self) -> TableId {
         self.keyspace.table_id()
     }
 

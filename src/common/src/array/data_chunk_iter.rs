@@ -281,9 +281,13 @@ impl Row {
 
     pub fn serialize(&self, value_indices: &[usize]) -> Vec<u8> {
         let mut result = vec![];
+        let mut i = 0;
         for value_idx in value_indices {
             serialize_datum(&self.0[*value_idx], &mut result);
+            i += 1;
         }
+
+        assert_eq!(i, self.0.len());
 
         result
     }

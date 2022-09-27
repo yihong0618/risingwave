@@ -408,6 +408,9 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
 
             #[for_await]
             for row_and_degree in zipped_iter {
+                if row_and_degree.is_err() {
+                    tracing::info!("PANIC!!! table_id {:?}", self.state.table.table_id());
+                }
                 let (row, degree) = row_and_degree?;
                 let pk = row
                     .extract_memcomparable_by_indices(&self.pk_serializer, &self.state.pk_indices);

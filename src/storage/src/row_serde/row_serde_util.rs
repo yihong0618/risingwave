@@ -18,7 +18,7 @@ use bytes::Buf;
 use memcomparable::from_slice;
 use risingwave_common::array::Row;
 use risingwave_common::catalog::ColumnId;
-use risingwave_common::error::Result;
+use risingwave_common::error::{Result, RwError};
 use risingwave_common::types::{DataType, VirtualNode, VIRTUAL_NODE_SIZE};
 use risingwave_common::util::ordered::{OrderedRowDeserializer, OrderedRowSerializer};
 use risingwave_common::util::value_encoding::deserialize_datum;
@@ -83,9 +83,9 @@ pub fn streaming_deserialize(data_types: &[DataType], mut row: impl Buf) -> Resu
     for ty in data_types {
         match deserialize_datum(&mut row, ty) {
             Ok(d) => values.push(d),
-            Err(_) => {
+            Err(e) => {
                 tracing::info!("PANIC!! data types: {:?} i {}", data_types, i);
-                panic!();
+                return Err(RwError::from(e));
             },
         }
         

@@ -104,6 +104,9 @@ fn serialize_struct_or_list(bytes: Vec<u8>, mut buf: impl BufMut) {
 }
 
 fn serialize_str(bytes: &[u8], mut buf: impl BufMut) {
+    if bytes.len() > 1000 {
+        tracing::info!("str length > 1000");
+    }
     buf.put_u32_le(bytes.len() as u32);
     buf.put_slice(bytes);
 }
