@@ -79,8 +79,17 @@ pub fn batch_deserialize(
 pub fn streaming_deserialize(data_types: &[DataType], mut row: impl Buf) -> Result<Row> {
     // value encoding
     let mut values = Vec::with_capacity(data_types.len());
+    let mut i = 0;
     for ty in data_types {
-        values.push(deserialize_datum(&mut row, ty)?);
+        match deserialize_datum(&mut row, ty) {
+            Ok(d) => values.push(d),
+            Err(_) => {
+                tracing::info!("PANIC!! data types: {:?} i {}", data_types, i);
+                panic!();
+            },
+        }
+        
+        i += 1;
     }
 
     Ok(Row(values))

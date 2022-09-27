@@ -177,8 +177,8 @@ fn deserialize_str(mut data: impl Buf) -> Result<String> {
         let r = data.remaining();
         let mut b = vec![0; r];
         data.copy_to_slice(&mut b);
-        tracing::info!("PANIC!!! data: {:?} actual len {} len {}", String::from_utf8(b).unwrap(), r, len);
-        panic!();
+        tracing::info!("PANIC!!! data: {:?} actual len {} len {}", b, r, len);
+        return Err(ValueEncodingError::InvalidTagEncoding(0));
     }
     data.copy_to_slice(&mut bytes);
     String::from_utf8(bytes).map_err(ValueEncodingError::InvalidUtf8)
