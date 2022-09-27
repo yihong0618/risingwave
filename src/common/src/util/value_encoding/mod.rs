@@ -173,6 +173,12 @@ fn deserialize_list(data_type: &DataType, mut data: impl Buf) -> Result<ScalarIm
 fn deserialize_str(mut data: impl Buf) -> Result<String> {
     let len = data.get_u32_le();
     let mut bytes = vec![0; len as usize];
+    if data.remaining() < len as usize {
+        let r = data.remaining();
+        let b = vec![0; r];
+        data.copy_to_slice(&mut bytes);
+        tracing::info!("PANIC!!! data: {:?} actual len {} len {}", String::from_utf8(b).unwrap(), r, len);
+    }
     data.copy_to_slice(&mut bytes);
     String::from_utf8(bytes).map_err(ValueEncodingError::InvalidUtf8)
 }
