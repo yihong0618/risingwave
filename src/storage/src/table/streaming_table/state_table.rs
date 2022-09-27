@@ -719,6 +719,8 @@ impl<S: StateStore> StateTable<S> {
                 }
             };
 
+            tracing::info!("table_id: {:?} hint: {:?} dist_key: {:?} pk_prefix_indices {:?}", self.table_id(), prefix_hint, self.dist_key_indices, pk_prefix_indices);
+
             trace!(
                 table_id = ?self.table_id(),
                 ?prefix_hint, ?encoded_key_range_with_vnode, ?pk_prefix,

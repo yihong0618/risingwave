@@ -164,8 +164,11 @@ impl HummockStorage {
         // would contain tables from different compaction_group, even for those in L0.
         //
         // When adopting dynamic compaction group in the future, be sure to revisit this assumption.
-        for level in pinned_version.levels(compaction_group_id) {
+        let p_levels =  pinned_version.levels(compaction_group_id);
+        tracing::info!("table_id {:?} levels {} hint {:?}", read_options.table_id, p_levels.len(), prefix_hint);
+        for level in p_levels{
             let table_infos = prune_ssts(level.table_infos.iter(), &key_range);
+            tracing::info!("table_id {:?} table_infos {} hint {:?}", read_options.table_id, table_infos.len(), prefix_hint);
             if table_infos.is_empty() {
                 continue;
             }
@@ -186,6 +189,8 @@ impl HummockStorage {
                     DirectionEnum::Backward => matched_table_infos.iter().rev().collect_vec(),
                     DirectionEnum::Forward => matched_table_infos.iter().collect_vec(),
                 };
+
+                tracing::info!("table_id {:?} pruned_sstables {} hint {:?}", read_options.table_id, pruned_sstables.len(), prefix_hint);
 
                 let mut sstables = vec![];
                 for sstable_info in pruned_sstables {
@@ -216,6 +221,8 @@ impl HummockStorage {
                     iter_read_options.clone(),
                 )));
             } else {
+                tracing::info!("table_id {:?} table_infos {} hint {:?}", read_options.table_id, table_infos.len(), prefix_hint);
+
                 for table_info in table_infos.into_iter().rev() {
                     let sstable = self
                         .sstable_store
