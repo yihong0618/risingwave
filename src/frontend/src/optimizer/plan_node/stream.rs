@@ -1,3 +1,10 @@
+use super::{
+    EqJoinPredicate, LogicalAgg, LogicalHopWindow, LogicalJoin, LogicalProject, LogicalProjectSet,
+    LogicalScan, LogicalSource, LogicalTopN, PlanNodeId, generic,
+};
+use crate::utils::Condition;
+use crate::{TableCatalog, WithOptions};
+
 macro_rules! impl_node {
   ($base:ident, $($t:ident),*) => {
       #[derive(Debug, Clone)]
@@ -59,7 +66,7 @@ pub struct GlobalSimpleAgg {
 
 #[derive(Debug, Clone)]
 pub struct GroupTopN {
-    pub logical: LogicalTopN,
+    pub logical: generic::TopN<PlanRef>,
     /// an optional column index which is the vnode of each row computed by the input's consistent
     /// hash distribution
     pub vnode_col_idx: Option<usize>,
@@ -130,9 +137,7 @@ pub struct ProjectSet {
 /// `Project` implements [`super::LogicalProject`] to evaluate specified expressions on input
 /// rows.
 #[derive(Debug, Clone)]
-pub struct Project {
-    pub logical: LogicalProject,
-}
+pub struct Project(pub generic::Project<PlanRef>);
 
 /// [`Sink`] represents a table/connector sink at the very end of the graph.
 #[derive(Debug, Clone)]
@@ -143,24 +148,20 @@ pub struct Sink {
 
 /// [`Source`] represents a table/connector source at the very beginning of the graph.
 #[derive(Debug, Clone)]
-pub struct Source {
-    pub logical: LogicalSource,
-}
+pub struct Source(pub generic::Source);
 
 /// `TableScan` is a virtual plan node to represent a stream table scan. It will be converted
 /// to chain + merge node (for upstream materialize) + batch table scan when converting to `MView`
 /// creation request.
 #[derive(Debug, Clone)]
 pub struct TableScan {
-    pub logical: LogicalScan,
+    pub logical: generic::Scan,
     pub batch_plan_id: PlanNodeId,
 }
 
 /// `TopN` implements [`super::LogicalTopN`] to find the top N elements with a heap
 #[derive(Debug, Clone)]
-pub struct TopN {
-    pub logical: LogicalTopN,
-}
+pub struct TopN(pub generic::TopN<PlanRef>);
 
 impl_node!(
     PlanBase,
@@ -182,5 +183,5 @@ impl_node!(
     Sink,
     Source,
     TableScan,
-    TopN,
+    TopN
 );

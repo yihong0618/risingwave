@@ -228,6 +228,7 @@ pub use to_prost::*;
 mod predicate_pushdown;
 pub use predicate_pushdown::*;
 
+pub mod stream;
 pub mod generic;
 
 mod batch_delete;
