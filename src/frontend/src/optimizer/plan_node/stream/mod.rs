@@ -91,7 +91,75 @@ pub struct HashJoin {
 
 #[derive(Debug, Clone)]
 pub struct HopWindow {
-    logical: LogicalHopWindow,
+    pub logical: LogicalHopWindow,
+}
+
+/// [`IndexScan`] is a virtual plan node to represent a stream table scan. It will be converted
+/// to chain + merge node (for upstream materialize) + batch table scan when converting to `MView`
+/// creation request. Compared with [`TableScan`], it will reorder columns, and the chain node
+/// doesn't allow rearrange.
+#[derive(Debug, Clone)]
+pub struct IndexScan {
+    pub logical: LogicalScan,
+    pub batch_plan_id: PlanNodeId,
+}
+
+/// Local simple agg.
+///
+/// Should only be used for stateless agg, including `sum`, `count` and *append-only* `min`/`max`.
+///
+/// The output of `LocalSimpleAgg` doesn't have pk columns, so the result can only
+/// be used by `GlobalSimpleAgg` with `ManagedValueState`s.
+#[derive(Debug, Clone)]
+pub struct LocalSimpleAgg {
+    pub logical: LogicalAgg,
+}
+
+#[derive(Debug, Clone)]
+pub struct Materialize {
+    /// Child of Materialize plan
+    pub input: PlanRef,
+    pub table: TableCatalog,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProjectSet {
+    pub logical: LogicalProjectSet,
+}
+
+/// `Project` implements [`super::LogicalProject`] to evaluate specified expressions on input
+/// rows.
+#[derive(Debug, Clone)]
+pub struct Project {
+    pub logical: LogicalProject,
+}
+
+/// [`Sink`] represents a table/connector sink at the very end of the graph.
+#[derive(Debug, Clone)]
+pub struct Sink {
+    pub input: PlanRef,
+    pub properties: WithOptions,
+}
+
+/// [`Source`] represents a table/connector source at the very beginning of the graph.
+#[derive(Debug, Clone)]
+pub struct Source {
+    pub logical: LogicalSource,
+}
+
+/// `TableScan` is a virtual plan node to represent a stream table scan. It will be converted
+/// to chain + merge node (for upstream materialize) + batch table scan when converting to `MView`
+/// creation request.
+#[derive(Debug, Clone)]
+pub struct TableScan {
+    pub logical: LogicalScan,
+    pub batch_plan_id: PlanNodeId,
+}
+
+/// `TopN` implements [`super::LogicalTopN`] to find the top N elements with a heap
+#[derive(Debug, Clone)]
+pub struct TopN {
+    pub logical: LogicalTopN,
 }
 
 impl_node!(
@@ -106,4 +174,13 @@ impl_node!(
     HashAgg,
     HashJoin,
     HopWindow,
+    IndexScan,
+    LocalSimpleAgg,
+    Materialize,
+    ProjectSet,
+    Project,
+    Sink,
+    Source,
+    TableScan,
+    TopN,
 );
