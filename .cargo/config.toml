@@ -1,28 +1,31 @@
+# Flags for enabling SIMD on aarch64 targets.
 # Remove "-Ctarget-feature=+avx2" if your x86_64 target does not support AVX2 vector extensions
-[target.x86_64-unknown-linux-gnu]
-rustflags = [
-    "-Clink-arg=-fuse-ld=lld",
-    "-Clink-arg=-Wl,--no-rosegment",
-    "-Ctarget-feature=+avx2",
-    "--cfg",
-    "tokio_unstable",
-]
+[target.'cfg(target_arch = "x86_64")']
+rustflags = ["-Ctarget-feature=+avx2"]
 
+# Flags for enabling SIMD on aarch64 targets.
 # Remove "-Ctarget-feature=+neon" if your aarch64 target does not support NEON vector extensions
-[target.aarch64-unknown-linux-gnu]
-rustflags = [
-    "-Clink-arg=-fuse-ld=lld",
-    "-Clink-arg=-Wl,--no-rosegment",
-    "-Ctarget-feature=+neon",
-    "--cfg",
-    "tokio_unstable",
-]
+[target.'cfg(target_arch = "aarch64")']
+rustflags = ["-Ctarget-feature=+neon"]
 
-[build]
+# Flags for linux targets.
+[target.'cfg(target_os = "linux")']
+rustflags = ["-Clink-arg=-fuse-ld=lld", "-Clink-arg=-Wl,--no-rosegment"]
+
+# Hacks for https://github.com/rust-lang/cargo/issues/11166
+# FIXME: madsim doesn't work either
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["--cfg", "tokio_unstable"]
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["--cfg", "tokio_unstable"]
+[target.x86_64-apple-darwin]
+rustflags = ["--cfg", "tokio_unstable"]
+[target.aarch64-apple-darwin]
+rustflags = ["--cfg", "tokio_unstable"]
+
+# Flags for all targets.
+[target.'cfg(all())']
 rustflags = [
-    "-Ctarget-cpu=native",
-    "--cfg",
-    "tokio_unstable",
     # lints
     # TODO: use lint configuration in cargo https://github.com/rust-lang/cargo/issues/5034
     "-Funused_must_use",

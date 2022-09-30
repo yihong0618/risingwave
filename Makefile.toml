@@ -451,7 +451,6 @@ description = "Run unit tests"
 category = "RiseDev - Build in simulation mode"
 description = "Build in simulation mode"
 dependencies = ["warn-on-missing-tools"]
-env = { RUSTFLAGS = "-Ctarget-cpu=native --cfg tokio_unstable --cfg madsim", RUSTDOCFLAGS = "--cfg madsim", CARGO_TARGET_DIR = "target/sim" }
 script = """
 #!/bin/bash
 set -e
@@ -468,6 +467,7 @@ cargo build \
   -p risingwave_storage \
   -p risingwave_stream \
   -p pgwire \
+  --profile "${MADSIM_PROFILE}" \
   "$@"
 """
 
@@ -475,7 +475,6 @@ cargo build \
 category = "RiseDev - Deterministic Simulation Test"
 description = "Run unit tests in deterministic simulation mode"
 dependencies = ["warn-on-missing-tools"]
-env = { RUSTFLAGS = "--cfg tokio_unstable --cfg madsim", RUSTDOCFLAGS = "--cfg madsim", CARGO_TARGET_DIR = "target/sim" }
 script = """
 #!/bin/bash
 set -e
@@ -492,6 +491,7 @@ cargo nextest run \
   -p risingwave_storage \
   -p risingwave_stream \
   -p pgwire \
+  --profile "${MADSIM_PROFILE}" \
   "$@"
 """
 
@@ -499,24 +499,11 @@ cargo nextest run \
 category = "RiseDev - Deterministic Simulation End-to-end Test"
 description = "Run e2e tests in deterministic simulation mode"
 dependencies = ["warn-on-missing-tools"]
-env = { RUSTFLAGS = "--cfg tokio_unstable --cfg madsim", RUSTDOCFLAGS = "--cfg madsim", CARGO_TARGET_DIR = "target/sim" }
 script = """
 #!/bin/bash
 set -e
 
-cargo run -p risingwave_simulation "$@"
-"""
-
-[tasks.sslt-cov]
-category = "RiseDev - Deterministic Simulation End-to-end Test"
-description = "Run e2e tests in deterministic simulation mode and report code coverage"
-dependencies = ["warn-on-missing-tools"]
-env = { RUSTFLAGS = "--cfg tokio_unstable --cfg madsim", RUSTDOCFLAGS = "--cfg madsim", CARGO_TARGET_DIR = "target/sim-cov" }
-script = """
-#!/bin/bash
-set -e
-
-cargo llvm-cov run -p risingwave_simulation --html "$@"
+cargo run -p risingwave_simulation --profile "${MADSIM_PROFILE}" "$@"
 """
 
 [tasks.check-hakari]
