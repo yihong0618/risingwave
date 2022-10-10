@@ -22,7 +22,7 @@ use crate::error::{ErrorCode, RwError};
 
 // This is a hack, &'static str is not allowed as a const generics argument.
 // TODO: refine this using the adt_const_params feature.
-const CONFIG_KEYS: [&str; 7] = [
+const CONFIG_KEYS: [&str; 8] = [
     "RW_IMPLICIT_FLUSH",
     "QUERY_MODE",
     "EXTRA_FLOAT_DIGITS",
@@ -30,6 +30,7 @@ const CONFIG_KEYS: [&str; 7] = [
     "DATESTYLE",
     "RW_BATCH_ENABLE_LOOKUP_JOIN",
     "MAX_SPLIT_RANGE_GAP",
+    "STANDARD_CONFORMING_STRINGS"
 ];
 
 // MUST HAVE 1v1 relationship to CONFIG_KEYS. e.g. CONFIG_KEYS[IMPLICIT_FLUSH] =
@@ -41,6 +42,7 @@ const APPLICATION_NAME: usize = 3;
 const DATE_STYLE: usize = 4;
 const BATCH_ENABLE_LOOKUP_JOIN: usize = 5;
 const MAX_SPLIT_RANGE_GAP: usize = 6;
+const STANDARD_CONFORMING_STRINGS: usize = 7;
 
 trait ConfigEntry: Default + FromStr<Err = RwError> {
     fn entry_name() -> &'static str;
@@ -160,6 +162,7 @@ type ExtraFloatDigit = ConfigI32<EXTRA_FLOAT_DIGITS, 1>;
 type DateStyle = ConfigString<DATE_STYLE>;
 type BatchEnableLookupJoin = ConfigBool<BATCH_ENABLE_LOOKUP_JOIN, false>;
 type MaxSplitRangeGap = ConfigI32<MAX_SPLIT_RANGE_GAP, 8>;
+type StandardConformingStrings = ConfigBool<STANDARD_CONFORMING_STRINGS, true>;
 
 #[derive(Default)]
 pub struct ConfigMap {
@@ -186,6 +189,8 @@ pub struct ConfigMap {
 
     /// It's the max gap allowed to transform small range scan scan into multi point lookup.
     max_split_range_gap: MaxSplitRangeGap,
+
+    // standard_conforming_strings: StandardConformingStrings,
 }
 
 impl ConfigMap {
@@ -224,6 +229,8 @@ impl ConfigMap {
             Ok(self.date_style.to_string())
         } else if key.eq_ignore_ascii_case(BatchEnableLookupJoin::entry_name()) {
             Ok(self.batch_enable_lookup_join.to_string())
+        } else if key.eq_ignore_ascii_case(StandardConformingStrings::entry_name()) {
+            Ok("on".to_owned())
         } else {
             Err(ErrorCode::UnrecognizedConfigurationParameter(key.to_string()).into())
         }

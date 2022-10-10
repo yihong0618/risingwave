@@ -2702,6 +2702,13 @@ impl Parser {
         let index = self.index;
         if let Token::Word(w) = self.next_token() {
             match w.keyword {
+                Keyword::STANDARD_CONFORMING_STRINGS => {
+                    return Ok(Statement::ShowObjects(ShowObject::Standard));
+                }
+                Keyword::TRANSACTION => {
+                    self.parse_identifiers()?;
+                    return Ok(Statement::ShowObjects(ShowObject::Isolation));
+                }
                 Keyword::TABLES => {
                     return Ok(Statement::ShowObjects(ShowObject::Table {
                         schema: self.parse_from_and_identifier()?,

@@ -160,6 +160,9 @@ impl Binder {
                 };
                 return Ok(ExprImpl::literal_varchar(v));
             }
+            "version" => {
+                return Ok(ExprImpl::literal_varchar("PostgreSQL 12.9".to_owned()));
+            }
             "current_database" if inputs.is_empty() => {
                 return Ok(ExprImpl::literal_varchar(self.db_name.clone()));
             }

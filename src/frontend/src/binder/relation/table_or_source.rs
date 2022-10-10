@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use risingwave_common::catalog::{ColumnDesc, PG_CATALOG_SCHEMA_NAME};
+use risingwave_common::catalog::{ColumnDesc, PG_CATALOG_SCHEMA_NAME, RESERVED_PG_SCHEMA_PREFIX};
 use risingwave_common::error::{ErrorCode, Result, RwError};
 use risingwave_sqlparser::ast::{ObjectName, TableAlias};
 
@@ -71,9 +71,9 @@ impl Binder {
     ) -> Result<Relation> {
         let (ret, columns) = {
             let catalog = &self.catalog;
-            if schema_name == PG_CATALOG_SCHEMA_NAME {
+            if schema_name == PG_CATALOG_SCHEMA_NAME || table_name.starts_with(RESERVED_PG_SCHEMA_PREFIX) {
                 if let Ok(sys_table_catalog) =
-                    catalog.get_sys_table_by_name(&self.db_name, schema_name, table_name)
+                    catalog.get_sys_table_by_name(&self.db_name, PG_CATALOG_SCHEMA_NAME, table_name)
                 {
                     let table = BoundSystemTable {
                         table_id: sys_table_catalog.id(),

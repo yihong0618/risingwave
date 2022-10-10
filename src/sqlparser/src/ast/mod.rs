@@ -698,6 +698,8 @@ pub enum ShowObject {
     Sink { schema: Option<Ident> },
     MaterializedSource { schema: Option<Ident> },
     Columns { table: ObjectName },
+    Isolation,
+    Standard,
 }
 
 impl fmt::Display for ShowObject {
@@ -711,6 +713,8 @@ impl fmt::Display for ShowObject {
         }
 
         match self {
+            ShowObject::Standard => f.write_str("STANDARD"),
+            ShowObject::Isolation => f.write_str("ISOLATION"),
             ShowObject::Database => f.write_str("DATABASES"),
             ShowObject::Schema => f.write_str("SCHEMAS"),
             ShowObject::Table { schema } => {

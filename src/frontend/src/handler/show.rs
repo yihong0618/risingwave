@@ -61,6 +61,8 @@ pub fn handle_show_object(context: OptimizerContext, command: ShowObject) -> Res
 
     let names = match command {
         // If not include schema name, use default schema name
+        ShowObject::Standard => vec!["on".to_owned()],
+        ShowObject::Isolation => vec!["read committed".to_owned()],
         ShowObject::Table { schema } => catalog_reader
             .get_schema_by_name(session.database(), &schema_or_default(&schema))?
             .iter_table()
