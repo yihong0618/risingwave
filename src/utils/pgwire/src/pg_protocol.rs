@@ -38,10 +38,11 @@ use crate::pg_server::{Session, SessionManager, UserAuthenticator};
 
 /// The state machine for each psql connection.
 /// Read pg messages from tcp stream and write results back.
-pub struct PgProtocol<S, SM, VS>
+pub struct PgProtocol<S, SM, VS, Q>
 where
-    SM: SessionManager<VS>,
+    SM: SessionManager<VS, Q>,
     VS: Stream<Item = RowSetResult> + Unpin + Send,
+    Q: Send,
 {
     /// Used for write/read pg messages.
     stream: PgStream<S>,
@@ -54,9 +55,9 @@ where
     session: Option<Arc<SM::Session>>,
 
     unnamed_statement: Option<PgStatement>,
-    unnamed_portal: Option<PgPortal<VS>>,
+    unnamed_portal: Option<PgPortal<VS, Q>>,
     named_statements: HashMap<String, PgStatement>,
-    named_portals: HashMap<String, PgPortal<VS>>,
+    named_portals: HashMap<String, PgPortal<VS, Q>>,
 }
 
 /// States flow happened from top to down.
@@ -77,11 +78,12 @@ pub fn cstr_to_str(b: &Bytes) -> Result<&str, Utf8Error> {
     std::str::from_utf8(without_null)
 }
 
-impl<S, SM, VS> PgProtocol<S, SM, VS>
+impl<S, SM, VS, Q> PgProtocol<S, SM, VS, Q>
 where
     S: AsyncWrite + AsyncRead + Unpin,
-    SM: SessionManager<VS>,
+    SM: SessionManager<VS, Q>,
     VS: Stream<Item = RowSetResult> + Unpin + Send,
+    Q: Send,
 {
     pub fn new(stream: S, session_mgr: Arc<SM>) -> Self {
         Self {
@@ -287,7 +289,7 @@ where
 
         let session = self.session.clone().unwrap();
         // execute query
-        let mut res = session
+        let (mut res, query_id) = session
             .run_statement(sql, false)
             .await
             .map_err(|err| PsqlError::QueryError(err))?;
@@ -326,6 +328,13 @@ where
         }
 
         self.stream.write_no_flush(&BeMessage::ReadyForQuery)?;
+
+        // Drop QueryExecution.
+        if let Some(query_id) = query_id {
+            // dbg!("drop query!");
+            self.session.clone().unwrap().drop_query(&query_id);
+        }
+
         Ok(())
     }
 

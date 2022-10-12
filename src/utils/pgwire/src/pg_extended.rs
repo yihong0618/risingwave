@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::vec::IntoIter;
@@ -68,15 +69,16 @@ impl PgStatement {
         self.row_description.clone()
     }
 
-    pub fn instance<VS>(
+    pub fn instance<VS, Q>(
         &self,
         portal_name: String,
         params: &[Bytes],
         result_format: bool,
         param_format: bool,
-    ) -> PsqlResult<PgPortal<VS>>
+    ) -> PsqlResult<PgPortal<VS, Q>>
     where
         VS: Stream<Item = RowSetResult> + Unpin + Send,
+        Q: Send,
     {
         let instance_query_string = self.prepared_statement.instance(params, param_format)?;
 
@@ -88,6 +90,7 @@ impl PgStatement {
             row_description: self.row_description.clone(),
             result: None,
             row_cache: vec![].into_iter(),
+            _q: PhantomData,
         })
     }
 
@@ -98,9 +101,10 @@ impl PgStatement {
     }
 }
 
-pub struct PgPortal<VS>
+pub struct PgPortal<VS, Q>
 where
     VS: Stream<Item = RowSetResult> + Unpin + Send,
+    Q: Send,
 {
     name: String,
     query_string: String,
@@ -109,11 +113,13 @@ where
     row_description: Vec<PgFieldDescriptor>,
     result: Option<PgResponse<VS>>,
     row_cache: IntoIter<Row>,
+    _q: PhantomData<Q>,
 }
 
-impl<VS> PgPortal<VS>
+impl<VS, Q> PgPortal<VS, Q>
 where
     VS: Stream<Item = RowSetResult> + Unpin + Send,
+    Q: Send,
 {
     pub fn name(&self) -> String {
         self.name.clone()
@@ -129,7 +135,7 @@ where
 
     /// When exeute a query sql, execute will re-use the result if result will not be consumed
     /// completely. Detail can refer:https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY:~:text=Once%20a%20portal,ErrorResponse%2C%20or%20PortalSuspended.
-    pub async fn execute<SM: SessionManager<VS>, S: AsyncWrite + AsyncRead + Unpin>(
+    pub async fn execute<SM: SessionManager<VS, Q>, S: AsyncWrite + AsyncRead + Unpin>(
         &mut self,
         session: Arc<SM::Session>,
         row_limit: usize,
@@ -139,7 +145,7 @@ where
         let result = if let Some(result) = &mut self.result {
             result
         } else {
-            let result = session
+            let (result, _) = session
                 .run_statement(self.query_string.as_str(), self.result_format)
                 .await
                 .map_err(|err| PsqlError::ExecuteError(err))?;

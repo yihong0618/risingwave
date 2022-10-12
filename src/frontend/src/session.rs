@@ -58,6 +58,7 @@ use crate::monitor::FrontendMetrics;
 use crate::observer::observer_manager::FrontendObserverNode;
 use crate::optimizer::plan_node::PlanNodeId;
 use crate::planner::Planner;
+use crate::scheduler::plan_fragmenter::QueryId;
 use crate::scheduler::worker_node_manager::{WorkerNodeManager, WorkerNodeManagerRef};
 use crate::scheduler::{HummockSnapshotManager, HummockSnapshotManagerRef, QueryManager};
 use crate::user::user_authentication::md5_hash_with_salt;
@@ -512,7 +513,7 @@ pub struct SessionManagerImpl {
     number: AtomicI32,
 }
 
-impl SessionManager<PgResponseStream> for SessionManagerImpl {
+impl SessionManager<PgResponseStream, QueryId> for SessionManagerImpl {
     type Session = SessionImpl;
 
     fn connect(
@@ -630,7 +631,7 @@ impl SessionManagerImpl {
 }
 
 #[async_trait::async_trait]
-impl Session<PgResponseStream> for SessionImpl {
+impl Session<PgResponseStream, QueryId> for SessionImpl {
     async fn run_statement(
         self: Arc<Self>,
         sql: &str,
@@ -639,29 +640,33 @@ impl Session<PgResponseStream> for SessionImpl {
         // false: TEXT
         // true: BINARY
         format: bool,
-    ) -> std::result::Result<PgResponse<PgResponseStream>, BoxedError> {
+    ) -> std::result::Result<(PgResponse<PgResponseStream>, Option<QueryId>), BoxedError> {
         // Parse sql.
         let mut stmts = Parser::parse_sql(sql).map_err(|e| {
             tracing::error!("failed to parse sql:\n{}:\n{}", sql, e);
             e
         })?;
         if stmts.is_empty() {
-            return Ok(PgResponse::empty_result(
-                pgwire::pg_response::StatementType::EMPTY,
+            return Ok((
+                PgResponse::empty_result(pgwire::pg_response::StatementType::EMPTY),
+                None,
             ));
         }
         if stmts.len() > 1 {
-            return Ok(PgResponse::empty_result_with_notice(
-                pgwire::pg_response::StatementType::EMPTY,
-                "cannot insert multiple commands into statement".to_string(),
+            return Ok((
+                PgResponse::empty_result_with_notice(
+                    pgwire::pg_response::StatementType::EMPTY,
+                    "cannot insert multiple commands into statement".to_string(),
+                ),
+                None,
             ));
         }
         let stmt = stmts.swap_remove(0);
-        let rsp = handle(self, stmt, sql, format).await.map_err(|e| {
+        let (rsp, query_id) = handle(self, stmt, sql, format).await.map_err(|e| {
             tracing::error!("failed to handle sql:\n{}:\n{}", sql, e);
             e
         })?;
-        Ok(rsp)
+        Ok((rsp, query_id))
     }
 
     async fn infer_return_type(
@@ -735,6 +740,10 @@ impl Session<PgResponseStream> for SessionImpl {
 
     fn id(&self) -> SessionId {
         self.id
+    }
+
+    fn drop_query(&self, query_id: &QueryId) {
+        self.env.query_manager().delete_query(query_id)
     }
 }
 

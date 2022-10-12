@@ -82,6 +82,12 @@ pub struct QueryExecution {
     pub session_id: SessionId,
 }
 
+impl Drop for QueryExecution {
+    fn drop(&mut self) {
+        dbg!(self.query.query_id());
+    }
+}
+
 struct QueryRunner {
     query: Arc<Query>,
     stage_executions: Arc<HashMap<StageId, Arc<StageExecution>>>,

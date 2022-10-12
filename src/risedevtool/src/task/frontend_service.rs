@@ -87,6 +87,14 @@ impl Task for FrontendService {
 
         cmd.env("RUST_BACKTRACE", "1");
 
+        if crate::util::is_env_set("RISEDEV_ENABLE_HEAP_PROFILE") {
+            // See https://linux.die.net/man/3/jemalloc for the descriptions of profiling options
+            cmd.env(
+                "_RJEM_MALLOC_CONF",
+                "prof:true,lg_prof_interval:34,lg_prof_sample:19,prof_prefix:frontend",
+            );
+        }
+
         let prefix_config = env::var("PREFIX_CONFIG")?;
         cmd.arg("--config-path")
             .arg(Path::new(&prefix_config).join("risingwave.toml"));

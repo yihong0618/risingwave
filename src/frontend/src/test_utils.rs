@@ -45,6 +45,7 @@ use crate::catalog::root_catalog::Catalog;
 use crate::catalog::{DatabaseId, SchemaId};
 use crate::handler::RwPgResponse;
 use crate::meta_client::FrontendMetaClient;
+use crate::scheduler::plan_fragmenter::QueryId;
 use crate::session::{AuthContext, FrontendEnv, SessionImpl};
 use crate::user::user_manager::UserInfoManager;
 use crate::user::user_service::UserInfoWriter;
@@ -57,7 +58,7 @@ pub struct LocalFrontend {
     env: FrontendEnv,
 }
 
-impl SessionManager<PgResponseStream> for LocalFrontend {
+impl SessionManager<PgResponseStream, QueryId> for LocalFrontend {
     type Session = SessionImpl;
 
     fn connect(
@@ -85,7 +86,11 @@ impl LocalFrontend {
         sql: impl Into<String>,
     ) -> std::result::Result<RwPgResponse, Box<dyn std::error::Error + Send + Sync>> {
         let sql = sql.into();
-        self.session_ref().run_statement(sql.as_str(), false).await
+        let (result, _) = self
+            .session_ref()
+            .run_statement(sql.as_str(), false)
+            .await?;
+        Ok(result)
     }
 
     pub async fn run_user_sql(
@@ -96,9 +101,11 @@ impl LocalFrontend {
         user_id: UserId,
     ) -> std::result::Result<RwPgResponse, Box<dyn std::error::Error + Send + Sync>> {
         let sql = sql.into();
-        self.session_user_ref(database, user_name, user_id)
+        let (result, _) = self
+            .session_user_ref(database, user_name, user_id)
             .run_statement(sql.as_str(), false)
-            .await
+            .await?;
+        Ok(result)
     }
 
     pub async fn query_formatted_result(&self, sql: impl Into<String>) -> Vec<String> {
@@ -154,7 +161,7 @@ impl LocalFrontend {
 }
 
 pub async fn get_explain_output(sql: &str, session: Arc<SessionImpl>) -> String {
-    let mut rsp = session.run_statement(sql, false).await.unwrap();
+    let (mut rsp, _) = session.run_statement(sql, false).await.unwrap();
     assert_eq!(rsp.get_stmt_type(), StatementType::EXPLAIN);
     let mut res = String::new();
     #[for_await]

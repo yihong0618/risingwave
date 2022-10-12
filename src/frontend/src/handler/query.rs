@@ -27,7 +27,7 @@ use crate::binder::{Binder, BoundSetExpr, BoundStatement};
 use crate::handler::privilege::{check_privileges, resolve_privileges};
 use crate::handler::util::to_pg_field;
 use crate::planner::Planner;
-use crate::scheduler::plan_fragmenter::Query;
+use crate::scheduler::plan_fragmenter::{Query, QueryId};
 use crate::scheduler::{
     BatchPlanFragmenter, ExecutionContext, ExecutionContextRef, LocalQueryExecution,
 };
@@ -93,7 +93,7 @@ pub async fn handle_query(
     context: OptimizerContext,
     stmt: Statement,
     format: bool,
-) -> Result<RwPgResponse> {
+) -> Result<(RwPgResponse, Option<QueryId>)> {
     let stmt_type = to_statement_type(&stmt);
     let session = context.session_ctx.clone();
     let query_start_time = Instant::now();
@@ -113,6 +113,7 @@ pub async fn handle_query(
         );
         (plan_fragmenter.split(plan)?, query_mode, pg_descs)
     };
+    let query_id = query.query_id().clone();
     tracing::trace!("Generated query after plan fragmenter: {:?}", &query);
 
     let mut row_stream = match query_mode {
@@ -163,8 +164,9 @@ pub async fn handle_query(
             .inc();
     }
 
-    Ok(PgResponse::new_for_stream(
-        stmt_type, rows_count, row_stream, pg_descs,
+    Ok((
+        PgResponse::new_for_stream(stmt_type, rows_count, row_stream, pg_descs),
+        Some(query_id),
     ))
 }
 

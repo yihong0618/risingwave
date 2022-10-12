@@ -27,11 +27,12 @@ pub type BoxedError = Box<dyn std::error::Error + Send + Sync>;
 pub type SessionId = (i32, i32);
 /// The interface for a database system behind pgwire protocol.
 /// We can mock it for testing purpose.
-pub trait SessionManager<VS>: Send + Sync + 'static
+pub trait SessionManager<VS, Q>: Send + Sync + 'static
 where
     VS: Stream<Item = RowSetResult> + Unpin + Send,
+    Q: Send,
 {
-    type Session: Session<VS>;
+    type Session: Session<VS, Q>;
 
     fn connect(&self, database: &str, user_name: &str) -> Result<Arc<Self::Session>, BoxedError>;
 
@@ -45,7 +46,7 @@ where
 /// false: TEXT
 /// true: BINARY
 #[async_trait::async_trait]
-pub trait Session<VS>: Send + Sync
+pub trait Session<VS, Q>: Send + Sync
 where
     VS: Stream<Item = RowSetResult> + Unpin + Send,
 {
@@ -53,7 +54,7 @@ where
         self: Arc<Self>,
         sql: &str,
         format: bool,
-    ) -> Result<PgResponse<VS>, BoxedError>;
+    ) -> Result<(PgResponse<VS>, Option<Q>), BoxedError>;
     async fn infer_return_type(
         self: Arc<Self>,
         sql: &str,
@@ -61,6 +62,7 @@ where
     fn user_authenticator(&self) -> &UserAuthenticator;
 
     fn id(&self) -> SessionId;
+    fn drop_query(&self, query: &Q);
 }
 
 #[derive(Debug, Clone)]
@@ -89,9 +91,13 @@ impl UserAuthenticator {
 }
 
 /// Binds a Tcp listener at `addr`. Spawn a coroutine to serve every new connection.
-pub async fn pg_serve<VS>(addr: &str, session_mgr: Arc<impl SessionManager<VS>>) -> io::Result<()>
+pub async fn pg_serve<VS, Q>(
+    addr: &str,
+    session_mgr: Arc<impl SessionManager<VS, Q>>,
+) -> io::Result<()>
 where
     VS: Stream<Item = RowSetResult> + Unpin + Send,
+    Q: Send,
 {
     let listener = TcpListener::bind(addr).await.unwrap();
     // accept connections and process them, spawning a new thread for each one
@@ -136,7 +142,7 @@ mod tests {
 
     struct MockSessionManager {}
 
-    impl SessionManager<BoxStream<'static, RowSetResult>> for MockSessionManager {
+    impl SessionManager<BoxStream<'static, RowSetResult>, ()> for MockSessionManager {
         type Session = MockSession;
 
         fn connect(
@@ -155,13 +161,15 @@ mod tests {
     struct MockSession {}
 
     #[async_trait::async_trait]
-    impl Session<BoxStream<'static, RowSetResult>> for MockSession {
+    impl Session<BoxStream<'static, RowSetResult>, ()> for MockSession {
         async fn run_statement(
             self: Arc<Self>,
             sql: &str,
             _format: bool,
-        ) -> Result<PgResponse<BoxStream<'static, RowSetResult>>, Box<dyn Error + Send + Sync>>
-        {
+        ) -> Result<
+            (PgResponse<BoxStream<'static, RowSetResult>>, Option<()>),
+            Box<dyn Error + Send + Sync>,
+        > {
             // split a statement and trim \' around the input param to construct result.
             // Ex:
             //    SELECT 'a','b' -> result: a , b
@@ -179,12 +187,15 @@ mod tests {
                 .collect();
             let len = res.len();
 
-            Ok(PgResponse::new_for_stream(
-                StatementType::SELECT,
-                Some(1),
-                futures::stream::iter(vec![Ok(vec![Row::new(res)])]).boxed(),
-                // NOTE: Extended mode don't need.
-                vec![PgFieldDescriptor::new("".to_string(), TypeOid::Varchar); len],
+            Ok((
+                PgResponse::new_for_stream(
+                    StatementType::SELECT,
+                    Some(1),
+                    futures::stream::iter(vec![Ok(vec![Row::new(res)])]).boxed(),
+                    // NOTE: Extended mode don't need.
+                    vec![PgFieldDescriptor::new("".to_string(), TypeOid::Varchar); len],
+                ),
+                None,
             ))
         }
 
@@ -206,6 +217,8 @@ mod tests {
         fn id(&self) -> SessionId {
             (0, 0)
         }
+
+        fn drop_query(&self, _query: &()) {}
     }
 
     // test_psql_extended_mode_explicit_simple

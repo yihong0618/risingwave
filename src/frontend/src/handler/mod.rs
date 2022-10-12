@@ -25,6 +25,7 @@ use pgwire::types::Row;
 use risingwave_common::error::{ErrorCode, Result};
 use risingwave_sqlparser::ast::{DropStatement, ObjectType, Statement};
 
+use crate::scheduler::plan_fragmenter::QueryId;
 use crate::scheduler::{DistributedQueryStream, LocalQueryStream};
 use crate::session::{OptimizerContext, SessionImpl};
 use crate::utils::WithOptions;
@@ -88,7 +89,7 @@ pub async fn handle(
     stmt: Statement,
     sql: &str,
     format: bool,
-) -> Result<RwPgResponse> {
+) -> Result<(RwPgResponse, Option<QueryId>)> {
     let context = OptimizerContext::new(
         session.clone(),
         Arc::from(sql),
@@ -99,12 +100,16 @@ pub async fn handle(
             statement,
             analyze,
             options,
-        } => explain::handle_explain(context, *statement, options, analyze),
+        } => explain::handle_explain(context, *statement, options, analyze).map(|rsp| (rsp, None)),
         Statement::CreateSource {
             is_materialized,
             stmt,
-        } => create_source::handle_create_source(context, is_materialized, stmt).await,
-        Statement::CreateSink { stmt } => create_sink::handle_create_sink(context, stmt).await,
+        } => create_source::handle_create_source(context, is_materialized, stmt)
+            .await
+            .map(|rsp| (rsp, None)),
+        Statement::CreateSink { stmt } => create_sink::handle_create_sink(context, stmt)
+            .await
+            .map(|rsp| (rsp, None)),
         Statement::CreateTable {
             name,
             columns,
@@ -141,48 +146,78 @@ pub async fn handle(
             if query.is_some() {
                 return Err(ErrorCode::NotImplemented("CREATE AS".to_string(), None.into()).into());
             }
-            create_table::handle_create_table(context, name, columns, constraints).await
+            create_table::handle_create_table(context, name, columns, constraints)
+                .await
+                .map(|rsp| (rsp, None))
         }
         Statement::CreateDatabase {
             db_name,
             if_not_exists,
-        } => create_database::handle_create_database(context, db_name, if_not_exists).await,
+        } => create_database::handle_create_database(context, db_name, if_not_exists)
+            .await
+            .map(|rsp| (rsp, None)),
         Statement::CreateSchema {
             schema_name,
             if_not_exists,
-        } => create_schema::handle_create_schema(context, schema_name, if_not_exists).await,
-        Statement::CreateUser(stmt) => create_user::handle_create_user(context, stmt).await,
-        Statement::AlterUser(stmt) => alter_user::handle_alter_user(context, stmt).await,
-        Statement::Grant { .. } => handle_privilege::handle_grant_privilege(context, stmt).await,
-        Statement::Revoke { .. } => handle_privilege::handle_revoke_privilege(context, stmt).await,
-        Statement::Describe { name } => describe::handle_describe(context, name),
-        Statement::ShowObjects(show_object) => show::handle_show_object(context, show_object),
+        } => create_schema::handle_create_schema(context, schema_name, if_not_exists)
+            .await
+            .map(|rsp| (rsp, None)),
+        Statement::CreateUser(stmt) => create_user::handle_create_user(context, stmt)
+            .await
+            .map(|rsp| (rsp, None)),
+        Statement::AlterUser(stmt) => alter_user::handle_alter_user(context, stmt)
+            .await
+            .map(|rsp| (rsp, None)),
+        Statement::Grant { .. } => handle_privilege::handle_grant_privilege(context, stmt)
+            .await
+            .map(|rsp| (rsp, None)),
+        Statement::Revoke { .. } => handle_privilege::handle_revoke_privilege(context, stmt)
+            .await
+            .map(|rsp| (rsp, None)),
+        Statement::Describe { name } => {
+            describe::handle_describe(context, name).map(|rsp| (rsp, None))
+        }
+        Statement::ShowObjects(show_object) => {
+            show::handle_show_object(context, show_object).map(|rsp| (rsp, None))
+        }
         Statement::Drop(DropStatement {
             object_type,
             object_name,
             if_exists,
             drop_mode,
         }) => match object_type {
-            ObjectType::Table => drop_table::handle_drop_table(context, object_name).await,
-            ObjectType::MaterializedView => drop_mv::handle_drop_mv(context, object_name).await,
-            ObjectType::Index => drop_index::handle_drop_index(context, object_name).await,
-            ObjectType::Source => drop_source::handle_drop_source(context, object_name).await,
-            ObjectType::Sink => drop_sink::handle_drop_sink(context, object_name).await,
-            ObjectType::Database => {
-                drop_database::handle_drop_database(
-                    context,
-                    object_name,
-                    if_exists,
-                    drop_mode.into(),
-                )
+            ObjectType::Table => drop_table::handle_drop_table(context, object_name)
                 .await
-            }
+                .map(|rsp| (rsp, None)),
+            ObjectType::MaterializedView => drop_mv::handle_drop_mv(context, object_name)
+                .await
+                .map(|rsp| (rsp, None)),
+            ObjectType::Index => drop_index::handle_drop_index(context, object_name)
+                .await
+                .map(|rsp| (rsp, None)),
+            ObjectType::Source => drop_source::handle_drop_source(context, object_name)
+                .await
+                .map(|rsp| (rsp, None)),
+            ObjectType::Sink => drop_sink::handle_drop_sink(context, object_name)
+                .await
+                .map(|rsp| (rsp, None)),
+            ObjectType::Database => drop_database::handle_drop_database(
+                context,
+                object_name,
+                if_exists,
+                drop_mode.into(),
+            )
+            .await
+            .map(|rsp| (rsp, None)),
             ObjectType::Schema => {
                 drop_schema::handle_drop_schema(context, object_name, if_exists, drop_mode.into())
                     .await
+                    .map(|rsp| (rsp, None))
             }
             ObjectType::User => {
-                drop_user::handle_drop_user(context, object_name, if_exists, drop_mode.into()).await
+                drop_user::handle_drop_user(context, object_name, if_exists, drop_mode.into())
+                    .await
+                    .map(|rsp| (rsp, None))
             }
             _ => Err(
                 ErrorCode::InvalidInputSyntax(format!("DROP {} is unsupported", object_type))
@@ -199,14 +234,18 @@ pub async fn handle(
             name,
             query,
             ..
-        } => create_mv::handle_create_mv(context, name, *query).await,
-        Statement::Flush => flush::handle_flush(context).await,
+        } => create_mv::handle_create_mv(context, name, *query)
+            .await
+            .map(|rsp| (rsp, None)),
+        Statement::Flush => flush::handle_flush(context).await.map(|rsp| (rsp, None)),
         Statement::SetVariable {
             local: _,
             variable,
             value,
-        } => variable::handle_set(context, variable, value),
-        Statement::ShowVariable { variable } => variable::handle_show(context, variable),
+        } => variable::handle_set(context, variable, value).map(|rsp| (rsp, None)),
+        Statement::ShowVariable { variable } => {
+            variable::handle_show(context, variable).map(|rsp| (rsp, None))
+        }
         Statement::CreateIndex {
             name,
             table_name,
@@ -230,31 +269,47 @@ pub async fn handle(
                 include,
             )
             .await
+            .map(|rsp| (rsp, None))
         }
         // Ignore `StartTransaction` and `BEGIN`,`Abort`,`Rollback`,`Commit`temporarily.Its not
         // final implementation.
         // 1. Fully support transaction is too hard and gives few benefits to us.
         // 2. Some client e.g. psycopg2 will use this statement.
         // TODO: Track issues #2595 #2541
-        Statement::StartTransaction { .. } => Ok(PgResponse::empty_result_with_notice(
-            START_TRANSACTION,
-            "Ignored temporarily. See detail in issue#2541".to_string(),
+        Statement::StartTransaction { .. } => Ok((
+            PgResponse::empty_result_with_notice(
+                START_TRANSACTION,
+                "Ignored temporarily. See detail in issue#2541".to_string(),
+            ),
+            None,
         )),
-        Statement::BEGIN { .. } => Ok(PgResponse::empty_result_with_notice(
-            BEGIN,
-            "Ignored temporarily. See detail in issue#2541".to_string(),
+        Statement::BEGIN { .. } => Ok((
+            PgResponse::empty_result_with_notice(
+                BEGIN,
+                "Ignored temporarily. See detail in issue#2541".to_string(),
+            ),
+            None,
         )),
-        Statement::Abort { .. } => Ok(PgResponse::empty_result_with_notice(
-            ABORT,
-            "Ignored temporarily. See detail in issue#2541".to_string(),
+        Statement::Abort { .. } => Ok((
+            PgResponse::empty_result_with_notice(
+                ABORT,
+                "Ignored temporarily. See detail in issue#2541".to_string(),
+            ),
+            None,
         )),
-        Statement::Commit { .. } => Ok(PgResponse::empty_result_with_notice(
-            COMMIT,
-            "Ignored temporarily. See detail in issue#2541".to_string(),
+        Statement::Commit { .. } => Ok((
+            PgResponse::empty_result_with_notice(
+                COMMIT,
+                "Ignored temporarily. See detail in issue#2541".to_string(),
+            ),
+            None,
         )),
-        Statement::Rollback { .. } => Ok(PgResponse::empty_result_with_notice(
-            ROLLBACK,
-            "Ignored temporarily. See detail in issue#2541".to_string(),
+        Statement::Rollback { .. } => Ok((
+            PgResponse::empty_result_with_notice(
+                ROLLBACK,
+                "Ignored temporarily. See detail in issue#2541".to_string(),
+            ),
+            None,
         )),
         _ => {
             Err(ErrorCode::NotImplemented(format!("Unhandled ast: {:?}", stmt), None.into()).into())

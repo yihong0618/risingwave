@@ -177,11 +177,13 @@ impl QueryManager {
 
     pub fn add_query(&self, query_id: QueryId, query_execution: Arc<QueryExecution>) {
         let mut write_guard = self.query_executions_map.lock().unwrap();
+        // dbg!("add query", &query_id);
         write_guard.insert(query_id, query_execution);
     }
 
     pub fn delete_query(&self, query_id: &QueryId) {
         let mut write_guard = self.query_executions_map.lock().unwrap();
+        // dbg!("delete query", query_id);
         write_guard.remove(query_id);
     }
 }
