@@ -97,7 +97,7 @@ async fn create_tables(
 
     // Generate some mviews
     for i in 0..10 {
-        let (sql, table) = mview_sql_gen(rng, tables.clone(), &format!("m{}", i));
+        let (sql, table) = mview_sql_gen(rng, tables.clone(), &format!("m{}", i), false);
         setup_sql.push_str(&format!("{};", &sql));
         let stmts = parse_sql(&sql);
         let stmt = stmts[0].clone();
@@ -120,7 +120,7 @@ async fn test_stream_query(
         rng = SmallRng::seed_from_u64(seed);
     }
 
-    let (sql, table) = mview_sql_gen(&mut rng, tables.clone(), "stream_query");
+    let (sql, table) = mview_sql_gen(&mut rng, tables.clone(), "stream_query", false);
     reproduce_failing_queries(setup_sql, &sql);
     // The generated SQL must be parsable.
     let statements = parse_sql(&sql);
@@ -147,7 +147,7 @@ fn test_batch_query(
         rng = SmallRng::seed_from_u64(seed);
     }
 
-    let sql = sql_gen(&mut rng, tables);
+    let sql = sql_gen(&mut rng, tables, false);
     reproduce_failing_queries(setup_sql, &sql);
 
     // The generated SQL must be parsable.

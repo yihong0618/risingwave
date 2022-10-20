@@ -56,6 +56,10 @@ struct TestOptions {
     /// The number of test cases to generate.
     #[clap(long, default_value = "100")]
     count: usize,
+
+    /// Toggle invalid expressions
+    #[clap(long)]
+    allow_invalid: bool,
 }
 
 #[derive(clap::Subcommand, Clone, Debug)]
@@ -95,5 +99,5 @@ async fn main() {
             tracing::error!("Postgres connection error: {:?}", e);
         }
     });
-    run(&client, &opt.testdata, opt.count).await;
+    run(&client, &opt.testdata, opt.count, opt.allow_invalid).await;
 }

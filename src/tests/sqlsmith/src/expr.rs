@@ -29,7 +29,7 @@ use risingwave_sqlparser::ast::{
 };
 
 use crate::utils::data_type_name_to_ast_data_type;
-use crate::SqlGenerator;
+use crate::{SqlGenerator, DATA_TYPES};
 
 static FUNC_TABLE: LazyLock<HashMap<DataTypeName, Vec<FuncSign>>> = LazyLock::new(|| {
     let mut funcs = HashMap::<DataTypeName, Vec<FuncSign>>::new();
@@ -69,6 +69,13 @@ impl<'a, R: Rng> SqlGenerator<'a, R> {
     ///
     /// `inside_agg` indicates if we are calling `gen_expr` inside an aggregate.
     pub(crate) fn gen_expr(&mut self, typ: DataTypeName, can_agg: bool, inside_agg: bool) -> Expr {
+        // If we are able to generate invalid expressions, generate it sometimes
+        let typ = if self.allow_invalid && self.rng.gen_bool(0.1) {
+            *DATA_TYPES.choose(&mut self.rng).unwrap()
+        } else {
+            typ
+        };
+
         if !self.can_recurse() {
             // Stop recursion with a simple scalar or column.
             return match self.rng.gen_bool(0.5) {

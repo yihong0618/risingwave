@@ -15,7 +15,7 @@ This test will be run as a unit test:
 ./risedev test -E "package(risingwave_sqlsmith)" --features enable_sqlsmith_unit_test
 ```
 
-## E2E (normal mode)
+## E2E
 
 In the second mode, it will test the entire query handling end-to-end. We provide a CLI tool that represents a Postgres client. You can run this tool via:
 
@@ -23,6 +23,11 @@ In the second mode, it will test the entire query handling end-to-end. We provid
 cargo build # Ensure CLI tool is up to date
 ./risedev d # Start cluster
 ./target/debug/sqlsmith test --testdata ./src/tests/sqlsmith/tests/testdata
+```
+
+To permit invalid expressions to be generated as well add `--allow-invalid`:
+``` sh
+./target/debug/sqlsmith test --testdata ./src/tests/sqlsmith/tests/testdata --allow_invalid
 ```
 
 Additionally, in some cases where you may want to debug whether we have defined some function/operator incorrectly,
@@ -35,6 +40,3 @@ cargo build
 
 Check out ft.txt that will contain all the function signatures.
 
-## E2E (Invalid mode)
-
-Generates invalid queries in this mode.

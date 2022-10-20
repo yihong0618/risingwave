@@ -35,7 +35,30 @@ pub mod runner;
 mod scalar;
 mod time_window;
 mod utils;
+use std::sync::LazyLock;
+
 use crate::utils::create_table_with_joins_from_table;
+
+/// We maintain our own array of possible RW data types here, since not all expressions are
+/// generated (for example `Struct` and `List` currently not supported).
+pub static DATA_TYPES: LazyLock<Vec<DataTypeName>> = LazyLock::new(|| {
+    use DataTypeName as T;
+    vec![
+        T::Boolean,
+        T::Int16,
+        T::Int32,
+        T::Int64,
+        T::Decimal,
+        T::Float32,
+        T::Float64,
+        T::Varchar,
+        T::Date,
+        T::Timestamp,
+        T::Timestampz,
+        T::Time,
+        T::Interval,
+    ]
+});
 
 #[derive(Clone, Debug)]
 pub struct Table {
@@ -102,11 +125,15 @@ struct SqlGenerator<'a, R: Rng> {
     ///    Under this mode certain restrictions and workarounds are applied
     ///    for unsupported stream executors.
     is_mview: bool,
+
+    /// Permit generating invalid queries. Used to ensure database does not panic
+    /// when invalid queries are handled.
+    allow_invalid: bool,
 }
 
 /// Generators
 impl<'a, R: Rng> SqlGenerator<'a, R> {
-    fn new(rng: &'a mut R, tables: Vec<Table>) -> Self {
+    fn new(rng: &'a mut R, tables: Vec<Table>, allow_invalid: bool) -> Self {
         let is_distinct_allowed = rng.gen_bool(0.5);
         SqlGenerator {
             tables,
@@ -116,10 +143,11 @@ impl<'a, R: Rng> SqlGenerator<'a, R> {
             bound_relations: vec![],
             bound_columns: vec![],
             is_mview: false,
+            allow_invalid,
         }
     }
 
-    fn new_for_mview(rng: &'a mut R, tables: Vec<Table>) -> Self {
+    fn new_for_mview(rng: &'a mut R, tables: Vec<Table>, allow_invalid: bool) -> Self {
         // distinct aggregate is not allowed for MV
         SqlGenerator {
             tables,
@@ -129,6 +157,7 @@ impl<'a, R: Rng> SqlGenerator<'a, R> {
             bound_relations: vec![],
             bound_columns: vec![],
             is_mview: true,
+            allow_invalid,
         }
     }
 
@@ -313,24 +342,7 @@ impl<'a, R: Rng> SqlGenerator<'a, R> {
     }
 
     fn gen_select_item(&mut self, i: i32, can_agg: bool) -> (SelectItem, Column) {
-        use DataTypeName as T;
-        let ret_type = *[
-            T::Boolean,
-            T::Int16,
-            T::Int32,
-            T::Int64,
-            T::Decimal,
-            T::Float32,
-            T::Float64,
-            T::Varchar,
-            T::Date,
-            T::Timestamp,
-            T::Timestampz,
-            T::Time,
-            T::Interval,
-        ]
-        .choose(&mut self.rng)
-        .unwrap();
+        let ret_type = *DATA_TYPES.choose(&mut self.rng).unwrap();
         let expr = self.gen_expr(ret_type, can_agg, false);
 
         let alias = format!("col_{}", i);
@@ -424,15 +436,20 @@ impl<'a, R: Rng> SqlGenerator<'a, R> {
 }
 
 /// Generate a random SQL string.
-pub fn sql_gen(rng: &mut impl Rng, tables: Vec<Table>) -> String {
-    let mut gen = SqlGenerator::new(rng, tables);
+pub fn sql_gen(rng: &mut impl Rng, tables: Vec<Table>, allow_invalid: bool) -> String {
+    let mut gen = SqlGenerator::new(rng, tables, allow_invalid);
     format!("{}", gen.gen_stmt())
 }
 
 /// Generate a random CREATE MATERIALIZED VIEW sql string.
 /// These are derived from `tables`.
-pub fn mview_sql_gen<R: Rng>(rng: &mut R, tables: Vec<Table>, name: &str) -> (String, Table) {
-    let mut gen = SqlGenerator::new_for_mview(rng, tables);
+pub fn mview_sql_gen<R: Rng>(
+    rng: &mut R,
+    tables: Vec<Table>,
+    name: &str,
+    allow_invalid: bool,
+) -> (String, Table) {
+    let mut gen = SqlGenerator::new_for_mview(rng, tables, allow_invalid);
     let (mview, table) = gen.gen_mview(name);
     (mview.to_string(), table)
 }

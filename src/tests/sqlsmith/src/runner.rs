@@ -19,7 +19,12 @@ use tokio_postgres::error::{DbError, Error as PgError, SqlState};
 
 use crate::{create_table_statement_to_table, mview_sql_gen, parse_sql, sql_gen, Table};
 
-pub async fn run(client: &tokio_postgres::Client, testdata: &str, count: usize) {
+pub async fn run(
+    client: &tokio_postgres::Client,
+    testdata: &str,
+    count: usize,
+    allow_invalid: bool,
+) {
     let mut rng = rand::rngs::SmallRng::from_entropy();
     let (tables, mviews, setup_sql) = create_tables(&mut rng, testdata, client).await;
 
@@ -31,7 +36,7 @@ pub async fn run(client: &tokio_postgres::Client, testdata: &str, count: usize) 
         .await
         .unwrap();
     for _ in 0..count {
-        let sql = sql_gen(&mut rng, tables.clone());
+        let sql = sql_gen(&mut rng, tables.clone(), allow_invalid);
         tracing::info!("Executing: {}", sql);
         let response = client.query(sql.as_str(), &[]).await;
         validate_response(&setup_sql, &format!("{};", sql), response);
@@ -39,7 +44,7 @@ pub async fn run(client: &tokio_postgres::Client, testdata: &str, count: usize) 
 
     // Test stream
     for _ in 0..count {
-        let (sql, table) = mview_sql_gen(&mut rng, tables.clone(), "stream_query");
+        let (sql, table) = mview_sql_gen(&mut rng, tables.clone(), "stream_query", allow_invalid);
         tracing::info!("Executing: {}", sql);
         let response = client.execute(&sql, &[]).await;
         validate_response(&setup_sql, &format!("{};", sql), response);
@@ -81,7 +86,7 @@ async fn create_tables(
     let mut mviews = vec![];
     // Generate some mviews
     for i in 0..10 {
-        let (create_sql, table) = mview_sql_gen(rng, tables.clone(), &format!("m{}", i));
+        let (create_sql, table) = mview_sql_gen(rng, tables.clone(), &format!("m{}", i), false);
         setup_sql.push_str(&format!("{};", &create_sql));
         client.execute(&create_sql, &[]).await.unwrap();
         tables.push(table.clone());
