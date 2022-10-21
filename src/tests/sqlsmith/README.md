@@ -20,14 +20,14 @@ This test will be run as a unit test:
 In the second mode, it will test the entire query handling end-to-end. We provide a CLI tool that represents a Postgres client. You can run this tool via:
 
 ```sh
-cargo build # Ensure CLI tool is up to date
+cargo build --bin sqlsmith --profile dev # Ensure CLI tool is up to date
 ./risedev d # Start cluster
 ./target/debug/sqlsmith test --testdata ./src/tests/sqlsmith/tests/testdata
 ```
 
 To permit invalid expressions to be generated as well add `--allow-invalid`:
 ``` sh
-./target/debug/sqlsmith test --testdata ./src/tests/sqlsmith/tests/testdata --allow_invalid
+./target/debug/sqlsmith test --testdata ./src/tests/sqlsmith/tests/testdata --allow-invalid
 ```
 
 Additionally, in some cases where you may want to debug whether we have defined some function/operator incorrectly,

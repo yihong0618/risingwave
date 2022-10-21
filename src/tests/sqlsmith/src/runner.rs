@@ -39,15 +39,15 @@ pub async fn run(
         let sql = sql_gen(&mut rng, tables.clone(), allow_invalid);
         tracing::info!("Executing: {}", sql);
         let response = client.query(sql.as_str(), &[]).await;
-        validate_response(&setup_sql, &format!("{};", sql), response);
+        validate_response(&setup_sql, &format!("{};", sql), response, allow_invalid);
     }
 
     // Test stream
     for _ in 0..count {
-        let (sql, table) = mview_sql_gen(&mut rng, tables.clone(), "stream_query", allow_invalid);
+        let (sql, table) = mview_sql_gen(&mut rng, tables.clone(), "stream_query", false);
         tracing::info!("Executing: {}", sql);
         let response = client.execute(&sql, &[]).await;
-        validate_response(&setup_sql, &format!("{};", sql), response);
+        validate_response(&setup_sql, &format!("{};", sql), response, allow_invalid);
         drop_mview_table(&table, client).await;
     }
 
@@ -149,14 +149,20 @@ fn is_permissible_error(db_error: &DbError) -> bool {
             || is_division_by_zero_err(db_error))
 }
 
+/// Invalid expression errors
+fn is_invalid_expr_error(e: &DbError) -> bool {
+    return true;
+}
+
 /// Validate client responses
-fn validate_response<_Row>(setup_sql: &str, query: &str, response: Result<_Row, PgError>) {
+fn validate_response<_Row>(setup_sql: &str, query: &str, response: Result<_Row, PgError>, allow_invalid: bool) {
     match response {
         Ok(_) => {}
         Err(e) => {
             // Permit runtime errors conservatively.
             if let Some(e) = e.as_db_error()
-                && is_permissible_error(e)
+                && (is_permissible_error(e)
+                || (allow_invalid && is_invalid_expr_error(e)))
             {
                 return;
             }
