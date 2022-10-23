@@ -15,6 +15,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use itertools::Itertools;
 use risingwave_common::bail;
 use risingwave_common::catalog::{CatalogVersion, IndexId, TableId, PG_CATALOG_SCHEMA_NAME};
@@ -24,6 +25,7 @@ use risingwave_pb::catalog::{
     Database as ProstDatabase, Index as ProstIndex, Schema as ProstSchema, Sink as ProstSink,
     Source as ProstSource, Table as ProstTable,
 };
+use tokio::sync::watch;
 
 use super::source_catalog::SourceCatalog;
 use super::{CatalogError, SinkId, SourceId};
@@ -52,26 +54,38 @@ pub enum SchemaPath<'a> {
 ///       - table catalog
 ///        - column catalog
 pub struct Catalog {
-    version: CatalogVersion,
+    version: watch::Receiver<CatalogVersion>,
     database_by_name: HashMap<String, DatabaseCatalog>,
     db_name_by_id: HashMap<DatabaseId, String>,
     /// all table catalogs in the cluster identified by universal unique table id.
     table_by_id: HashMap<TableId, TableCatalog>,
 }
 
-#[expect(clippy::derivable_impls)]
-impl Default for Catalog {
-    fn default() -> Self {
-        Self {
-            version: 0,
-            database_by_name: HashMap::new(),
-            db_name_by_id: HashMap::new(),
-            table_by_id: HashMap::new(),
-        }
+pub async fn wait_version(
+    mut rx: watch::Receiver<CatalogVersion>,
+    version: CatalogVersion,
+) -> Result<()> {
+    while *rx.borrow_and_update() < version {
+        rx.changed().await.map_err(|e| anyhow!(e))?;
     }
+    Ok(())
 }
 
 impl Catalog {
+    pub fn new(version: watch::Receiver<CatalogVersion>) -> Self {
+        Self {
+            version,
+            database_by_name: Default::default(),
+            db_name_by_id: Default::default(),
+            table_by_id: Default::default(),
+        }
+    }
+
+    pub fn for_test() -> Self {
+        let (_, rx) = watch::channel(0);
+        Self::new(rx)
+    }
+
     fn get_database_mut(&mut self, db_id: DatabaseId) -> Option<&mut DatabaseCatalog> {
         let name = self.db_name_by_id.get(&db_id)?;
         self.database_by_name.get_mut(name)
@@ -483,11 +497,10 @@ impl Catalog {
 
     /// Get the catalog cache's catalog version.
     pub fn version(&self) -> u64 {
-        self.version
+        *self.version.borrow()
     }
 
-    /// Set the catalog cache's catalog version.
-    pub fn set_version(&mut self, catalog_version: CatalogVersion) {
-        self.version = catalog_version;
+    pub fn version_rx(&self) -> watch::Receiver<CatalogVersion> {
+        self.version.clone()
     }
 }

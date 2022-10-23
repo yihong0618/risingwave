@@ -213,7 +213,7 @@ impl FrontendEnv {
     pub fn mock() -> Self {
         use crate::test_utils::{MockCatalogWriter, MockFrontendMetaClient, MockUserInfoWriter};
 
-        let catalog = Arc::new(RwLock::new(Catalog::default()));
+        let catalog = Arc::new(RwLock::new(Catalog::for_test()));
         let catalog_writer = Arc::new(MockCatalogWriter::new(catalog.clone()));
         let catalog_reader = CatalogReader::new(catalog);
         let user_info_manager = Arc::new(RwLock::new(UserInfoManager::default()));
@@ -286,7 +286,7 @@ impl FrontendEnv {
         );
 
         let (catalog_updated_tx, catalog_updated_rx) = watch::channel(0);
-        let catalog = Arc::new(RwLock::new(Catalog::default()));
+        let catalog = Arc::new(RwLock::new(Catalog::new(catalog_updated_rx.clone())));
         let catalog_writer = Arc::new(CatalogWriterImpl::new(
             meta_client.clone(),
             catalog_updated_rx,

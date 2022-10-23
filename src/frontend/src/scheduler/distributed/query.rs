@@ -411,7 +411,7 @@ pub(crate) mod tests {
             MockFrontendMetaClient {},
         )));
         let catalog_reader =
-            CatalogReader::new(Arc::new(parking_lot::RwLock::new(Catalog::default())));
+            CatalogReader::new(Arc::new(parking_lot::RwLock::new(Catalog::for_test())));
         let query = create_query().await;
         let query_id = query.query_id().clone();
         let pinned_snapshot = hummock_snapshot_manager.acquire(&query_id).await.unwrap();
@@ -581,7 +581,7 @@ pub(crate) mod tests {
         let workers = vec![worker1, worker2, worker3];
         let worker_node_manager = Arc::new(WorkerNodeManager::mock(workers));
         worker_node_manager.insert_fragment_mapping(0, vec![]);
-        let catalog = Arc::new(parking_lot::RwLock::new(Catalog::default()));
+        let catalog = Arc::new(parking_lot::RwLock::new(Catalog::for_test()));
         catalog.write().insert_table_id_mapping(table_id, 0);
         let catalog_reader = CatalogReader::new(catalog);
         // Break the plan node into fragments.

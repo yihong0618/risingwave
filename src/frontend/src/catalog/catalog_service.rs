@@ -25,9 +25,9 @@ use risingwave_pb::catalog::{
 };
 use risingwave_pb::stream_plan::StreamFragmentGraph;
 use risingwave_rpc_client::MetaClient;
-use tokio::sync::watch::Receiver;
+use tokio::sync::watch::{self, Receiver};
 
-use super::root_catalog::Catalog;
+use super::root_catalog::{wait_version, Catalog};
 use super::DatabaseId;
 use crate::user::UserId;
 
@@ -35,14 +35,27 @@ pub type CatalogReadGuard = ArcRwLockReadGuard<RawRwLock, Catalog>;
 
 /// [`CatalogReader`] can read catalog from local catalog and force the holder can not modify it.
 #[derive(Clone)]
-pub struct CatalogReader(Arc<RwLock<Catalog>>);
+pub struct CatalogReader {
+    inner: Arc<RwLock<Catalog>>,
+
+    version_rx: watch::Receiver<CatalogVersion>,
+}
 impl CatalogReader {
     pub fn new(inner: Arc<RwLock<Catalog>>) -> Self {
-        CatalogReader(inner)
+        let version_rx = inner.read().version_rx();
+        CatalogReader { inner, version_rx }
     }
 
     pub fn read_guard(&self) -> CatalogReadGuard {
-        self.0.read_arc()
+        self.inner.read_arc()
+    }
+
+    pub async fn read_guard_with_version(
+        &self,
+        version: CatalogVersion,
+    ) -> Result<CatalogReadGuard> {
+        wait_version(self.version_rx.clone(), version).await?;
+        Ok(self.read_guard())
     }
 }
 
@@ -252,12 +265,6 @@ impl CatalogWriterImpl {
     }
 
     async fn wait_version(&self, version: CatalogVersion) -> Result<()> {
-        let mut rx = self.catalog_updated_rx.clone();
-        while *rx.borrow_and_update() < version {
-            rx.changed()
-                .await
-                .map_err(|e| RwError::from(InternalError(e.to_string())))?;
-        }
-        Ok(())
+        wait_version(self.catalog_updated_rx.clone(), version).await
     }
 }

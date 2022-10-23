@@ -127,10 +127,13 @@ impl ObserverState for FrontendObserverNode {
                 .into())
             }
         }
-        catalog_guard.set_version(resp.version);
+
+        // Update the catalog version.
         self.catalog_updated_tx.send(resp.version).unwrap();
+        // Update the user info version.
         user_guard.set_version(resp.version);
         self.user_info_updated_tx.send(resp.version).unwrap();
+
         Ok(())
     }
 }
@@ -208,7 +211,7 @@ impl FrontendObserverNode {
             resp.version,
             catalog_guard.version()
         );
-        catalog_guard.set_version(resp.version);
+
         self.catalog_updated_tx.send(resp.version).unwrap();
     }
 
