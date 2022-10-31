@@ -19,7 +19,7 @@ use std::ops::Bound::{Excluded, Included};
 use std::ops::{Bound, Deref, RangeBounds};
 use std::sync::Arc;
 
-use bytes::Bytes;
+use bytes::{Bytes, Buf};
 use itertools::Itertools;
 use minitrace::future::FutureExt;
 use minitrace::Span;
@@ -297,6 +297,7 @@ impl HummockStorageCore {
         epoch: u64,
         read_options: ReadOptions,
     ) -> StorageResult<HummockStorageIterator> {
+        dbg!(&read_options.table_id);
         let user_key_range = (
             table_key_range
                 .0
@@ -336,6 +337,7 @@ impl HummockStorageCore {
         );
         let mut staging_sst_iter_count = 0;
         for sstable_info in uncommitted_ssts {
+            dbg!(&sstable_info);
             let table_holder = self
                 .sstable_store
                 .sstable(&sstable_info, &mut local_stats)
@@ -349,7 +351,10 @@ impl HummockStorageCore {
                         .as_slice(),
                     &mut local_stats,
                 ) {
+                    dbg!("NOT hit_sstable_bloom_filter......");
                     continue;
+                } else {
+                    dbg!("hit_sstable_bloom_filter!!!!!!");
                 }
             }
             staging_sst_iter_count += 1;
@@ -400,6 +405,7 @@ impl HummockStorageCore {
 
                 let mut sstables = vec![];
                 for sstable_info in matched_table_infos {
+                    dbg!(sstable_info);
                     if let Some(bloom_filter_key) = read_options.prefix_hint.as_ref() {
                         let sstable = self
                             .sstable_store
@@ -415,9 +421,11 @@ impl HummockStorageCore {
                             &mut local_stats,
                         ) {
                             sstables.push((*sstable_info).clone());
+                            dbg!("selected 111");
                         }
                     } else {
                         sstables.push((*sstable_info).clone());
+                        dbg!("selected 222");
                     }
                 }
 
@@ -430,6 +438,7 @@ impl HummockStorageCore {
                 // Overlapping
                 let mut iters = Vec::new();
                 for table_info in table_infos.into_iter().rev() {
+                    dbg!(table_info);
                     let sstable = self
                         .sstable_store
                         .sstable(table_info, &mut local_stats)
@@ -443,10 +452,13 @@ impl HummockStorageCore {
                                 .as_slice(),
                             &mut local_stats,
                         ) {
+                            dbg!("NOT hit_sstable_bloom_filter......");
                             continue;
+                        } else {
+                            dbg!("hit_sstable_bloom_filter!!!!!!");
                         }
                     }
-
+                    dbg!("selected 333");
                     iters.push(SstableIterator::new(
                         sstable,
                         self.sstable_store.clone(),
@@ -548,6 +560,11 @@ impl StateStore for HummockStorage {
         write_options: WriteOptions,
     ) -> Self::IngestKVBatchFuture<'_> {
         async move {
+            dbg!(&write_options.table_id);
+            for (key, value) in &kv_pairs {
+                dbg!(key);
+                dbg!(value);
+            }
             let epoch = write_options.epoch;
             let table_id = write_options.table_id;
 
@@ -665,6 +682,10 @@ impl StateStoreIter for HummockStorageIterator {
                     Bytes::from(iter.key().encode()),
                     Bytes::copy_from_slice(iter.value()),
                 );
+                dbg!(&kv);
+                let mut table_id_slice = kv.0.slice(0..4);
+                let iter_decoded_table_id = table_id_slice.get_u32();
+                dbg!(iter_decoded_table_id);
                 iter.next().await?;
                 Ok(Some(kv))
             } else {

@@ -106,6 +106,7 @@ impl<TI: SstableIteratorType> HummockIterator for ConcatIteratorInner<TI> {
 
     fn next(&mut self) -> Self::NextFuture<'_> {
         async move {
+            dbg!("ConcatIteratorInner");
             let sstable_iter = self.sstable_iter.as_mut().expect("no table iter");
             sstable_iter.next().await?;
 

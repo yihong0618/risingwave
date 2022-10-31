@@ -735,6 +735,7 @@ impl<S: StateStore> StateTable<S> {
         &'a self,
         pk_prefix: &'a Row,
     ) -> StorageResult<RowStream<'a, S>> {
+        dbg!(pk_prefix);
         let (mem_table_iter, storage_iter_stream) = self
             .iter_with_pk_prefix_inner(pk_prefix, self.epoch())
             .await?;

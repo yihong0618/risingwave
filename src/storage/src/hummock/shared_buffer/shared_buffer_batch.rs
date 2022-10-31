@@ -252,6 +252,7 @@ impl<D: HummockIteratorDirection> HummockIterator for SharedBufferBatchIterator<
 
     fn next(&mut self) -> Self::NextFuture<'_> {
         async move {
+            dbg!("SharedBufferBatchIterator");
             assert!(self.is_valid());
             self.current_idx += 1;
             Ok(())

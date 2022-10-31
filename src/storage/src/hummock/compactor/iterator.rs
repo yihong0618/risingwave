@@ -288,6 +288,7 @@ impl HummockIterator for ConcatSstableIterator {
 
     fn next(&mut self) -> Self::NextFuture<'_> {
         async {
+            dbg!("ConcatSstableIterator");
             let sstable_iter = self.sstable_iter.as_mut().expect("no table iter");
 
             // Does just calling `next()` suffice?
