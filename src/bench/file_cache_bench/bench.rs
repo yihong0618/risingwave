@@ -21,7 +21,7 @@ use futures::future::join_all;
 use itertools::Itertools;
 use prometheus::Registry;
 use rand::{Rng, SeedableRng};
-use risingwave_storage::hummock::file_cache::cache::{FileCache, FileCacheOptions};
+use risingwave_storage::hummock::file_cache::cache::{FileCacheOptions, ShardedFileCache};
 use risingwave_storage::hummock::file_cache::metrics::FileCacheMetrics;
 use risingwave_storage::hummock::file_cache::store::FsType;
 use risingwave_storage::hummock::{TieredCacheKey, TieredCacheValue};
@@ -32,6 +32,8 @@ use crate::analyze::{analyze, monitor, Hook, Metrics};
 use crate::rate::RateLimiter;
 use crate::utils::{dev_stat_path, file_stat_path, iostat};
 use crate::Args;
+
+const SHARDS: u8 = 16;
 
 #[derive(PartialEq, Eq, Hash, Clone, Debug)]
 struct Index {
@@ -70,8 +72,8 @@ pub async fn run(args: Args, stop: oneshot::Receiver<()>) {
         flush_buffer_hooks: vec![hook],
     };
 
-    let cache: FileCache<Index, CacheValue> =
-        FileCache::open(options, Arc::new(FileCacheMetrics::new(Registry::new())))
+    let cache: ShardedFileCache<SHARDS, Index, CacheValue> =
+        ShardedFileCache::open(options, Arc::new(FileCacheMetrics::new(Registry::new())))
             .await
             .unwrap();
 
@@ -178,7 +180,7 @@ impl TieredCacheValue for CacheValue {
 async fn bench(
     id: usize,
     args: Args,
-    cache: FileCache<Index, CacheValue>,
+    cache: ShardedFileCache<SHARDS, Index, CacheValue>,
     time: u64,
     metrics: Metrics,
     stop: oneshot::Receiver<()>,
@@ -237,7 +239,7 @@ async fn read(
     bs: usize,
     rate: Option<f64>,
     index: Arc<AtomicU32>,
-    cache: FileCache<Index, CacheValue>,
+    cache: ShardedFileCache<SHARDS, Index, CacheValue>,
     time: u64,
     metrics: Metrics,
     mut stop: oneshot::Receiver<()>,
@@ -303,7 +305,7 @@ async fn write(
     bs: usize,
     rate: Option<f64>,
     index: Arc<AtomicU32>,
-    cache: FileCache<Index, CacheValue>,
+    cache: ShardedFileCache<SHARDS, Index, CacheValue>,
     time: u64,
     metrics: Metrics,
     mut stop: oneshot::Receiver<()>,

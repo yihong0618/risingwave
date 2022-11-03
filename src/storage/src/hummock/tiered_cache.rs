@@ -143,6 +143,8 @@ where
     NoneCache(PhantomData<(K, V)>),
     #[cfg(target_os = "linux")]
     FileCache(file_cache::cache::FileCache<K, V>),
+    #[cfg(target_os = "linux")]
+    ShardedFileCache(file_cache::cache::ShardedFileCache<16, K, V>),
 }
 
 impl<K, V> Clone for TieredCache<K, V>
@@ -155,6 +157,10 @@ where
             TieredCache::NoneCache(_) => TieredCache::NoneCache(PhantomData::default()),
             #[cfg(target_os = "linux")]
             TieredCache::FileCache(file_cache) => TieredCache::FileCache(file_cache.clone()),
+            #[cfg(target_os = "linux")]
+            TieredCache::ShardedFileCache(sharded_file_cache) => {
+                TieredCache::ShardedFileCache(sharded_file_cache.clone())
+            }
         }
     }
 }
@@ -186,6 +192,11 @@ where
                 file_cache.insert(key, value)?;
                 Ok(())
             }
+            #[cfg(target_os = "linux")]
+            TieredCache::ShardedFileCache(sharded_file_cache) => {
+                sharded_file_cache.insert(key, value)?;
+                Ok(())
+            }
         }
     }
 
@@ -198,6 +209,11 @@ where
                 file_cache.erase(key)?;
                 Ok(())
             }
+            #[cfg(target_os = "linux")]
+            TieredCache::ShardedFileCache(sharded_file_cache) => {
+                sharded_file_cache.erase(key)?;
+                Ok(())
+            }
         }
     }
 
@@ -208,6 +224,11 @@ where
             #[cfg(target_os = "linux")]
             TieredCache::FileCache(file_cache) => {
                 let holder = file_cache.get(key).await?;
+                Ok(holder)
+            }
+            #[cfg(target_os = "linux")]
+            TieredCache::ShardedFileCache(sharded_file_cache) => {
+                let holder = sharded_file_cache.get(key).await?;
                 Ok(holder)
             }
         }

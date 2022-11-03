@@ -13,9 +13,12 @@
 // limitations under the License.
 
 use std::collections::hash_map::RandomState;
+use std::hash::BuildHasher;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::future::try_join_all;
 use itertools::Itertools;
 use risingwave_common::cache::LruCache;
 use tokio::sync::Notify;
@@ -25,9 +28,11 @@ use super::error::Result;
 use super::meta::SlotId;
 use super::metrics::FileCacheMetricsRef;
 use super::store::{FsType, Store, StoreOptions, StoreRef};
+use super::utils::ModuloHasherBuilder;
 use super::{utils, LRU_SHARD_BITS};
 use crate::hummock::{HashBuilder, TieredCacheEntryHolder, TieredCacheKey, TieredCacheValue};
 
+#[derive(Clone)]
 pub struct FileCacheOptions {
     pub dir: String,
     pub capacity: usize,
@@ -297,6 +302,87 @@ where
     }
 }
 
+#[derive(Clone)]
+pub struct ShardedFileCache<const N: u8, K, V, S = RandomState>
+where
+    K: TieredCacheKey,
+    V: TieredCacheValue,
+    S: HashBuilder,
+{
+    hasher: ModuloHasherBuilder<N>,
+
+    shards: Vec<FileCache<K, V, S>>,
+}
+
+impl<const N: u8, K, V> ShardedFileCache<N, K, V, RandomState>
+where
+    K: TieredCacheKey,
+    V: TieredCacheValue,
+{
+    pub async fn open(options: FileCacheOptions, metrics: FileCacheMetricsRef) -> Result<Self> {
+        let hash_builder = RandomState::new();
+        Self::open_with_hasher(options, hash_builder, metrics).await
+    }
+}
+
+impl<const N: u8, K, V, S> ShardedFileCache<N, K, V, S>
+where
+    K: TieredCacheKey,
+    V: TieredCacheValue,
+    S: HashBuilder,
+{
+    pub async fn open_with_hasher(
+        options: FileCacheOptions,
+        hash_builder: S,
+        metrics: FileCacheMetricsRef,
+    ) -> Result<Self> {
+        utils::assert_pow2(N);
+
+        let hasher = ModuloHasherBuilder::default();
+
+        let shards = (0..N)
+            .into_iter()
+            .map(|i| {
+                let mut opts = options.clone();
+                opts.dir = PathBuf::from(opts.dir)
+                    .join(i.to_string())
+                    .to_str()
+                    .unwrap()
+                    .to_string();
+                opts.capacity /= N as usize;
+                opts.total_buffer_capacity /= N as usize;
+
+                let hb = hash_builder.clone();
+                let mxs = metrics.clone();
+                FileCache::open_with_hasher(opts, hb, mxs)
+            })
+            .collect_vec();
+        let shards = try_join_all(shards).await?;
+
+        Ok(Self { hasher, shards })
+    }
+
+    pub fn insert(&self, key: K, value: V) -> Result<()> {
+        let shard = self.hasher.hash_one(&key) as usize;
+        self.shards[shard].insert(key, value)
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn get(&self, key: &K) -> Result<Option<TieredCacheEntryHolder<K, V>>> {
+        let shard = self.hasher.hash_one(&key) as usize;
+        self.shards[shard].get(key).await
+    }
+
+    pub fn erase(&self, key: &K) -> Result<()> {
+        let shard = self.hasher.hash_one(&key) as usize;
+        self.shards[shard].erase(key)
+    }
+
+    pub fn fs_type(&self) -> FsType {
+        self.shards[0].fs_type()
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -305,11 +391,11 @@ mod tests {
 
     use prometheus::Registry;
 
-    use super::super::test_utils::{datasize, key, FlushHolder, ModuloHasherBuilder, TestCacheKey};
-    use super::super::utils;
+    use super::super::test_utils::{datasize, key, FlushHolder, TestCacheKey};
     use super::*;
     use crate::hummock::file_cache::metrics::FileCacheMetrics;
     use crate::hummock::file_cache::test_utils::TestCacheValue;
+    use crate::hummock::file_cache::utils::ModuloHasherBuilder;
 
     const SHARDS: usize = 1 << LRU_SHARD_BITS;
     const SHARDSU8: u8 = SHARDS as u8;
