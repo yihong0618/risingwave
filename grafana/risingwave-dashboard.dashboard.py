@@ -1,8 +1,15 @@
 from grafanalib.core import Dashboard, TimeSeries, Target, GridPos, RowPanel, Time
 import logging
+import os
 
 datasource = {"type": "prometheus", "uid": "risedev-prometheus"}
 
+# We use DASHBOARD_NAMESPACE_ENABLED env variable to indicate whether to add
+# a filter for the namespace field in the prometheus metric.
+NAMESPACE_FILTER_ENABLED = "DASHBOARD_NAMESPACE_FILTER_ENABLED"
+namespace_filter_enabled = os.environ.get(NAMESPACE_FILTER_ENABLED, "") == "true"
+if namespace_filter_enabled:
+    print("Enable filter for namespace field in the generated prometheus query")
 
 class Layout:
 
@@ -421,6 +428,23 @@ panels = Panels(datasource)
 
 logging.basicConfig(level=logging.WARN)
 
+def metric(name):
+    if namespace_filter_enabled:
+        return name + "{namespace=~\"$namespace\"}"
+    else:
+        return name
+
+def quantile(f, percentiles):
+    quantile_map = {
+        "50": ["0.5", "50"],
+        "90": ["0.9", "90"],
+        "99": ["0.99", "99"],
+        "999": ["0.999", "999"],
+        "max": ["1.0", "max"],
+    }
+    return list(
+        map(lambda p: f(quantile_map[str(p)][0], quantile_map[str(p)][1]),
+            percentiles))
 
 def section_cluster_node(panels):
     return [
@@ -472,6 +496,7 @@ def section_compaction(outer_panels):
                             "L{{level_index}}",
                         ),
                     ],
+                ),
                 ),
                 panels.timeseries_kilobytes(
                     "KBs level sst",
@@ -805,17 +830,6 @@ def section_object_storage(outer_panels):
     ]
 
 
-def quantile(f, percentiles):
-    quantile_map = {
-        "50": ["0.5", "50"],
-        "90": ["0.9", "90"],
-        "99": ["0.99", "99"],
-        "999": ["0.999", "999"],
-        "max": ["1.0", "max"],
-    }
-    return list(
-        map(lambda p: f(quantile_map[str(p)][0], quantile_map[str(p)][1]),
-            percentiles))
 
 
 def section_streaming(panels):
@@ -2334,7 +2348,6 @@ def section_grpc_hummock_meta_client(outer_panels):
             ],
         ),
     ]
-
 
 dashboard = Dashboard(
     title="risingwave_dashboard",
