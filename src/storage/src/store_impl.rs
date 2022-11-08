@@ -17,15 +17,16 @@ use std::sync::Arc;
 
 use enum_as_inner::EnumAsInner;
 use risingwave_common::config::StorageConfig;
-use risingwave_hummock_sdk::filter_key_extractor::FilterKeyExtractorManagerRef;
+use risingwave_common_service::observer_manager::RpcNotificationClient;
 use risingwave_object_store::object::{
     parse_local_object_store, parse_remote_object_store, ObjectStoreImpl,
 };
-use risingwave_rpc_client::HummockMetaClient;
 
 use crate::error::StorageResult;
-use crate::hummock::compaction_group_client::CompactionGroupClientImpl;
-use crate::hummock::{HummockStorage, SstableStore, TieredCache};
+use crate::hummock::hummock_meta_client::MonitoredHummockMetaClient;
+use crate::hummock::{
+    HummockStorage, HummockStorageV1, SstableStore, TieredCache, TieredCacheMetricsBuilder,
+};
 use crate::memory::MemoryStateStore;
 use crate::monitor::{MonitoredStateStore as Monitored, ObjectStoreMetrics, StateStoreMetrics};
 use crate::StateStore;
@@ -42,6 +43,7 @@ pub enum StateStoreImpl {
     /// * `hummock+minio://KEY:SECRET@minio-ip:port`
     /// * `hummock+memory` (should only be used in 1 compute node mode)
     HummockStateStore(Monitored<HummockStorage>),
+    HummockStateStoreV1(Monitored<HummockStorageV1>),
     /// In-memory B-Tree state store. Should only be used in unit and integration tests. If you
     /// want speed up e2e test, you should use Hummock in-memory mode instead. Also, this state
     /// store misses some critical implementation to ensure the correctness of persisting streaming
@@ -53,12 +55,19 @@ impl StateStoreImpl {
     pub fn shared_in_memory_store(state_store_metrics: Arc<StateStoreMetrics>) -> Self {
         Self::MemoryStateStore(MemoryStateStore::shared().monitored(state_store_metrics))
     }
+
+    pub fn for_test() -> Self {
+        StateStoreImpl::MemoryStateStore(
+            MemoryStateStore::new().monitored(Arc::new(StateStoreMetrics::unused())),
+        )
+    }
 }
 
 impl Debug for StateStoreImpl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             StateStoreImpl::HummockStateStore(_) => write!(f, "HummockStateStore"),
+            StateStoreImpl::HummockStateStoreV1(_) => write!(f, "HummockStateStoreV1"),
             StateStoreImpl::MemoryStateStore(_) => write!(f, "MemoryStateStore"),
         }
     }
@@ -66,7 +75,9 @@ impl Debug for StateStoreImpl {
 
 #[macro_export]
 macro_rules! dispatch_state_store {
-    ($impl:expr, $store:ident, $body:tt) => {
+    ($impl:expr, $store:ident, $body:tt) => {{
+        use $crate::store_impl::StateStoreImpl;
+
         match $impl {
             StateStoreImpl::MemoryStateStore($store) => {
                 // WARNING: don't change this. Enabling memory backend will cause monomorphization
@@ -81,20 +92,24 @@ macro_rules! dispatch_state_store {
                     unimplemented!("memory state store should never be used in release mode");
                 }
             }
+
             StateStoreImpl::HummockStateStore($store) => $body,
+
+            StateStoreImpl::HummockStateStoreV1($store) => $body,
         }
-    };
+    }};
 }
 
 impl StateStoreImpl {
+    #[cfg_attr(not(target_os = "linux"), expect(unused_variables))]
     pub async fn new(
         s: &str,
-        #[allow(unused)] file_cache_dir: &str,
+        file_cache_dir: &str,
         config: Arc<StorageConfig>,
-        hummock_meta_client: Arc<dyn HummockMetaClient>,
+        hummock_meta_client: Arc<MonitoredHummockMetaClient>,
         state_store_stats: Arc<StateStoreMetrics>,
         object_store_metrics: Arc<ObjectStoreMetrics>,
-        filter_key_extractor_manager: FilterKeyExtractorManagerRef,
+        tiered_cache_metrics_builder: TieredCacheMetricsBuilder,
     ) -> StorageResult<Self> {
         #[cfg(not(target_os = "linux"))]
         let tiered_cache = TieredCache::none();
@@ -104,16 +119,25 @@ impl StateStoreImpl {
             TieredCache::none()
         } else {
             use crate::hummock::file_cache::cache::FileCacheOptions;
-            use crate::hummock::{HummockError, TieredCacheOptions};
+            use crate::hummock::HummockError;
 
-            let options = TieredCacheOptions::FileCache(FileCacheOptions {
+            let options = FileCacheOptions {
                 dir: file_cache_dir.to_string(),
-                capacity: config.file_cache.capacity,
-                total_buffer_capacity: config.file_cache.total_buffer_capacity,
-                cache_file_fallocate_unit: config.file_cache.cache_file_fallocate_unit,
+                capacity: config.file_cache.capacity_mb * 1024 * 1024,
+                total_buffer_capacity: config.file_cache.total_buffer_capacity_mb * 1024 * 1024,
+                cache_file_fallocate_unit: config.file_cache.cache_file_fallocate_unit_mb
+                    * 1024
+                    * 1024,
+                cache_meta_fallocate_unit: config.file_cache.cache_meta_fallocate_unit_mb
+                    * 1024
+                    * 1024,
+                cache_file_max_write_size: config.file_cache.cache_file_max_write_size_mb
+                    * 1024
+                    * 1024,
                 flush_buffer_hooks: vec![],
-            });
-            TieredCache::open(options)
+            };
+            let metrics = Arc::new(tiered_cache_metrics_builder.file());
+            TieredCache::file(options, metrics)
                 .await
                 .map_err(HummockError::tiered_cache)?
         };
@@ -123,14 +147,14 @@ impl StateStoreImpl {
                 let remote_object_store = parse_remote_object_store(
                     hummock.strip_prefix("hummock+").unwrap(),
                     object_store_metrics.clone(),
+                    config.object_store_use_batch_delete,
                 )
                 .await;
                 let object_store = if config.enable_local_spill {
                     let local_object_store = parse_local_object_store(
                         config.local_object_store.as_str(),
                         object_store_metrics.clone(),
-                    )
-                    .await;
+                    );
                     ObjectStoreImpl::hybrid(local_object_store, remote_object_store)
                 } else {
                     remote_object_store
@@ -143,22 +167,37 @@ impl StateStoreImpl {
                     config.meta_cache_capacity_mb * (1 << 20),
                     tiered_cache,
                 ));
-                let compaction_group_client =
-                    Arc::new(CompactionGroupClientImpl::new(hummock_meta_client.clone()));
-                let inner = HummockStorage::new(
-                    config.clone(),
-                    sstable_store.clone(),
-                    hummock_meta_client.clone(),
-                    state_store_stats.clone(),
-                    compaction_group_client,
-                    filter_key_extractor_manager,
-                )
-                .await?;
-                StateStoreImpl::HummockStateStore(inner.monitored(state_store_stats))
+                let notification_client =
+                    RpcNotificationClient::new(hummock_meta_client.get_inner().clone());
+
+                if !config.enable_state_store_v1 {
+                    let inner = HummockStorage::new(
+                        config.clone(),
+                        sstable_store,
+                        hummock_meta_client.clone(),
+                        notification_client,
+                        state_store_stats.clone(),
+                    )
+                    .await?;
+
+                    StateStoreImpl::HummockStateStore(inner.monitored(state_store_stats))
+                } else {
+                    let inner = HummockStorageV1::new(
+                        config.clone(),
+                        sstable_store,
+                        hummock_meta_client.clone(),
+                        notification_client,
+                        state_store_stats.clone(),
+                    )
+                    .await?;
+
+                    StateStoreImpl::HummockStateStoreV1(inner.monitored(state_store_stats))
+                }
             }
 
             "in_memory" | "in-memory" => {
-                panic!("in-memory state backend should never be used in end-to-end environment, use `hummock+memory` instead.")
+                tracing::warn!("In-memory state store should never be used in end-to-end benchmarks or production environment. Scaling and recovery are not supported.");
+                StateStoreImpl::shared_in_memory_store(state_store_stats.clone())
             }
 
             other => unimplemented!("{} state store is not supported", other),

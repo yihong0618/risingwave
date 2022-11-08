@@ -20,19 +20,20 @@ use risingwave_common::catalog::Schema;
 use risingwave_common::error::{ErrorCode, Result, RwError};
 
 use super::{
-    ColPrunable, LogicalFilter, LogicalProject, PlanBase, PlanRef, PredicatePushdown, StreamSource,
-    ToBatch, ToStream,
+    generic, ColPrunable, LogicalFilter, LogicalProject, PlanBase, PlanRef, PredicatePushdown,
+    StreamSource, ToBatch, ToStream,
 };
 use crate::catalog::source_catalog::SourceCatalog;
 use crate::optimizer::property::FunctionalDependencySet;
 use crate::session::OptimizerContextRef;
 use crate::utils::{ColIndexMapping, Condition};
+use crate::TableCatalog;
 
 /// `LogicalSource` returns contents of a table or other equivalent object
 #[derive(Debug, Clone)]
 pub struct LogicalSource {
     pub base: PlanBase,
-    pub source_catalog: Rc<SourceCatalog>,
+    pub core: generic::Source,
 }
 
 impl LogicalSource {
@@ -64,7 +65,9 @@ impl LogicalSource {
         let base = PlanBase::new_logical(ctx, schema, pk_indices, functional_dependency);
         LogicalSource {
             base,
-            source_catalog,
+            core: generic::Source {
+                catalog: source_catalog,
+            },
         }
     }
 
@@ -77,18 +80,22 @@ impl LogicalSource {
     }
 
     pub fn source_catalog(&self) -> Rc<SourceCatalog> {
-        self.source_catalog.clone()
+        self.core.catalog.clone()
+    }
+
+    pub fn infer_internal_table_catalog(&self) -> TableCatalog {
+        generic::Source::infer_internal_table_catalog(&self.base)
     }
 }
 
 impl_plan_tree_node_for_leaf! {LogicalSource}
 
 impl fmt::Display for LogicalSource {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "LogicalSource {{ source: {}, columns: [{}] }}",
-            self.source_catalog.name,
+            self.source_catalog().name,
             self.column_names().join(", ")
         )
     }

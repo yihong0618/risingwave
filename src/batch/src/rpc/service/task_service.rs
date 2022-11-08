@@ -25,8 +25,9 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
 use crate::rpc::service::exchange::GrpcExchangeWriter;
-use crate::task;
-use crate::task::{BatchEnvironment, BatchManager, BatchTaskExecution, ComputeNodeContext};
+use crate::task::{
+    self, BatchEnvironment, BatchManager, BatchTaskExecution, ComputeNodeContext, TaskId,
+};
 
 const LOCAL_EXECUTE_BUFFER_SIZE: usize = 64;
 
@@ -64,7 +65,10 @@ impl TaskService for BatchServiceImpl {
                 task_id.as_ref().expect("no task id found"),
                 plan.expect("no plan found").clone(),
                 epoch,
-                ComputeNodeContext::new(self.env.clone()),
+                ComputeNodeContext::new(
+                    self.env.clone(),
+                    TaskId::from(task_id.as_ref().expect("no task id found")),
+                ),
             )
             .await;
         match res {
@@ -90,16 +94,9 @@ impl TaskService for BatchServiceImpl {
         req: Request<AbortTaskRequest>,
     ) -> Result<Response<AbortTaskResponse>, Status> {
         let req = req.into_inner();
-        let res = self
-            .mgr
+        self.mgr
             .abort_task(req.get_task_id().expect("no task id found"));
-        match res {
-            Ok(_) => Ok(Response::new(AbortTaskResponse { status: None })),
-            Err(e) => {
-                error!("failed to abort task {}", e);
-                Err(e.into())
-            }
-        }
+        Ok(Response::new(AbortTaskResponse { status: None }))
     }
 
     #[cfg_attr(coverage, no_coverage)]
@@ -114,13 +111,13 @@ impl TaskService for BatchServiceImpl {
         } = req.into_inner();
         let task_id = task_id.expect("no task id found");
         let plan = plan.expect("no plan found").clone();
-        let context = ComputeNodeContext::new(self.env.clone());
+        let context = ComputeNodeContext::new_for_local(self.env.clone());
         trace!(
             "local execute request: plan:{:?} with task id:{:?}",
             plan,
             task_id
         );
-        let task = BatchTaskExecution::new(&task_id, plan, context, epoch)?;
+        let task = BatchTaskExecution::new(&task_id, plan, context, epoch, self.mgr.runtime())?;
         let task = Arc::new(task);
 
         if let Err(e) = task.clone().async_execute().await {
@@ -137,7 +134,6 @@ impl TaskService for BatchServiceImpl {
             // therefore we would only have one data output.
             output_id: 0,
         };
-
         let mut output = task.get_task_output(&pb_task_output_id).map_err(|e| {
             error!(
                 "failed to get task output of Task {:?} in local execution mode",
@@ -146,8 +142,19 @@ impl TaskService for BatchServiceImpl {
             e
         })?;
         let (tx, rx) = tokio::sync::mpsc::channel(LOCAL_EXECUTE_BUFFER_SIZE);
+
         let mut writer = GrpcExchangeWriter::new(tx.clone());
-        output.take_data(&mut writer).await?;
+        let finish = output
+            .take_data_with_num(&mut writer, tx.capacity())
+            .await?;
+        if !finish {
+            self.mgr.runtime().spawn(async move {
+                match output.take_data(&mut writer).await {
+                    Ok(_) => Ok(()),
+                    Err(e) => tx.send(Err(e.into())).await,
+                }
+            });
+        }
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 }

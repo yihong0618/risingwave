@@ -5,17 +5,32 @@ set -euo pipefail
 
 source ci/scripts/common.env.sh
 
-echo "--- Generate RiseDev CI config"
-cp ci/risedev-components.ci.env risedev-components.user.env
+echo "--- Download artifacts"
+buildkite-agent artifact download risingwave_simulation .
+chmod +x ./risingwave_simulation
 
-echo "--- Build deterministic simulation e2e test runner"
-timeout 10m cargo make sslt --profile ci-dev -- --help
+export RUST_LOG=info
+export LOGDIR=.risingwave/log
+
+mkdir -p $LOGDIR
 
 echo "--- deterministic simulation e2e, ci-3cn-1fe, ddl"
-timeout 10s cargo make sslt --profile ci-dev -- './e2e_test/ddl/**/*.slt'
+seq 16 | parallel MADSIM_TEST_SEED={} './risingwave_simulation ./e2e_test/ddl/\*\*/\*.slt > $LOGDIR/ddl-{}.log && rm $LOGDIR/ddl-{}.log'
 
 echo "--- deterministic simulation e2e, ci-3cn-1fe, streaming"
-timeout 1m cargo make sslt --profile ci-dev -- './e2e_test/streaming/**/*.slt'
+seq 16 | parallel MADSIM_TEST_SEED={} './risingwave_simulation ./e2e_test/streaming/\*\*/\*.slt > $LOGDIR/streaming-{}.log && rm $LOGDIR/streaming-{}.log'
 
 echo "--- deterministic simulation e2e, ci-3cn-1fe, batch"
-timeout 10s cargo make sslt --profile ci-dev -- './e2e_test/batch/**/*.slt'
+seq 16 | parallel MADSIM_TEST_SEED={} './risingwave_simulation ./e2e_test/batch/\*\*/\*.slt > $LOGDIR/batch-{}.log && rm $LOGDIR/batch-{}.log'
+
+echo "--- deterministic simulation e2e, ci-3cn-1fe, kafka source"
+seq 16 | parallel MADSIM_TEST_SEED={} './risingwave_simulation ./e2e_test/source/kafka.slt > $LOGDIR/source-{}.log && rm $LOGDIR/source-{}.log'
+
+echo "--- deterministic simulation e2e, ci-3cn-2fe, parallel, streaming"
+seq 16 | parallel MADSIM_TEST_SEED={} './risingwave_simulation -j 16 ./e2e_test/streaming/\*\*/\*.slt > $LOGDIR/parallel-streaming-{}.log && rm $LOGDIR/parallel-streaming-{}.log'
+
+echo "--- deterministic simulation e2e, ci-3cn-2fe, parallel, batch"
+seq 16 | parallel MADSIM_TEST_SEED={} './risingwave_simulation -j 16 ./e2e_test/batch/\*\*/\*.slt > $LOGDIR/parallel-batch-{}.log && rm $LOGDIR/parallel-batch-{}.log'
+
+echo "--- deterministic simulation e2e, ci-3cn-1fe, fuzzing"
+seq 16 | parallel MADSIM_TEST_SEED={} './risingwave_simulation --sqlsmith 100 ./src/tests/sqlsmith/tests/testdata > $LOGDIR/fuzzing-{}.log && rm $LOGDIR/fuzzing-{}.log'

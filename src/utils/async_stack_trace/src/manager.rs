@@ -37,7 +37,7 @@ pub struct StackTraceReport {
 impl Default for StackTraceReport {
     fn default() -> Self {
         Self {
-            report: "<not reported>".to_string(),
+            report: "<initial>\n".to_string(),
             capture_time: std::time::Instant::now(),
         }
     }
@@ -54,6 +54,19 @@ impl std::fmt::Display for StackTraceReport {
     }
 }
 
+/// Configuration for a traced context.
+#[derive(Debug, Clone)]
+pub struct TraceConfig {
+    /// Whether to report the futures that are not able to be polled now.
+    pub report_detached: bool,
+
+    /// Whether to report the "verbose" stack trace.
+    pub verbose: bool,
+
+    /// The interval to report the stack trace.
+    pub interval: Duration,
+}
+
 /// Used to start a reporter along with the traced future.
 pub struct TraceReporter {
     /// Used to send the report periodically to the manager.
@@ -63,23 +76,24 @@ pub struct TraceReporter {
 impl TraceReporter {
     /// Provide a stack tracing context with the `root_span` for the given future. The reporter will
     /// be started along with this future in the current task and update the captured stack trace
-    /// report every `interval` time.
-    ///
-    /// If `report_detached` is true, the reporter will also report the futures that are not able to
-    /// be polled now.
+    /// report periodically.
     pub async fn trace<F: Future>(
         self,
         future: F,
         root_span: impl Into<SpanValue>,
-        report_detached: bool,
-        interval: Duration,
+        TraceConfig {
+            report_detached,
+            verbose,
+            interval,
+        }: TraceConfig,
     ) -> F::Output {
         TRACE_CONTEXT
             .scope(
-                TraceContext::new(root_span.into(), report_detached).into(),
+                TraceContext::new(root_span.into(), report_detached, verbose).into(),
                 async move {
                     let reporter = async move {
                         let mut interval = tokio::time::interval(interval);
+                        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
                         loop {
                             interval.tick().await;
                             let new_trace = with_context(|c| c.to_report());
@@ -97,8 +111,9 @@ impl TraceReporter {
                     };
 
                     tokio::select! {
+                        biased; // always prefer reporting
+                        _ = reporter => unreachable!(),
                         output = future => output,
-                        _ = reporter => unreachable!()
                     }
                 },
             )
@@ -116,7 +131,7 @@ impl<K> StackTraceManager<K>
 where
     K: std::hash::Hash + Eq + std::fmt::Debug,
 {
-    /// Register with given key. Returns a sender that should be provided to [`stack_traced`].
+    /// Register with given key. Returns a sender that can be called `trace` on.
     pub fn register(&mut self, key: K) -> TraceReporter {
         let (tx, rx) = watch::channel(Default::default());
         self.rxs.try_insert(key, rx).unwrap();
@@ -128,7 +143,7 @@ where
     /// Note that the reports might not be updated if the traced task is doing some computation
     /// heavy work and never yields, one may check how long the captured time has elapsed to confirm
     /// this.
-    pub fn get_all(&mut self) -> impl Iterator<Item = (&K, watch::Ref<StackTraceReport>)> {
+    pub fn get_all(&mut self) -> impl Iterator<Item = (&K, watch::Ref<'_, StackTraceReport>)> {
         self.rxs.retain(|_, rx| rx.has_changed().is_ok());
         self.rxs.iter_mut().map(|(k, v)| (k, v.borrow_and_update()))
     }

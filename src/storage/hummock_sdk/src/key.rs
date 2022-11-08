@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::cmp::Ordering;
 use std::ops::Bound::*;
 use std::ops::{Bound, RangeBounds};
 use std::{ptr, u64};
@@ -19,17 +20,14 @@ use std::{ptr, u64};
 use bytes::{Buf, BufMut, BytesMut};
 
 use super::version_cmp::VersionedComparator;
+use crate::HummockEpoch;
 
-pub type Epoch = u64;
-const EPOCH_LEN: usize = std::mem::size_of::<Epoch>();
-pub const TABLE_PREFIX_LEN: usize = 5;
+pub const EPOCH_LEN: usize = std::mem::size_of::<HummockEpoch>();
+pub const TABLE_PREFIX_LEN: usize = std::mem::size_of::<u32>();
 
-/// Converts user key to full key by appending `u64::MAX - epoch` to the user key.
-///
-/// In this way, the keys can be comparable even with the epoch, and a key with a larger
-/// epoch will be smaller and thus be sorted to an upper position.
-pub fn key_with_epoch(mut user_key: Vec<u8>, epoch: Epoch) -> Vec<u8> {
-    let res = (Epoch::MAX - epoch).to_be();
+/// Converts user key to full key by appending `epoch` to the user key.
+pub fn key_with_epoch(mut user_key: Vec<u8>, epoch: HummockEpoch) -> Vec<u8> {
+    let res = epoch.to_be();
     user_key.reserve(EPOCH_LEN);
     let buf = user_key.chunk_mut();
 
@@ -58,15 +56,15 @@ pub fn split_key_epoch(full_key: &[u8]) -> (&[u8], &[u8]) {
 
 /// Extracts epoch part from key
 #[inline(always)]
-pub fn get_epoch(full_key: &[u8]) -> Epoch {
-    let mut epoch: Epoch = 0;
+pub fn get_epoch(full_key: &[u8]) -> HummockEpoch {
+    let mut epoch: HummockEpoch = 0;
 
     // TODO: check whether this hack improves performance
     unsafe {
         let src = &full_key[full_key.len() - EPOCH_LEN..];
         ptr::copy_nonoverlapping(src.as_ptr(), &mut epoch as *mut _ as *mut u8, EPOCH_LEN);
     }
-    Epoch::MAX - Epoch::from_be(epoch)
+    HummockEpoch::from_be(epoch)
 }
 
 /// Extract user key without epoch part
@@ -74,26 +72,25 @@ pub fn user_key(full_key: &[u8]) -> &[u8] {
     split_key_epoch(full_key).0
 }
 
-/// Extract table id in key prefix
 #[inline(always)]
-pub fn get_table_id(full_key: &[u8]) -> Option<u32> {
-    if full_key[0] == b't' {
-        let mut buf = &full_key[1..];
-        Some(buf.get_u32())
+/// Extract user key without epoch part but allow empty slice
+pub fn get_user_key(full_key: &[u8]) -> Vec<u8> {
+    if full_key.is_empty() {
+        vec![]
     } else {
-        None
+        user_key(full_key).to_vec()
     }
 }
 
-pub fn extract_table_id_and_epoch(full_key: &[u8]) -> (Option<u32>, Epoch) {
-    match get_table_id(full_key) {
-        Some(table_id) => {
-            let epoch = get_epoch(full_key);
-            (Some(table_id), epoch)
-        }
+/// Extract table id in key prefix
+#[inline(always)]
+pub fn get_table_id(full_key: &[u8]) -> u32 {
+    let mut buf = full_key;
+    buf.get_u32()
+}
 
-        None => (None, 0),
-    }
+pub fn extract_table_id_and_epoch(full_key: &[u8]) -> (u32, HummockEpoch) {
+    (get_table_id(full_key), get_epoch(full_key))
 }
 
 // Copyright 2016 TiKV Project Authors. Licensed under Apache-2.0.
@@ -166,6 +163,114 @@ fn next_key_no_alloc(key: &[u8]) -> Option<(&[u8], u8)> {
 
 // End Copyright 2016 TiKV Project Authors. Licensed under Apache-2.0.
 
+/// compute the next epoch, and don't change the bytes of the u8 slice.
+/// # Examples
+///
+/// ```rust
+/// use risingwave_hummock_sdk::key::next_epoch;
+/// assert_eq!(next_epoch(b"123"), b"124");
+/// assert_eq!(next_epoch(b"\xff\x00\xff"), b"\xff\x01\x00");
+/// assert_eq!(next_epoch(b"\xff\xff"), b"\x00\x00");
+/// assert_eq!(next_epoch(b"\x00\x00"), b"\x00\x01");
+/// assert_eq!(next_epoch(b"S"), b"T");
+/// assert_eq!(next_epoch(b""), b"");
+/// ```
+pub fn next_epoch(epoch: &[u8]) -> Vec<u8> {
+    let pos = epoch.iter().rposition(|b| *b != 0xff);
+    match pos {
+        Some(mut pos) => {
+            let mut res = Vec::with_capacity(epoch.len());
+            res.extend_from_slice(&epoch[0..pos]);
+            res.push(epoch[pos] + 1);
+            while pos + 1 < epoch.len() {
+                res.push(0x00);
+                pos += 1;
+            }
+            res
+        }
+        None => {
+            vec![0x00; epoch.len()]
+        }
+    }
+}
+
+/// compute the prev epoch, and don't change the bytes of the u8 slice.
+/// # Examples
+///
+/// ```rust
+/// use risingwave_hummock_sdk::key::prev_epoch;
+/// assert_eq!(prev_epoch(b"124"), b"123");
+/// assert_eq!(prev_epoch(b"\xff\x01\x00"), b"\xff\x00\xff");
+/// assert_eq!(prev_epoch(b"\x00\x00"), b"\xff\xff");
+/// assert_eq!(prev_epoch(b"\x00\x01"), b"\x00\x00");
+/// assert_eq!(prev_epoch(b"T"), b"S");
+/// assert_eq!(prev_epoch(b""), b"");
+/// ```
+pub fn prev_epoch(epoch: &[u8]) -> Vec<u8> {
+    let pos = epoch.iter().rposition(|b| *b != 0x00);
+    match pos {
+        Some(mut pos) => {
+            let mut res = Vec::with_capacity(epoch.len());
+            res.extend_from_slice(&epoch[0..pos]);
+            res.push(epoch[pos] - 1);
+            while pos + 1 < epoch.len() {
+                res.push(0xff);
+                pos += 1;
+            }
+            res
+        }
+        None => {
+            vec![0xff; epoch.len()]
+        }
+    }
+}
+
+/// compute the next full key of the given full key
+///
+/// if the `user_key` has no successor key, the result will be a empty vec
+
+pub fn next_full_key(full_key: &[u8]) -> Vec<u8> {
+    let (user_key, epoch) = split_key_epoch(full_key);
+    let prev_epoch = prev_epoch(epoch);
+    let mut res = Vec::with_capacity(full_key.len());
+    if prev_epoch.cmp(&vec![0xff; prev_epoch.len()]) == Ordering::Equal {
+        let next_user_key = next_key(user_key);
+        if next_user_key.is_empty() {
+            return Vec::new();
+        }
+        res.extend_from_slice(next_user_key.as_slice());
+        res.extend_from_slice(prev_epoch.as_slice());
+        res
+    } else {
+        res.extend_from_slice(user_key);
+        res.extend_from_slice(prev_epoch.as_slice());
+        res
+    }
+}
+
+/// compute the prev full key of the given full key
+///
+/// if the `user_key` has no predecessor key, the result will be a empty vec
+
+pub fn prev_full_key(full_key: &[u8]) -> Vec<u8> {
+    let (user_key, epoch) = split_key_epoch(full_key);
+    let next_epoch = next_epoch(epoch);
+    let mut res = Vec::with_capacity(full_key.len());
+    if next_epoch.cmp(&vec![0x00; next_epoch.len()]) == Ordering::Equal {
+        let prev_user_key = prev_key(user_key);
+        if prev_user_key.cmp(&vec![0xff; prev_user_key.len()]) == Ordering::Equal {
+            return Vec::new();
+        }
+        res.extend_from_slice(prev_user_key.as_slice());
+        res.extend_from_slice(next_epoch.as_slice());
+        res
+    } else {
+        res.extend_from_slice(user_key);
+        res.extend_from_slice(next_epoch.as_slice());
+        res
+    }
+}
+
 /// Get the end bound of the given `prefix` when transforming it to a key range.
 pub fn end_bound_of_prefix(prefix: &[u8]) -> Bound<Vec<u8>> {
     if let Some((s, e)) = next_key_no_alloc(prefix) {
@@ -175,6 +280,18 @@ pub fn end_bound_of_prefix(prefix: &[u8]) -> Bound<Vec<u8>> {
         Excluded(res)
     } else {
         Unbounded
+    }
+}
+
+/// Get the start bound of the given `prefix` when it is excluded from the range.
+pub fn start_bound_of_excluded_prefix(prefix: &[u8]) -> Bound<Vec<u8>> {
+    if let Some((s, e)) = next_key_no_alloc(prefix) {
+        let mut res = Vec::with_capacity(s.len() + 1);
+        res.extend_from_slice(s);
+        res.push(e);
+        Included(res)
+    } else {
+        panic!("the prefix is the maximum value")
     }
 }
 
@@ -194,7 +311,11 @@ pub fn prefixed_range<B: AsRef<[u8]>>(
 ) -> (Bound<Vec<u8>>, Bound<Vec<u8>>) {
     let start = match range.start_bound() {
         Included(b) => Included([prefix, b.as_ref()].concat()),
-        Excluded(_) => unimplemented!(),
+        Excluded(b) => {
+            let b = b.as_ref();
+            assert!(!b.is_empty());
+            Excluded([prefix, b].concat())
+        }
         Unbounded => Included(prefix.to_vec()),
     };
 
@@ -213,14 +334,13 @@ pub fn prefixed_range<B: AsRef<[u8]>>(
 
 pub fn table_prefix(table_id: u32) -> Vec<u8> {
     let mut buf = BytesMut::with_capacity(TABLE_PREFIX_LEN);
-    buf.put_u8(b't');
     buf.put_u32(table_id);
     buf.to_vec()
 }
 
 /// [`FullKey`] can be created on either a `Vec<u8>` or a `&[u8]`.
 ///
-/// Its format is (`user_key`, `u64::MAX - epoch`).
+/// Its format is (`user_key`, `epoch`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FullKey<T: AsRef<[u8]>>(T);
 
@@ -289,5 +409,53 @@ mod tests {
         assert_eq!(prev_key(b"\x00\x01"), b"\x00\x00");
         assert_eq!(prev_key(b"T"), b"S");
         assert_eq!(prev_key(b""), b"");
+    }
+
+    #[test]
+    fn test_next_full_key() {
+        let user_key = b"aaa".to_vec();
+        let epoch: HummockEpoch = 3;
+        let mut full_key = key_with_epoch(user_key, epoch);
+        full_key = next_full_key(full_key.as_slice());
+        assert_eq!(full_key, key_with_epoch(b"aaa".to_vec(), 2));
+        full_key = next_full_key(full_key.as_slice());
+        assert_eq!(full_key, key_with_epoch(b"aaa".to_vec(), 1));
+        full_key = next_full_key(full_key.as_slice());
+        assert_eq!(full_key, key_with_epoch(b"aaa".to_vec(), 0));
+        full_key = next_full_key(full_key.as_slice());
+        assert_eq!(
+            full_key,
+            key_with_epoch("aab".as_bytes().to_vec(), HummockEpoch::MAX)
+        );
+        assert_eq!(
+            next_full_key(&key_with_epoch(b"\xff".to_vec(), 0)),
+            Vec::<u8>::new()
+        );
+    }
+
+    #[test]
+    fn test_prev_full_key() {
+        let user_key = b"aab";
+        let epoch: HummockEpoch = HummockEpoch::MAX - 3;
+        let mut full_key = key_with_epoch(user_key.to_vec(), epoch);
+        full_key = prev_full_key(full_key.as_slice());
+        assert_eq!(
+            full_key,
+            key_with_epoch(b"aab".to_vec(), HummockEpoch::MAX - 2)
+        );
+        full_key = prev_full_key(full_key.as_slice());
+        assert_eq!(
+            full_key,
+            key_with_epoch(b"aab".to_vec(), HummockEpoch::MAX - 1)
+        );
+        full_key = prev_full_key(full_key.as_slice());
+        assert_eq!(full_key, key_with_epoch(b"aab".to_vec(), HummockEpoch::MAX));
+        full_key = prev_full_key(full_key.as_slice());
+        assert_eq!(full_key, key_with_epoch(b"aaa".to_vec(), 0));
+
+        assert_eq!(
+            prev_full_key(&key_with_epoch(b"\x00".to_vec(), HummockEpoch::MAX)),
+            Vec::<u8>::new()
+        );
     }
 }

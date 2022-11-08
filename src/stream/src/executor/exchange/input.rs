@@ -21,11 +21,11 @@ use futures::{pin_mut, Stream};
 use futures_async_stream::try_stream;
 use pin_project::pin_project;
 use risingwave_common::bail;
-use risingwave_common::error::Result;
 use risingwave_common::util::addr::{is_local_address, HostAddr};
 use risingwave_rpc_client::ComputeClientPool;
 use tokio::sync::mpsc::Receiver;
 
+use crate::error::StreamResult;
 use crate::executor::error::StreamExecutorError;
 use crate::executor::monitor::StreamingMetrics;
 use crate::executor::*;
@@ -47,6 +47,14 @@ pub trait Input: MessageStream {
 
 pub type BoxedInput = Pin<Box<dyn Input>>;
 
+impl std::fmt::Debug for dyn Input {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Input")
+            .field("actor_id", &self.actor_id())
+            .finish_non_exhaustive()
+    }
+}
+
 /// `LocalInput` receives data from a local channel.
 #[pin_project]
 pub struct LocalInput {
@@ -58,23 +66,17 @@ pub struct LocalInput {
 type LocalInputStreamInner = impl MessageStream;
 
 impl LocalInput {
-    fn new(channel: Receiver<Message>, actor_id: ActorId) -> Self {
+    pub fn new(channel: Receiver<Message>, actor_id: ActorId) -> Self {
         Self {
             inner: Self::run(channel, actor_id),
             actor_id,
         }
     }
 
-    #[cfg(test)]
-    pub fn for_test(channel: Receiver<Message>) -> BoxedInput {
-        // `actor_id` is currently only used by configuration change, use a dummy value.
-        Self::new(channel, 0).boxed_input()
-    }
-
     #[try_stream(ok = Message, error = StreamExecutorError)]
     async fn run(mut channel: Receiver<Message>, actor_id: ActorId) {
         let span: SpanValue = format!("LocalInput (actor {actor_id})").into();
-        while let Some(msg) = channel.recv().stack_trace(span.clone()).await {
+        while let Some(msg) = channel.recv().verbose_stack_trace(span.clone()).await {
             yield msg;
         }
     }
@@ -153,7 +155,7 @@ impl RemoteInput {
         let span: SpanValue = format!("RemoteInput (actor {up_actor_id})").into();
 
         pin_mut!(stream);
-        while let Some(data_res) = stream.next().stack_trace(span.clone()).await {
+        while let Some(data_res) = stream.next().verbose_stack_trace(span.clone()).await {
             match data_res {
                 Ok(stream_msg) => {
                     let bytes = Message::get_encoded_len(&stream_msg);
@@ -188,7 +190,12 @@ impl RemoteInput {
                         Err(e) => bail!("RemoteInput decode message error: {}", e),
                     }
                 }
-                Err(e) => bail!("RemoteInput tonic error: {}", e),
+                Err(e) => {
+                    return Err(StreamExecutorError::channel_closed(format!(
+                        "RemoteInput tonic error: {}",
+                        e
+                    )))
+                }
             }
         }
     }
@@ -217,7 +224,7 @@ pub(crate) fn new_input(
     fragment_id: FragmentId,
     upstream_actor_id: ActorId,
     upstream_fragment_id: FragmentId,
-) -> Result<BoxedInput> {
+) -> StreamResult<BoxedInput> {
     let upstream_addr = context
         .get_actor_info(&upstream_actor_id)?
         .get_host()?

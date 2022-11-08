@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Ok, Result};
+use futures_async_stream::try_stream;
+use risingwave_common::bail;
 
 use crate::source::nexmark::config::NexmarkConfig;
 use crate::source::nexmark::source::event::{Event, EventType};
 use crate::source::nexmark::source::message::NexmarkMessage;
-use crate::source::SourceMessage;
+use crate::source::{SourceMessage, SplitId};
 
 #[derive(Clone, Debug)]
 pub struct NexmarkEventGenerator {
@@ -29,8 +30,7 @@ pub struct NexmarkEventGenerator {
     pub wall_clock_base_time: usize,
     pub split_index: i32,
     pub split_num: i32,
-    pub split_id: String,
-    pub last_event: Option<Event>,
+    pub split_id: SplitId,
     pub event_type: EventType,
     pub use_real_time: bool,
     pub min_event_gap_in_ns: u64,
@@ -38,79 +38,86 @@ pub struct NexmarkEventGenerator {
 }
 
 impl NexmarkEventGenerator {
-    pub async fn next(&mut self) -> Result<Vec<SourceMessage>> {
+    #[try_stream(ok = Vec<SourceMessage>, error = anyhow::Error)]
+    pub async fn into_stream(mut self) {
         if self.split_num == 0 {
-            return Err(anyhow::Error::msg(
-                "NexmarkEventGenerator is not ready".to_string(),
-            ));
+            bail!("NexmarkEventGenerator is not ready");
         }
-        let mut res: Vec<SourceMessage> = vec![];
-        let mut num_event = 0;
-        let old_events_so_far = self.events_so_far;
+        let mut last_event = None;
+        loop {
+            let mut msgs: Vec<SourceMessage> = vec![];
+            let old_events_so_far = self.events_so_far;
 
-        // Get unix timestamp in milliseconds
-        let current_timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+            // Get unix timestamp in milliseconds
+            let current_timestamp_ms = if self.use_real_time {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64
+            } else {
+                0
+            };
 
-        if let Some(event) = &self.last_event {
-            num_event += 1;
-            res.push(SourceMessage::from(NexmarkMessage::new(
-                self.split_id.clone(),
-                self.events_so_far as u64,
-                event.clone(),
-            )));
-        }
-        self.last_event = None;
+            if let Some(event) = last_event.take() {
+                msgs.push(
+                    NexmarkMessage::new(self.split_id.clone(), self.events_so_far, event).into(),
+                );
+            }
 
-        while num_event < self.max_chunk_size {
-            if self.event_num > 0 && self.events_so_far >= self.event_num as u64 {
+            let mut finished = false;
+
+            while (msgs.len() as u64) < self.max_chunk_size {
+                if self.event_num > 0 && self.events_so_far >= self.event_num as u64 {
+                    finished = true;
+                    break;
+                }
+
+                let (event, new_wall_clock_base_time) = Event::new(
+                    self.events_so_far as usize,
+                    &self.config,
+                    self.wall_clock_base_time,
+                );
+
+                self.wall_clock_base_time = new_wall_clock_base_time;
+                self.events_so_far += 1;
+
+                if event.event_type() != self.event_type
+                    || self.events_so_far % self.split_num as u64 != self.split_index as u64
+                {
+                    continue;
+                }
+
+                // When the generated timestamp is larger then current timestamp, if its the first
+                // event, sleep and continue. Otherwise, directly return.
+                if self.use_real_time && current_timestamp_ms < new_wall_clock_base_time as u64 {
+                    tokio::time::sleep(Duration::from_millis(
+                        new_wall_clock_base_time as u64 - current_timestamp_ms,
+                    ))
+                    .await;
+
+                    last_event = Some(event);
+                    break;
+                }
+
+                msgs.push(
+                    NexmarkMessage::new(self.split_id.clone(), self.events_so_far, event).into(),
+                );
+            }
+
+            if finished && msgs.is_empty() {
                 break;
+            } else {
+                yield msgs;
             }
 
-            let (event, new_wall_clock_base_time) = Event::new(
-                self.events_so_far as usize,
-                &self.config,
-                self.wall_clock_base_time,
-            );
-
-            self.wall_clock_base_time = new_wall_clock_base_time;
-            self.events_so_far += 1;
-
-            if event.event_type() != self.event_type
-                || self.events_so_far % self.split_num as u64 != self.split_index as u64
-            {
-                continue;
-            }
-
-            // When the generated timestamp is larger then current timestamp, if its the first
-            // event, sleep and continue. Otherwise, directly return.
-            if self.use_real_time && current_timestamp < new_wall_clock_base_time as u64 {
-                tokio::time::sleep(std::time::Duration::from_millis(
-                    new_wall_clock_base_time as u64 - current_timestamp,
+            if !self.use_real_time && self.min_event_gap_in_ns > 0 {
+                tokio::time::sleep(Duration::from_nanos(
+                    (self.events_so_far - old_events_so_far) * self.min_event_gap_in_ns,
                 ))
                 .await;
-
-                self.last_event = Some(event);
-                break;
             }
-
-            num_event += 1;
-            res.push(SourceMessage::from(NexmarkMessage::new(
-                self.split_id.clone(),
-                self.events_so_far as u64,
-                event,
-            )));
         }
 
-        if !self.use_real_time && self.min_event_gap_in_ns > 0 {
-            tokio::time::sleep(std::time::Duration::from_nanos(
-                (self.events_so_far - old_events_so_far) as u64 * self.min_event_gap_in_ns,
-            ))
-            .await;
-        }
-
-        Ok(res)
+        tracing::debug!(?self.event_type, "nexmark generator finished");
     }
 }

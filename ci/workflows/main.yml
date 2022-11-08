@@ -21,7 +21,7 @@ auto-retry: &auto-retry
 
 steps:
   - label: "build (release mode)"
-    command: "ci/scripts/build.sh -t release -p release"
+    command: "ci/scripts/build.sh -t ci-release -p ci-release"
     key: "build"
     plugins:
       - gencer/cache#v2.4.10: *cargo-cache
@@ -32,9 +32,23 @@ steps:
     timeout_in_minutes: 20
     retry: *auto-retry
 
+  - label: "docslt"
+    command: "ci/scripts/docslt.sh"
+    key: "docslt"
+    plugins:
+      - gencer/cache#v2.4.10: *cargo-cache
+      - docker-compose#v3.9.0:
+          run: rw-build-env
+          config: ci/docker-compose.yml
+          mount-buildkite-agent: true
+    timeout_in_minutes: 10
+    retry: *auto-retry
+
   - label: "end-to-end test (release mode)"
-    command: "ci/scripts/e2e-test.sh -p release"
-    depends_on: "build"
+    command: "ci/scripts/e2e-test.sh -p ci-release"
+    depends_on:
+      - "build"
+      - "docslt"
     plugins:
       - gencer/cache#v2.4.10: *cargo-cache
       - seek-oss/aws-sm#v2.3.1:
@@ -50,23 +64,30 @@ steps:
       - ./ci/plugins/upload-failure-logs
     timeout_in_minutes: 10
     retry: *auto-retry
-
-  - label: "end-to-end test (async stack trace) (release mode)"
-    command: "RW_ASYNC_STACK_TRACE=true ci/scripts/e2e-test.sh -p release"
-    depends_on: "build"
-    plugins:
-      - gencer/cache#v2.4.10: *cargo-cache
-      - docker-compose#v3.9.0:
-          run: rw-build-env
-          config: ci/docker-compose.yml
-          mount-buildkite-agent: true
-      - ./ci/plugins/upload-failure-logs
-    timeout_in_minutes: 10
-    retry: *auto-retry
-    soft_fail: true
 
   - label: "end-to-end test (parallel) (release mode)"
-    command: "ci/scripts/e2e-test-parallel.sh -p release"
+    command: "ci/scripts/e2e-test-parallel.sh -p ci-release"
+    depends_on:
+      - "build"
+      - "docslt"
+    plugins:
+      - gencer/cache#v2.4.10: *cargo-cache
+      - seek-oss/aws-sm#v2.3.1:
+          env:
+            BUILDKITE_ANALYTICS_TOKEN: buildkite-build-analytics-sqllogictest-token
+      - docker-compose#v3.9.0:
+          run: rw-build-env
+          config: ci/docker-compose.yml
+          mount-buildkite-agent: true
+      - test-collector#v1.0.0:
+          files: "*-junit.xml"
+          format: "junit"
+      - ./ci/plugins/upload-failure-logs
+    timeout_in_minutes: 10
+    retry: *auto-retry
+
+  - label: "end-to-end test (parallel, in-memory) (release mode)"
+    command: "ci/scripts/e2e-test-parallel-in-memory.sh -p ci-release"
     depends_on: "build"
     plugins:
       - gencer/cache#v2.4.10: *cargo-cache
@@ -83,24 +104,23 @@ steps:
       - ./ci/plugins/upload-failure-logs
     timeout_in_minutes: 10
     retry: *auto-retry
-    soft_fail: true
 
   - label: "release"
     command: "ci/scripts/release.sh"
     if: build.tag != null
-    depends_on: "build"
     plugins:
       - seek-oss/aws-sm#v2.3.1:
           env:
             GITHUB_TOKEN: github-token
+      - gencer/cache#v2.4.10: *cargo-cache
       - docker-compose#v3.9.0:
-          run: rw-build-env
+          run: release-env
           config: ci/docker-compose.yml
           mount-buildkite-agent: true
           environment:
             - GITHUB_TOKEN
             - BUILDKITE_TAG
-    timeout_in_minutes: 5
+    timeout_in_minutes: 20
     retry: *auto-retry
 
   - label: "release docker image: amd64"
@@ -108,12 +128,13 @@ steps:
     key: "build-amd64"
     if: build.tag != null
     env:
-      PUSH_GHCR: true
+      PUSH: true
     plugins:
       - seek-oss/aws-sm#v2.3.1:
           env:
             GHCR_USERNAME: ghcr-username
             GHCR_TOKEN: ghcr-token
+            DOCKER_TOKEN: docker-token
     timeout_in_minutes: 25
     retry: *auto-retry
 
@@ -122,12 +143,13 @@ steps:
     key: "build-aarch64"
     if: build.tag != null
     env:
-      PUSH_GHCR: true
+      PUSH: true
     plugins:
       - seek-oss/aws-sm#v2.3.1:
           env:
             GHCR_USERNAME: ghcr-username
             GHCR_TOKEN: ghcr-token
+            DOCKER_TOKEN: docker-token
     timeout_in_minutes: 25
     retry: *auto-retry
     agents:
@@ -144,5 +166,6 @@ steps:
           env:
             GHCR_USERNAME: ghcr-username
             GHCR_TOKEN: ghcr-token
+            DOCKER_TOKEN: docker-token
     timeout_in_minutes: 10
     retry: *auto-retry

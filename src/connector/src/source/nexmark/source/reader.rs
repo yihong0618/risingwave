@@ -16,17 +16,21 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use futures::StreamExt;
 
 use crate::source::nexmark::config::NexmarkConfig;
 use crate::source::nexmark::source::event::EventType;
 use crate::source::nexmark::source::generator::NexmarkEventGenerator;
 use crate::source::nexmark::{NexmarkProperties, NexmarkSplit};
-use crate::source::{Column, ConnectorState, SourceMessage, SplitImpl, SplitMetaData, SplitReader};
+use crate::source::{
+    spawn_data_generation_stream, BoxSourceStream, Column, ConnectorState, SplitImpl,
+    SplitMetaData, SplitReader,
+};
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct NexmarkSplitReader {
     generator: NexmarkEventGenerator,
-    assigned_split: Option<NexmarkSplit>,
+    assigned_split: NexmarkSplit,
 }
 
 #[async_trait]
@@ -37,10 +41,7 @@ impl SplitReader for NexmarkSplitReader {
         properties: NexmarkProperties,
         state: ConnectorState,
         _columns: Option<Vec<Column>>,
-    ) -> Result<Self>
-    where
-        Self: Sized,
-    {
+    ) -> Result<Self> {
         let wall_clock_base_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -71,8 +72,7 @@ impl SplitReader for NexmarkSplitReader {
             event_num,
             split_index: 0,
             split_num: 0,
-            split_id: String::new(),
-            last_event: None,
+            split_id: "".into(),
             event_type,
             use_real_time,
             min_event_gap_in_ns,
@@ -82,9 +82,9 @@ impl SplitReader for NexmarkSplitReader {
         let mut assigned_split = NexmarkSplit::default();
 
         if let Some(splits) = state {
-            log::debug!("Splits for nexmark found! {:?}", splits);
+            tracing::debug!("Splits for nexmark found! {:?}", splits);
             for split in splits {
-                // TODO: currently, assume there's only on split in one reader
+                // TODO: currently, assume there's only one split in one reader
                 let split_id = split.id();
                 if let SplitImpl::Nexmark(n) = split {
                     generator.split_index = n.split_index;
@@ -101,21 +101,17 @@ impl SplitReader for NexmarkSplitReader {
 
         Ok(Self {
             generator,
-            assigned_split: Some(assigned_split),
+            assigned_split,
         })
     }
 
-    async fn next(&mut self) -> Result<Option<Vec<SourceMessage>>> {
-        let chunk = match self.generator.next().await {
-            Err(e) => return Err(anyhow!(e)),
-            Ok(chunk) => chunk,
-        };
-
-        Ok(Some(chunk))
+    fn into_stream(self) -> BoxSourceStream {
+        // Will buffer at most 4 event chunks.
+        const BUFFER_SIZE: usize = 4;
+        spawn_data_generation_stream(self.generator.into_stream(), BUFFER_SIZE).boxed()
     }
 }
 
-impl NexmarkSplitReader {}
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
@@ -143,9 +139,10 @@ mod tests {
             .collect();
 
         let state = Some(list_splits_resp);
-        let mut reader = NexmarkSplitReader::new(props, state, None).await?;
-        let chunk = reader.next().await?.unwrap();
-        assert_eq!(chunk.len(), 5);
+        let mut reader = NexmarkSplitReader::new(props, state, None)
+            .await?
+            .into_stream();
+        let _chunk = reader.next().await.unwrap()?;
 
         Ok(())
     }

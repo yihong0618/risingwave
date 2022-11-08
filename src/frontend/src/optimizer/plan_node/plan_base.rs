@@ -41,6 +41,29 @@ pub struct PlanBase {
     pub functional_dependency: FunctionalDependencySet,
 }
 
+impl generic::GenericPlanRef for PlanBase {
+    fn schema(&self) -> &Schema {
+        &self.schema
+    }
+
+    fn logical_pk(&self) -> &[usize] {
+        &self.logical_pk
+    }
+
+    fn ctx(&self) -> OptimizerContextRef {
+        self.ctx.clone()
+    }
+}
+
+impl stream::StreamPlanRef for PlanBase {
+    fn distribution(&self) -> &Distribution {
+        &self.dist
+    }
+
+    fn append_only(&self) -> bool {
+        self.append_only
+    }
+}
 impl PlanBase {
     pub fn new_logical(
         ctx: OptimizerContextRef,
@@ -66,11 +89,11 @@ impl PlanBase {
         ctx: OptimizerContextRef,
         schema: Schema,
         logical_pk: Vec<usize>,
+        functional_dependency: FunctionalDependencySet,
         dist: Distribution,
         append_only: bool,
     ) -> Self {
         let id = ctx.next_plan_node_id();
-        let functional_dependency = FunctionalDependencySet::new(schema.len());
         Self {
             id,
             ctx,
@@ -105,14 +128,14 @@ impl PlanBase {
     }
 }
 macro_rules! impl_base_delegate {
-    ([], $( { $convention:ident, $name:ident }),*) => {
+    ($( { $convention:ident, $name:ident }),*) => {
         $(paste! {
             impl [<$convention $name>] {
                 pub fn id(&self) -> PlanNodeId {
                     self.plan_base().id
                 }
                  pub fn ctx(&self) -> OptimizerContextRef {
-                    self.plan_base().ctx.clone()
+                    self.plan_base().ctx()
                 }
                 pub fn schema(&self) -> &Schema {
                     &self.plan_base().schema

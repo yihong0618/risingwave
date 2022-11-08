@@ -18,13 +18,13 @@ mod physical_table;
 mod schema;
 pub mod test_utils;
 
-use core::fmt;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 pub use column::*;
 pub use internal_table::*;
+use parse_display::Display;
 pub use physical_table::*;
 pub use schema::{test_utils as schema_test_utils, Field, FieldDisplay, Schema};
 
@@ -85,7 +85,7 @@ impl SchemaId {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Hash, PartialOrd, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Display, Default, Hash, PartialOrd, PartialEq, Eq, Ord)]
 pub struct TableId {
     pub table_id: u32,
 }
@@ -112,15 +112,16 @@ impl From<u32> for TableId {
         Self::new(id)
     }
 }
-impl From<TableId> for u32 {
-    fn from(id: TableId) -> Self {
-        id.table_id
+
+impl From<&u32> for TableId {
+    fn from(id: &u32) -> Self {
+        Self::new(*id)
     }
 }
 
-impl fmt::Display for TableId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.table_id,)
+impl From<TableId> for u32 {
+    fn from(id: TableId) -> Self {
+        id.table_id
     }
 }
 
@@ -134,7 +135,7 @@ pub struct TableOption {
 impl From<&risingwave_pb::hummock::TableOption> for TableOption {
     fn from(table_option: &risingwave_pb::hummock::TableOption) -> Self {
         let retention_seconds =
-            if table_option.retention_seconds == hummock::TABLE_OPTION_DUMMY_RETAINTION_SECOND {
+            if table_option.retention_seconds == hummock::TABLE_OPTION_DUMMY_RETENTION_SECOND {
                 None
             } else {
                 Some(table_option.retention_seconds)
@@ -149,7 +150,7 @@ impl From<&TableOption> for risingwave_pb::hummock::TableOption {
         Self {
             retention_seconds: table_option
                 .retention_seconds
-                .unwrap_or(hummock::TABLE_OPTION_DUMMY_RETAINTION_SECOND),
+                .unwrap_or(hummock::TABLE_OPTION_DUMMY_RETENTION_SECOND),
         }
     }
 }
@@ -158,7 +159,7 @@ impl TableOption {
     pub fn build_table_option(table_properties: &HashMap<String, String>) -> Self {
         // now we only support ttl for TableOption
         let mut result = TableOption::default();
-        if let Some(ttl_string) = table_properties.get(hummock::PROPERTIES_RETAINTION_SECOND_KEY) {
+        if let Some(ttl_string) = table_properties.get(hummock::PROPERTIES_RETENTION_SECOND_KEY) {
             match ttl_string.trim().parse::<u32>() {
                 Ok(retention_seconds_u32) => result.retention_seconds = Some(retention_seconds_u32),
                 Err(e) => {
@@ -176,7 +177,7 @@ impl TableOption {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Hash, PartialOrd, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Display, Default, Hash, PartialOrd, PartialEq, Eq)]
 pub struct IndexId {
     pub index_id: u32,
 }
@@ -206,11 +207,5 @@ impl From<u32> for IndexId {
 impl From<IndexId> for u32 {
     fn from(id: IndexId) -> Self {
         id.index_id
-    }
-}
-
-impl fmt::Display for IndexId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.index_id,)
     }
 }

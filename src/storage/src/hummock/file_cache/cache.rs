@@ -23,7 +23,8 @@ use tokio::sync::Notify;
 use super::buffer::TwoLevelBuffer;
 use super::error::Result;
 use super::meta::SlotId;
-use super::store::{Store, StoreOptions, StoreRef};
+use super::metrics::FileCacheMetricsRef;
+use super::store::{FsType, Store, StoreOptions, StoreRef};
 use super::{utils, LRU_SHARD_BITS};
 use crate::hummock::{HashBuilder, TieredCacheEntryHolder, TieredCacheKey, TieredCacheValue};
 
@@ -32,6 +33,8 @@ pub struct FileCacheOptions {
     pub capacity: usize,
     pub total_buffer_capacity: usize,
     pub cache_file_fallocate_unit: usize,
+    pub cache_meta_fallocate_unit: usize,
+    pub cache_file_max_write_size: usize,
 
     pub flush_buffer_hooks: Vec<Arc<dyn FlushBufferHook>>,
 }
@@ -91,6 +94,8 @@ where
             if batch.is_empty() {
                 // Avoid allocate a new buffer.
                 self.buffer.swap();
+                // Trigger clear free list.
+                batch.finish().await?;
             } else {
                 let (keys, slots) = batch.finish().await?;
 
@@ -132,6 +137,8 @@ where
 
     buffer: TwoLevelBuffer<K, V>,
     buffer_flusher_notifier: Arc<Notify>,
+
+    metrics: FileCacheMetricsRef,
 }
 
 impl<K, V, S> Clone for FileCache<K, V, S>
@@ -147,6 +154,7 @@ where
             store: self.store.clone(),
             buffer: self.buffer.clone(),
             buffer_flusher_notifier: self.buffer_flusher_notifier.clone(),
+            metrics: self.metrics.clone(),
         }
     }
 }
@@ -156,9 +164,9 @@ where
     K: TieredCacheKey,
     V: TieredCacheValue,
 {
-    pub async fn open(options: FileCacheOptions) -> Result<Self> {
+    pub async fn open(options: FileCacheOptions, metrics: FileCacheMetricsRef) -> Result<Self> {
         let hash_builder = RandomState::new();
-        Self::open_with_hasher(options, hash_builder).await
+        Self::open_with_hasher(options, hash_builder, metrics).await
     }
 }
 
@@ -168,7 +176,11 @@ where
     V: TieredCacheValue,
     S: HashBuilder,
 {
-    pub async fn open_with_hasher(options: FileCacheOptions, hash_builder: S) -> Result<Self> {
+    pub async fn open_with_hasher(
+        options: FileCacheOptions,
+        hash_builder: S,
+        metrics: FileCacheMetricsRef,
+    ) -> Result<Self> {
         let buffer_capacity = options.total_buffer_capacity / 2;
 
         let store = Store::open(StoreOptions {
@@ -176,6 +188,9 @@ where
             capacity: options.capacity,
             buffer_capacity,
             cache_file_fallocate_unit: options.cache_file_fallocate_unit,
+            cache_meta_fallocate_unit: options.cache_meta_fallocate_unit,
+            cache_file_max_write_size: options.cache_file_max_write_size,
+            metrics: metrics.clone(),
         })
         .await?;
         let store = Arc::new(store);
@@ -185,7 +200,7 @@ where
             options.capacity,
             store.clone(),
         ));
-        store.restore(&indices, &hash_builder)?;
+        store.restore(&indices, &hash_builder).await?;
 
         let buffer = TwoLevelBuffer::new(buffer_capacity);
         let buffer_flusher_notifier = Arc::new(Notify::new());
@@ -216,20 +231,31 @@ where
 
             buffer,
             buffer_flusher_notifier,
+
+            metrics,
         })
     }
 
     pub fn insert(&self, key: K, value: V) -> Result<()> {
+        let timer = self.metrics.insert_latency.start_timer();
+
         let hash = self.hash_builder.hash_one(&key);
         self.buffer.insert(hash, key, value.len(), value);
 
         self.buffer_flusher_notifier.notify_one();
+
+        timer.observe_duration();
+
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn get(&self, key: &K) -> Result<Option<TieredCacheEntryHolder<K, V>>> {
+        let timer = self.metrics.get_latency.start_timer();
+
         let hash = self.hash_builder.hash_one(key);
         if let Some(holder) = self.buffer.get(hash, key) {
+            timer.observe_duration();
             return Ok(Some(holder));
         }
 
@@ -237,13 +263,21 @@ where
             let slot = *entry.value();
             let raw = self.store.get(slot).await?;
             let value = V::decode(raw);
+
+            timer.observe_duration();
+
             return Ok(Some(TieredCacheEntryHolder::from_owned_value(value)));
         }
+
+        timer.observe_duration();
+        self.metrics.cache_miss.inc();
 
         Ok(None)
     }
 
     pub fn erase(&self, key: &K) -> Result<()> {
+        let timer = self.metrics.erase_latency.start_timer();
+
         let hash = self.hash_builder.hash_one(key);
         self.buffer.erase(hash, key);
 
@@ -253,7 +287,13 @@ where
             self.store.erase(slot).unwrap();
         }
 
+        timer.observe_duration();
+
         Ok(())
+    }
+
+    pub fn fs_type(&self) -> FsType {
+        self.store.fs_type()
     }
 }
 
@@ -263,9 +303,12 @@ mod tests {
     use std::collections::HashMap;
     use std::path::Path;
 
+    use prometheus::Registry;
+
     use super::super::test_utils::{datasize, key, FlushHolder, ModuloHasherBuilder, TestCacheKey};
     use super::super::utils;
     use super::*;
+    use crate::hummock::file_cache::metrics::FileCacheMetrics;
     use crate::hummock::file_cache::test_utils::TestCacheValue;
 
     const SHARDS: usize = 1 << LRU_SHARD_BITS;
@@ -308,12 +351,18 @@ mod tests {
             capacity: CAPACITY,
             total_buffer_capacity: 2 * BUFFER_CAPACITY,
             cache_file_fallocate_unit: FALLOCATE_UNIT,
+            cache_meta_fallocate_unit: 1024 * 1024, // 1 MiB
+            cache_file_max_write_size: 4 * 1024 * 1024, // 4 MiB
 
             flush_buffer_hooks,
         };
-        FileCache::open_with_hasher(options, ModuloHasherBuilder)
-            .await
-            .unwrap()
+        FileCache::open_with_hasher(
+            options,
+            ModuloHasherBuilder,
+            Arc::new(FileCacheMetrics::new(Registry::new())),
+        )
+        .await
+        .unwrap()
     }
 
     #[tokio::test]
@@ -422,6 +471,11 @@ mod tests {
             holder.trigger();
             holder.wait().await;
         }
+
+        // Trigger free last free list.
+        cache.buffer_flusher_notifier.notify_one();
+        holder.trigger();
+        holder.wait().await;
 
         assert_eq!(cache.store.cache_file_len(), 9 * SHARDS * BS);
         assert_eq!(

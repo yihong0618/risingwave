@@ -14,13 +14,15 @@
 
 pub mod pg_cast;
 pub mod pg_class;
+pub mod pg_index;
 pub mod pg_matviews_info;
 pub mod pg_namespace;
+pub mod pg_opclass;
 pub mod pg_type;
 pub mod pg_user;
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
 use itertools::Itertools;
@@ -36,8 +38,10 @@ use crate::catalog::catalog_service::CatalogReader;
 use crate::catalog::column_catalog::ColumnCatalog;
 use crate::catalog::pg_catalog::pg_cast::*;
 use crate::catalog::pg_catalog::pg_class::*;
+use crate::catalog::pg_catalog::pg_index::*;
 use crate::catalog::pg_catalog::pg_matviews_info::*;
 use crate::catalog::pg_catalog::pg_namespace::*;
+use crate::catalog::pg_catalog::pg_opclass::*;
 use crate::catalog::pg_catalog::pg_type::*;
 use crate::catalog::pg_catalog::pg_user::*;
 use crate::catalog::system_catalog::SystemCatalog;
@@ -89,6 +93,8 @@ impl SysCatalogReader for SysCatalogReaderImpl {
             PG_MATVIEWS_INFO_TABLE_NAME => self.read_mviews_info().await,
             PG_USER_TABLE_NAME => self.read_user_info(),
             PG_CLASS_TABLE_NAME => self.read_class_info(),
+            PG_INDEX_TABLE_NAME => self.read_index_info(),
+            PG_OPCLASS_TABLE_NAME => self.read_opclass_info(),
             _ => {
                 Err(ErrorCode::ItemNotFound(format!("Invalid system table: {}", table_name)).into())
             }
@@ -106,7 +112,7 @@ fn get_acl_items(
     let mut empty_flag = true;
     let super_privilege = available_prost_privilege(object.clone());
     for user in users {
-        let privileges = if user.get_is_supper() {
+        let privileges = if user.get_is_super() {
             vec![&super_privilege]
         } else {
             user.get_grant_privileges()
@@ -198,12 +204,17 @@ impl SysCatalogReaderImpl {
                     Some(ScalarImpl::Int32(user.id as i32)),
                     Some(ScalarImpl::Utf8(user.name.clone())),
                     Some(ScalarImpl::Bool(user.can_create_db)),
-                    Some(ScalarImpl::Bool(user.is_supper)),
+                    Some(ScalarImpl::Bool(user.is_super)),
                     // compatible with PG.
                     Some(ScalarImpl::Utf8("********".to_string())),
                 ])
             })
             .collect_vec())
+    }
+
+    // FIXME(noel): Tracked by <https://github.com/risingwavelabs/risingwave/issues/3431#issuecomment-1164160988>
+    fn read_opclass_info(&self) -> Result<Vec<Row>> {
+        Ok(vec![])
     }
 
     fn read_class_info(&self) -> Result<Vec<Row>> {
@@ -222,7 +233,7 @@ impl SysCatalogReaderImpl {
                             Some(ScalarImpl::Utf8(table.name.clone())),
                             Some(ScalarImpl::Int32(schema_info.id as i32)),
                             Some(ScalarImpl::Int32(table.owner as i32)),
-                            Some(ScalarImpl::Utf8("table".to_string())),
+                            Some(ScalarImpl::Utf8("r".to_string())),
                         ])
                     })
                     .collect_vec();
@@ -235,7 +246,7 @@ impl SysCatalogReaderImpl {
                             Some(ScalarImpl::Utf8(mv.name.clone())),
                             Some(ScalarImpl::Int32(schema_info.id as i32)),
                             Some(ScalarImpl::Int32(mv.owner as i32)),
-                            Some(ScalarImpl::Utf8("materialized view".to_string())),
+                            Some(ScalarImpl::Utf8("m".to_string())),
                         ])
                     })
                     .collect_vec();
@@ -248,7 +259,7 @@ impl SysCatalogReaderImpl {
                             Some(ScalarImpl::Utf8(index.name.clone())),
                             Some(ScalarImpl::Int32(schema_info.id as i32)),
                             Some(ScalarImpl::Int32(index.index_table.owner as i32)),
-                            Some(ScalarImpl::Utf8("index".to_string())),
+                            Some(ScalarImpl::Utf8("i".to_string())),
                         ])
                     })
                     .collect_vec();
@@ -261,7 +272,7 @@ impl SysCatalogReaderImpl {
                             Some(ScalarImpl::Utf8(source.name.clone())),
                             Some(ScalarImpl::Int32(schema_info.id as i32)),
                             Some(ScalarImpl::Int32(source.owner as i32)),
-                            Some(ScalarImpl::Utf8("source".to_string())),
+                            Some(ScalarImpl::Utf8("x".to_string())),
                         ])
                     })
                     .collect_vec();
@@ -274,7 +285,7 @@ impl SysCatalogReaderImpl {
                             Some(ScalarImpl::Utf8(table.name.clone())),
                             Some(ScalarImpl::Int32(schema_info.id as i32)),
                             Some(ScalarImpl::Int32(table.owner as i32)),
-                            Some(ScalarImpl::Utf8("system table".to_string())),
+                            Some(ScalarImpl::Utf8("r".to_string())),
                         ])
                     })
                     .collect_vec();
@@ -285,6 +296,23 @@ impl SysCatalogReaderImpl {
                     .chain(sources.into_iter())
                     .chain(sys_tables.into_iter())
                     .collect_vec()
+            })
+            .collect_vec())
+    }
+
+    fn read_index_info(&self) -> Result<Vec<Row>> {
+        let reader = self.catalog_reader.read_guard();
+        let schemas = reader.iter_schemas(&self.auth_context.database)?;
+
+        Ok(schemas
+            .flat_map(|schema| {
+                schema.iter_index().map(|index| {
+                    Row::new(vec![
+                        Some(ScalarImpl::Int32(index.id.index_id() as i32)),
+                        Some(ScalarImpl::Int32(index.primary_table.id.table_id() as i32)),
+                        Some(ScalarImpl::Int16(index.index_item.len() as i16)),
+                    ])
+                })
             })
             .collect_vec())
     }
@@ -320,6 +348,7 @@ impl SysCatalogReaderImpl {
                             Some(ScalarImpl::Utf8(schema.clone())),
                             Some(ScalarImpl::Int32(t.owner as i32)),
                             Some(ScalarImpl::Utf8(json!(fragments).to_string())),
+                            Some(ScalarImpl::Utf8(t.definition.clone())),
                         ]));
                     }
                 });
@@ -358,19 +387,20 @@ macro_rules! def_sys_catalog {
     };
 }
 
-lazy_static::lazy_static! {
-    /// `PG_CATALOG_MAP` includes all system catalogs. If you added a new system catalog, be
-    /// sure to add a corresponding entry here.
-    pub(crate) static ref PG_CATALOG_MAP: HashMap<String, SystemCatalog> =
-        [
-            (PG_TYPE_TABLE_NAME.to_string(), def_sys_catalog!(1, PG_TYPE_TABLE_NAME, PG_TYPE_COLUMNS)),
-            (PG_NAMESPACE_TABLE_NAME.to_string(), def_sys_catalog!(2, PG_NAMESPACE_TABLE_NAME, PG_NAMESPACE_COLUMNS)),
-            (PG_CAST_TABLE_NAME.to_string(), def_sys_catalog!(3, PG_CAST_TABLE_NAME, PG_CAST_COLUMNS)),
-            (PG_MATVIEWS_INFO_TABLE_NAME.to_string(), def_sys_catalog!(4, PG_MATVIEWS_INFO_TABLE_NAME, PG_MATVIEWS_INFO_COLUMNS)),
-            (PG_USER_TABLE_NAME.to_string(), def_sys_catalog!(5, PG_USER_TABLE_NAME, PG_USER_COLUMNS)),
-            (PG_CLASS_TABLE_NAME.to_string(), def_sys_catalog!(6, PG_CLASS_TABLE_NAME, PG_CLASS_COLUMNS))
-        ].into();
-}
+/// `PG_CATALOG_MAP` includes all system catalogs. If you added a new system catalog, be
+/// sure to add a corresponding entry here.
+pub(crate) static PG_CATALOG_MAP: LazyLock<HashMap<String, SystemCatalog>> = LazyLock::new(|| {
+    maplit::hashmap! {
+        PG_TYPE_TABLE_NAME.to_string() => def_sys_catalog!(1, PG_TYPE_TABLE_NAME, PG_TYPE_COLUMNS),
+        PG_NAMESPACE_TABLE_NAME.to_string() => def_sys_catalog!(2, PG_NAMESPACE_TABLE_NAME, PG_NAMESPACE_COLUMNS),
+        PG_CAST_TABLE_NAME.to_string() => def_sys_catalog!(3, PG_CAST_TABLE_NAME, PG_CAST_COLUMNS),
+        PG_MATVIEWS_INFO_TABLE_NAME.to_string() => def_sys_catalog!(4, PG_MATVIEWS_INFO_TABLE_NAME, PG_MATVIEWS_INFO_COLUMNS),
+        PG_USER_TABLE_NAME.to_string() => def_sys_catalog!(5, PG_USER_TABLE_NAME, PG_USER_COLUMNS),
+        PG_CLASS_TABLE_NAME.to_string() => def_sys_catalog!(6, PG_CLASS_TABLE_NAME, PG_CLASS_COLUMNS),
+        PG_INDEX_TABLE_NAME.to_string() => def_sys_catalog!(7, PG_INDEX_TABLE_NAME, PG_INDEX_COLUMNS),
+        PG_OPCLASS_TABLE_NAME.to_string() => def_sys_catalog!(8, PG_OPCLASS_TABLE_NAME, PG_OPCLASS_COLUMNS),
+    }
+});
 
 pub fn get_all_pg_catalogs() -> Vec<SystemCatalog> {
     PG_CATALOG_MAP.values().cloned().collect()

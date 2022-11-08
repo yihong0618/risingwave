@@ -29,7 +29,7 @@ pub trait SimpleExecutor: Send + 'static {
     fn schema(&self) -> &Schema;
 
     /// See [`super::Executor::pk_indices`].
-    fn pk_indices(&self) -> PkIndicesRef;
+    fn pk_indices(&self) -> PkIndicesRef<'_>;
 
     /// See [`super::Executor::identity`].
     fn identity(&self) -> &str;
@@ -49,7 +49,7 @@ where
         self.inner.schema()
     }
 
-    fn pk_indices(&self) -> PkIndicesRef {
+    fn pk_indices(&self) -> PkIndicesRef<'_> {
         self.inner.pk_indices()
     }
 
@@ -74,6 +74,9 @@ where
         for msg in input {
             let msg = msg?;
             match msg {
+                Message::Watermark(_) => {
+                    todo!("https://github.com/risingwavelabs/risingwave/issues/6042")
+                }
                 Message::Chunk(chunk) => match inner.map_filter_chunk(chunk)? {
                     Some(new_chunk) => yield Message::Chunk(new_chunk),
                     None => continue,

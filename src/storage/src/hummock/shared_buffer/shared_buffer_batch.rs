@@ -16,27 +16,30 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering::Relaxed;
+use std::sync::{Arc, LazyLock};
 
 use bytes::Bytes;
-use risingwave_hummock_sdk::CompactionGroupId;
-use tokio::sync::mpsc;
-use tracing::error;
+use risingwave_common::catalog::TableId;
+use risingwave_hummock_sdk::key::FullKey;
 
 use crate::hummock::iterator::{
     Backward, DirectionEnum, Forward, HummockIterator, HummockIteratorDirection,
 };
-use crate::hummock::shared_buffer::SharedBufferEvent;
-use crate::hummock::shared_buffer::SharedBufferEvent::BufferRelease;
+use crate::hummock::utils::MemoryTracker;
 use crate::hummock::value::HummockValue;
-use crate::hummock::{key, HummockEpoch, HummockResult};
+use crate::hummock::{key, HummockEpoch, HummockResult, MemoryLimiter};
+use crate::storage_value::StorageValue;
 
 pub(crate) type SharedBufferItem = (Bytes, HummockValue<Bytes>);
+pub type SharedBufferBatchId = u64;
 
 pub(crate) struct SharedBufferBatchInner {
     payload: Vec<SharedBufferItem>,
     size: usize,
-    buffer_release_notifier: mpsc::UnboundedSender<SharedBufferEvent>,
+    _tracker: Option<MemoryTracker>,
+    batch_id: SharedBufferBatchId,
 }
 
 impl Deref for SharedBufferBatchInner {
@@ -44,17 +47,6 @@ impl Deref for SharedBufferBatchInner {
 
     fn deref(&self) -> &Self::Target {
         self.payload.as_slice()
-    }
-}
-
-impl Drop for SharedBufferBatchInner {
-    fn drop(&mut self) {
-        let _ = self
-            .buffer_release_notifier
-            .send(BufferRelease(self.size))
-            .inspect_err(|e| {
-                error!("unable to notify buffer size change: {:?}", e);
-            });
     }
 }
 
@@ -79,19 +71,47 @@ impl PartialEq for SharedBufferBatchInner {
 pub struct SharedBufferBatch {
     inner: Arc<SharedBufferBatchInner>,
     epoch: HummockEpoch,
-    compaction_group_id: CompactionGroupId,
-    pub table_id: u32,
+    pub table_id: TableId,
 }
 
+static SHARED_BUFFER_BATCH_ID_GENERATOR: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(0));
+
 impl SharedBufferBatch {
-    pub fn new(
+    pub fn for_test(
         sorted_items: Vec<SharedBufferItem>,
         epoch: HummockEpoch,
-        buffer_release_notifier: mpsc::UnboundedSender<SharedBufferEvent>,
-        compaction_group_id: CompactionGroupId,
-        table_id: u32,
+        table_id: TableId,
     ) -> Self {
-        let size: usize = Self::measure_batch_size(&sorted_items);
+        let size = Self::measure_batch_size(&sorted_items);
+        #[cfg(debug_assertions)]
+        {
+            Self::check_table_prefix(table_id, &sorted_items)
+        }
+
+        Self {
+            inner: Arc::new(SharedBufferBatchInner {
+                payload: sorted_items,
+                size,
+                _tracker: None,
+                batch_id: SHARED_BUFFER_BATCH_ID_GENERATOR.fetch_add(1, Relaxed),
+            }),
+            epoch,
+            table_id,
+        }
+    }
+
+    pub async fn build(
+        sorted_items: Vec<SharedBufferItem>,
+        epoch: HummockEpoch,
+        limiter: Option<&MemoryLimiter>,
+        table_id: TableId,
+    ) -> Self {
+        let size = Self::measure_batch_size(&sorted_items);
+        let tracker = if let Some(limiter) = limiter {
+            limiter.require_memory(size as u64).await
+        } else {
+            None
+        };
 
         #[cfg(debug_assertions)]
         {
@@ -102,10 +122,10 @@ impl SharedBufferBatch {
             inner: Arc::new(SharedBufferBatchInner {
                 payload: sorted_items,
                 size,
-                buffer_release_notifier,
+                _tracker: tracker,
+                batch_id: SHARED_BUFFER_BATCH_ID_GENERATOR.fetch_add(1, Relaxed),
             }),
             epoch,
-            compaction_group_id,
             table_id,
         }
     }
@@ -125,14 +145,14 @@ impl SharedBufferBatch {
             .sum()
     }
 
-    pub fn get(&self, user_key: &[u8]) -> Option<HummockValue<Vec<u8>>> {
+    pub fn get(&self, user_key: &[u8]) -> Option<HummockValue<Bytes>> {
         // Perform binary search on user key because the items in SharedBufferBatch is ordered by
         // user key.
         match self
             .inner
             .binary_search_by(|m| key::user_key(&m.0).cmp(user_key))
         {
-            Ok(i) => Some(self.inner[i].1.to_vec()),
+            Ok(i) => Some(self.inner[i].1.clone()),
             Err(_) => None,
         }
     }
@@ -177,24 +197,49 @@ impl SharedBufferBatch {
         self.inner.size
     }
 
-    pub fn compaction_group_id(&self) -> CompactionGroupId {
-        self.compaction_group_id
-    }
-
     #[cfg(debug_assertions)]
-    fn check_table_prefix(check_table_id: u32, sorted_items: &Vec<SharedBufferItem>) {
+    fn check_table_prefix(check_table_id: TableId, sorted_items: &Vec<SharedBufferItem>) {
         use risingwave_hummock_sdk::key::table_prefix;
 
-        if check_table_id == 0 {
+        if check_table_id.table_id() == 0 {
             // for unit-test
             return;
         }
 
-        let prefix = table_prefix(check_table_id);
+        let prefix = table_prefix(check_table_id.table_id());
 
         for (key, _value) in sorted_items {
             assert!(prefix == key[0..prefix.len()]);
         }
+    }
+
+    pub fn batch_id(&self) -> SharedBufferBatchId {
+        self.inner.batch_id
+    }
+
+    pub fn build_shared_buffer_item_batches(
+        kv_pairs: Vec<(Bytes, StorageValue)>,
+        epoch: HummockEpoch,
+    ) -> Vec<SharedBufferItem> {
+        kv_pairs
+            .into_iter()
+            .map(|(key, value)| {
+                (
+                    Bytes::from(FullKey::from_user_key(key.to_vec(), epoch).into_inner()),
+                    value.into(),
+                )
+            })
+            .collect()
+    }
+
+    pub async fn build_shared_buffer_batch(
+        epoch: HummockEpoch,
+        kv_pairs: Vec<(Bytes, StorageValue)>,
+        table_id: TableId,
+        memory_limit: Option<&MemoryLimiter>,
+    ) -> Self {
+        let sorted_items = Self::build_shared_buffer_item_batches(kv_pairs, epoch);
+        SharedBufferBatch::build(sorted_items, epoch, memory_limit, table_id).await
     }
 }
 
@@ -303,49 +348,48 @@ impl<D: HummockIteratorDirection> HummockIterator for SharedBufferBatchIterator<
             Ok(())
         }
     }
+
+    fn collect_local_statistic(&self, _stats: &mut crate::monitor::StoreLocalStatistic) {}
 }
 
 #[cfg(test)]
 mod tests {
 
     use itertools::Itertools;
-    use risingwave_hummock_sdk::compaction_group::StaticCompactionGroupId;
     use risingwave_hummock_sdk::key::user_key;
 
     use super::*;
     use crate::hummock::iterator::test_utils::{iterator_test_key_of, iterator_test_key_of_epoch};
 
     fn transform_shared_buffer(
-        batches: Vec<(Vec<u8>, HummockValue<Vec<u8>>)>,
+        batches: Vec<(Vec<u8>, HummockValue<Bytes>)>,
     ) -> Vec<(Bytes, HummockValue<Bytes>)> {
         batches
             .into_iter()
-            .map(|(k, v)| (k.into(), v.into()))
+            .map(|(k, v)| (k.into(), v))
             .collect_vec()
     }
 
     #[tokio::test]
     async fn test_shared_buffer_batch_basic() {
         let epoch = 1;
-        let shared_buffer_items = vec![
+        let shared_buffer_items: Vec<(Vec<u8>, HummockValue<Bytes>)> = vec![
             (
                 iterator_test_key_of_epoch(0, epoch),
-                HummockValue::put(b"value1".to_vec()),
+                HummockValue::put(Bytes::from("value1")),
             ),
             (
                 iterator_test_key_of_epoch(1, epoch),
-                HummockValue::put(b"value2".to_vec()),
+                HummockValue::put(Bytes::from("value1")),
             ),
             (
                 iterator_test_key_of_epoch(2, epoch),
-                HummockValue::put(b"value3".to_vec()),
+                HummockValue::put(Bytes::from("value1")),
             ),
         ];
-        let shared_buffer_batch = SharedBufferBatch::new(
+        let shared_buffer_batch = SharedBufferBatch::for_test(
             transform_shared_buffer(shared_buffer_items.clone()),
             epoch,
-            mpsc::unbounded_channel().0,
-            StaticCompactionGroupId::StateDefault.into(),
             Default::default(),
         );
 
@@ -382,7 +426,7 @@ mod tests {
         iter.rewind().await.unwrap();
         let mut output = vec![];
         while iter.is_valid() {
-            output.push((iter.key().to_owned(), iter.value().to_owned_value()));
+            output.push((iter.key().to_owned(), iter.value().to_bytes()));
             iter.next().await.unwrap();
         }
         assert_eq!(output, shared_buffer_items);
@@ -394,7 +438,7 @@ mod tests {
         while backward_iter.is_valid() {
             output.push((
                 backward_iter.key().to_owned(),
-                backward_iter.value().to_owned_value(),
+                backward_iter.value().to_bytes(),
             ));
             backward_iter.next().await.unwrap();
         }
@@ -408,22 +452,20 @@ mod tests {
         let shared_buffer_items = vec![
             (
                 iterator_test_key_of_epoch(1, epoch),
-                HummockValue::put(b"value1".to_vec()),
+                HummockValue::put(Bytes::from("value1")),
             ),
             (
                 iterator_test_key_of_epoch(2, epoch),
-                HummockValue::put(b"value2".to_vec()),
+                HummockValue::put(Bytes::from("value2")),
             ),
             (
                 iterator_test_key_of_epoch(3, epoch),
-                HummockValue::put(b"value3".to_vec()),
+                HummockValue::put(Bytes::from("value3")),
             ),
         ];
-        let shared_buffer_batch = SharedBufferBatch::new(
+        let shared_buffer_batch = SharedBufferBatch::for_test(
             transform_shared_buffer(shared_buffer_items.clone()),
             epoch,
-            mpsc::unbounded_channel().0,
-            StaticCompactionGroupId::StateDefault.into(),
             Default::default(),
         );
 

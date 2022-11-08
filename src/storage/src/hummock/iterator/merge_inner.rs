@@ -16,14 +16,13 @@ use std::cmp::Ordering;
 use std::collections::binary_heap::PeekMut;
 use std::collections::{BinaryHeap, LinkedList};
 use std::future::Future;
-use std::sync::Arc;
 
 use risingwave_hummock_sdk::VersionedComparator;
 
 use crate::hummock::iterator::{DirectionEnum, HummockIterator, HummockIteratorDirection};
 use crate::hummock::value::HummockValue;
 use crate::hummock::HummockResult;
-use crate::monitor::{StateStoreMetrics, StoreLocalStatistic};
+use crate::monitor::StoreLocalStatistic;
 
 pub trait NodeExtraOrderInfo: Eq + Ord + Send + Sync {}
 
@@ -102,9 +101,6 @@ pub struct MergeIteratorInner<I: HummockIterator, NE: NodeExtraOrderInfo> {
 
     /// The heap for merge sort.
     heap: BinaryHeap<Node<I, NE>>,
-
-    /// Statistics.
-    stats: Arc<StateStoreMetrics>,
 }
 
 /// An order aware merge iterator.
@@ -112,7 +108,15 @@ pub struct MergeIteratorInner<I: HummockIterator, NE: NodeExtraOrderInfo> {
 pub type OrderedMergeIteratorInner<I: HummockIterator> = MergeIteratorInner<I, OrderedNodeExtra>;
 
 impl<I: HummockIterator> OrderedMergeIteratorInner<I> {
-    pub fn new(iterators: impl IntoIterator<Item = I>, stats: Arc<StateStoreMetrics>) -> Self {
+    pub fn new(iterators: impl IntoIterator<Item = I>) -> Self {
+        Self::create(iterators)
+    }
+
+    pub fn for_compactor(iterators: impl IntoIterator<Item = I>) -> Self {
+        Self::create(iterators)
+    }
+
+    fn create(iterators: impl IntoIterator<Item = I>) -> Self {
         Self {
             unused_iters: iterators
                 .into_iter()
@@ -123,7 +127,6 @@ impl<I: HummockIterator> OrderedMergeIteratorInner<I> {
                 })
                 .collect(),
             heap: BinaryHeap::new(),
-            stats,
         }
     }
 }
@@ -144,7 +147,15 @@ pub type UnorderedMergeIteratorInner<I: HummockIterator> =
     MergeIteratorInner<I, UnorderedNodeExtra>;
 
 impl<I: HummockIterator> UnorderedMergeIteratorInner<I> {
-    pub fn new(iterators: impl IntoIterator<Item = I>, stats: Arc<StateStoreMetrics>) -> Self {
+    pub fn new(iterators: impl IntoIterator<Item = I>) -> Self {
+        Self::create(iterators)
+    }
+
+    pub fn for_compactor(iterators: impl IntoIterator<Item = I>) -> Self {
+        Self::create(iterators)
+    }
+
+    fn create(iterators: impl IntoIterator<Item = I>) -> Self {
         Self {
             unused_iters: iterators
                 .into_iter()
@@ -154,7 +165,6 @@ impl<I: HummockIterator> UnorderedMergeIteratorInner<I> {
                 })
                 .collect(),
             heap: BinaryHeap::new(),
-            stats,
         }
     }
 }
@@ -190,7 +200,7 @@ trait MergeIteratorNext {
 }
 
 impl<I: HummockIterator> MergeIteratorNext for OrderedMergeIteratorInner<I> {
-    type HummockResultFuture<'a> = impl Future<Output = HummockResult<()>>;
+    type HummockResultFuture<'a> = impl Future<Output = HummockResult<()>> + 'a;
 
     fn next_inner(&mut self) -> Self::HummockResultFuture<'_> {
         async {
@@ -238,7 +248,7 @@ impl<I: HummockIterator> MergeIteratorNext for OrderedMergeIteratorInner<I> {
 }
 
 impl<I: HummockIterator> MergeIteratorNext for UnorderedMergeIteratorInner<I> {
-    type HummockResultFuture<'a> = impl Future<Output = HummockResult<()>>;
+    type HummockResultFuture<'a> = impl Future<Output = HummockResult<()>> + 'a;
 
     fn next_inner(&mut self) -> Self::HummockResultFuture<'_> {
         async {
@@ -322,13 +332,5 @@ where
 
     fn collect_local_statistic(&self, stats: &mut StoreLocalStatistic) {
         self.collect_local_statistic_impl(stats);
-    }
-}
-
-impl<I: HummockIterator, NE: NodeExtraOrderInfo> Drop for MergeIteratorInner<I, NE> {
-    fn drop(&mut self) {
-        let mut stats = StoreLocalStatistic::default();
-        self.collect_local_statistic_impl(&mut stats);
-        stats.report(self.stats.as_ref());
     }
 }

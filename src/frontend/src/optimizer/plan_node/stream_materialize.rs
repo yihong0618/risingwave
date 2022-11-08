@@ -12,22 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{HashMap, HashSet};
+use std::assert_matches::assert_matches;
+use std::collections::HashSet;
 use std::fmt;
 
 use fixedbitset::FixedBitSet;
 use itertools::Itertools;
-use risingwave_common::catalog::{ColumnDesc, DatabaseId, SchemaId, TableId};
-use risingwave_common::config::constant::hummock::PROPERTIES_RETAINTION_SECOND_KEY;
+use risingwave_common::catalog::{ColumnDesc, TableId};
 use risingwave_common::error::ErrorCode::InternalError;
 use risingwave_common::error::Result;
 use risingwave_pb::stream_plan::stream_node::NodeBody as ProstStreamNode;
 
-use super::{PlanRef, PlanTreeNodeUnary, ToStreamProst};
+use super::{PlanRef, PlanTreeNodeUnary, StreamNode};
 use crate::catalog::column_catalog::ColumnCatalog;
 use crate::catalog::table_catalog::TableCatalog;
+use crate::catalog::FragmentId;
 use crate::optimizer::plan_node::{PlanBase, PlanNode};
 use crate::optimizer::property::{Direction, Distribution, FieldOrder, Order, RequiredDist};
+use crate::stream_fragmenter::BuildFragmentGraphState;
 
 /// The first column id to allocate for a new materialized view.
 ///
@@ -56,6 +58,7 @@ impl StreamMaterialize {
             ctx,
             schema,
             pk_indices.to_vec(),
+            input.functional_dependency().clone(),
             input.distribution().clone(),
             input.append_only(),
         ))
@@ -70,23 +73,29 @@ impl StreamMaterialize {
     /// Create a materialize node.
     ///
     /// When creating index, `is_index` should be true. Then, materialize will distribute keys
-    /// using order by columns, instead of pk.
+    /// using `user_distributed_by`.
+    #[allow(clippy::too_many_arguments)]
     pub fn create(
         input: PlanRef,
         mv_name: String,
+        user_distributed_by: RequiredDist,
         user_order_by: Order,
         user_cols: FixedBitSet,
         out_names: Vec<String>,
-        is_index_on: Option<TableId>,
+        is_index: bool,
+        definition: String,
     ) -> Result<Self> {
         let required_dist = match input.distribution() {
             Distribution::Single => RequiredDist::single(),
             _ => {
-                if is_index_on.is_some() {
-                    RequiredDist::PhysicalDist(Distribution::HashShard(
-                        user_order_by.field_order.iter().map(|x| x.index).collect(),
-                    ))
+                if is_index {
+                    assert_matches!(
+                        user_distributed_by,
+                        RequiredDist::PhysicalDist(Distribution::HashShard(_))
+                    );
+                    user_distributed_by
                 } else {
+                    assert_matches!(user_distributed_by, RequiredDist::Any);
                     // ensure the same pk will not shuffle to different node
                     RequiredDist::shard_by_key(input.schema().len(), input.logical_pk())
                 }
@@ -135,13 +144,13 @@ impl StreamMaterialize {
                 c
             })
             .collect_vec();
-
+        let value_indices = (0..columns.len()).collect_vec();
         let mut in_order = FixedBitSet::with_capacity(schema.len());
-        let mut order_keys = vec![];
+        let mut pk_list = vec![];
 
         for field in &user_order_by.field_order {
             let idx = field.index;
-            order_keys.push(field.clone());
+            pk_list.push(field.clone());
             in_order.insert(idx);
         }
 
@@ -149,7 +158,7 @@ impl StreamMaterialize {
             if in_order.contains(idx) {
                 continue;
             }
-            order_keys.push(FieldOrder {
+            pk_list.push(FieldOrder {
                 index: idx,
                 direct: Direction::Asc,
             });
@@ -157,28 +166,25 @@ impl StreamMaterialize {
         }
 
         let ctx = input.ctx();
-        let properties: HashMap<_, _> = ctx
-            .inner()
-            .with_properties
-            .iter()
-            .filter(|(key, _)| key.as_str() == PROPERTIES_RETAINTION_SECOND_KEY)
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect();
+        let properties = ctx.inner().with_options.internal_table_subset();
 
         let table = TableCatalog {
             id: TableId::placeholder(),
             associated_source_id: None,
             name: mv_name,
             columns,
-            order_key: order_keys,
-            pk: pk_indices.clone(),
-            is_index_on,
+            pk: pk_list,
+            stream_key: pk_indices.clone(),
             distribution_key: base.dist.dist_column_indices().to_vec(),
+            is_index,
             appendonly: input.append_only(),
             owner: risingwave_common::catalog::DEFAULT_SUPER_USER_ID,
-            vnode_mapping: None,
             properties,
-            read_pattern_prefix_column: 0,
+            // TODO(zehua): replace it with FragmentId::placeholder()
+            fragment_id: FragmentId::MAX - 1,
+            vnode_col_idx: None,
+            value_indices,
+            definition,
         };
 
         Ok(Self { base, input, table })
@@ -196,7 +202,7 @@ impl StreamMaterialize {
 }
 
 impl fmt::Display for StreamMaterialize {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let table = self.table();
 
         let column_names = table
@@ -206,13 +212,13 @@ impl fmt::Display for StreamMaterialize {
             .join(", ");
 
         let pk_column_names = table
-            .pk
+            .stream_key
             .iter()
             .map(|&pk| &table.columns[pk].column_desc.name)
             .join(", ");
 
         let order_descs = table
-            .order_key
+            .pk
             .iter()
             .map(|order| table.columns()[order.index].column_desc.name.clone())
             .join(", ");
@@ -244,8 +250,8 @@ impl PlanTreeNodeUnary for StreamMaterialize {
 
 impl_plan_tree_node_for_unary! { StreamMaterialize }
 
-impl ToStreamProst for StreamMaterialize {
-    fn to_stream_prost_body(&self) -> ProstStreamNode {
+impl StreamNode for StreamMaterialize {
+    fn to_stream_prost_body(&self, _state: &mut BuildFragmentGraphState) -> ProstStreamNode {
         use risingwave_pb::stream_plan::*;
 
         ProstStreamNode::Materialize(MaterializeNode {
@@ -254,14 +260,12 @@ impl ToStreamProst for StreamMaterialize {
             table_id: 0,
             column_orders: self
                 .table()
-                .order_key()
+                .pk()
                 .iter()
                 .map(FieldOrder::to_protobuf)
                 .collect(),
-            table: Some(self.table().to_prost(
-                SchemaId::placeholder() as u32,
-                DatabaseId::placeholder() as u32,
-            )),
+            table: Some(self.table().to_internal_table_prost()),
+            ignore_on_conflict: true,
         })
     }
 }

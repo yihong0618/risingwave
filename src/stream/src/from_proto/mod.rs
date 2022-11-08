@@ -14,13 +14,14 @@
 
 //! Build executor from protobuf.
 
-mod agg_call;
+mod agg_common;
 mod batch_query;
 mod chain;
 mod dynamic_filter;
 mod expand;
 mod filter;
 mod global_simple_agg;
+mod group_top_n;
 mod hash_agg;
 mod hash_join;
 mod hop_window;
@@ -32,6 +33,7 @@ mod mview;
 mod project;
 mod project_set;
 mod sink;
+mod sort;
 mod source;
 mod top_n;
 mod top_n_appendonly;
@@ -39,11 +41,10 @@ mod union;
 
 // import for submodules
 use itertools::Itertools;
-use risingwave_common::error::{ErrorCode, Result, RwError};
 use risingwave_common::try_match_expand;
 use risingwave_pb::stream_plan::stream_node::NodeBody;
 use risingwave_pb::stream_plan::StreamNode;
-use risingwave_storage::{Keyspace, StateStore};
+use risingwave_storage::StateStore;
 
 use self::batch_query::*;
 use self::chain::*;
@@ -51,6 +52,7 @@ use self::dynamic_filter::*;
 use self::expand::*;
 use self::filter::*;
 use self::global_simple_agg::*;
+use self::group_top_n::GroupTopNExecutorBuilder;
 use self::hash_agg::*;
 use self::hash_join::*;
 use self::hop_window::*;
@@ -62,10 +64,12 @@ use self::mview::*;
 use self::project::*;
 use self::project_set::*;
 use self::sink::*;
+use self::sort::*;
 use self::source::*;
 use self::top_n::*;
 use self::top_n_appendonly::*;
 use self::union::*;
+use crate::error::StreamResult;
 use crate::executor::{BoxedExecutor, Executor, ExecutorInfo};
 use crate::task::{ExecutorParams, LocalStreamManagerCore};
 
@@ -76,7 +80,7 @@ trait ExecutorBuilder {
         node: &StreamNode,
         store: impl StateStore,
         stream: &mut LocalStreamManagerCore,
-    ) -> Result<BoxedExecutor>;
+    ) -> StreamResult<BoxedExecutor>;
 }
 
 macro_rules! build_executor {
@@ -98,7 +102,7 @@ pub fn create_executor(
     stream: &mut LocalStreamManagerCore,
     node: &StreamNode,
     store: impl StateStore,
-) -> Result<BoxedExecutor> {
+) -> StreamResult<BoxedExecutor> {
     build_executor! {
         params,
         node,
@@ -126,5 +130,7 @@ pub fn create_executor(
         NodeBody::Expand => ExpandExecutorBuilder,
         NodeBody::DynamicFilter => DynamicFilterExecutorBuilder,
         NodeBody::ProjectSet => ProjectSetExecutorBuilder,
+        NodeBody::GroupTopN => GroupTopNExecutorBuilder,
+        NodeBody::Sort => SortExecutorBuilder,
     }
 }

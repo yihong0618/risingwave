@@ -19,24 +19,31 @@ use bytes::Bytes;
 use futures::future::try_join_all;
 use futures::{stream, StreamExt, TryFutureExt};
 use itertools::Itertools;
+use risingwave_common::catalog::TableId;
 use risingwave_hummock_sdk::compaction_group::StaticCompactionGroupId;
-use risingwave_hummock_sdk::key::{Epoch, FullKey};
+use risingwave_hummock_sdk::filter_key_extractor::FilterKeyExtractorImpl;
+use risingwave_hummock_sdk::key::FullKey;
 use risingwave_hummock_sdk::key_range::KeyRange;
-use risingwave_hummock_sdk::CompactionGroupId;
-use risingwave_pb::hummock::{CompactTask, SstableInfo};
+use risingwave_hummock_sdk::{CompactionGroupId, HummockEpoch};
+use risingwave_pb::hummock::SstableInfo;
 
-use crate::hummock::compactor::{Compactor, CompactorContext};
+use crate::hummock::compactor::compaction_filter::DummyCompactionFilter;
+use crate::hummock::compactor::context::Context;
+use crate::hummock::compactor::{CompactOutput, Compactor};
+use crate::hummock::iterator::{Forward, HummockIterator};
 use crate::hummock::shared_buffer::shared_buffer_uploader::UploadTaskPayload;
 use crate::hummock::shared_buffer::{build_ordered_merge_iter, UncommittedData};
-use crate::hummock::sstable::SstableIteratorReadOptions;
-use crate::hummock::state_store::ForwardIter;
-use crate::hummock::HummockResult;
+use crate::hummock::sstable::{DeleteRangeAggregator, SstableIteratorReadOptions};
+use crate::hummock::{
+    CachePolicy, ForwardIter, HummockError, HummockResult, SstableBuilderOptions,
+};
 use crate::monitor::StoreLocalStatistic;
 
 /// Flush shared buffer to level0. Resulted SSTs are grouped by compaction group.
 pub async fn compact(
-    context: Arc<CompactorContext>,
+    context: Arc<Context>,
     payload: UploadTaskPayload,
+    compaction_group_index: Arc<HashMap<TableId, CompactionGroupId>>,
 ) -> HummockResult<Vec<(CompactionGroupId, SstableInfo)>> {
     let mut grouped_payload: HashMap<CompactionGroupId, UploadTaskPayload> = HashMap::new();
     for uncommitted_list in payload {
@@ -44,7 +51,19 @@ pub async fn compact(
         for uncommitted in uncommitted_list {
             let compaction_group_id = match &uncommitted {
                 UncommittedData::Sst((compaction_group_id, _)) => *compaction_group_id,
-                UncommittedData::Batch(batch) => batch.compaction_group_id(),
+                UncommittedData::Batch(batch) => {
+                    match compaction_group_index.get(&batch.table_id) {
+                        // compaction group id is used only as a hint for grouping different data.
+                        // If the compaction group id is not found for the table id, we can assign a
+                        // default compaction group id for the batch.
+                        //
+                        // On meta side, when we commit a new epoch, it is acceptable that the
+                        // compaction group id provided from CN does not match the latest compaction
+                        // group config.
+                        None => StaticCompactionGroupId::StateDefault as CompactionGroupId,
+                        Some(group_id) => *group_id,
+                    }
+                }
             };
             let group = grouped_payload
                 .entry(compaction_group_id)
@@ -80,43 +99,77 @@ pub async fn compact(
 
 /// For compaction from shared buffer to level 0, this is the only function gets called.
 async fn compact_shared_buffer(
-    context: Arc<CompactorContext>,
+    context: Arc<Context>,
     payload: UploadTaskPayload,
 ) -> HummockResult<Vec<SstableInfo>> {
-    let mut start_user_keys = payload
+    let mut size_and_start_user_keys = payload
         .iter()
-        .flat_map(|data_list| data_list.iter().map(UncommittedData::start_user_key))
+        .flat_map(|data_list| {
+            data_list.iter().map(|data| {
+                let data_size = match data {
+                    UncommittedData::Sst(sst) => sst.1.file_size,
+                    UncommittedData::Batch(batch) => {
+                        // calculate encoded bytes of key var length
+                        (batch.get_payload().len() * 8 + batch.size()) as u64
+                    }
+                };
+                (data_size, data.start_user_key())
+            })
+        })
         .collect_vec();
-    start_user_keys.sort();
-    start_user_keys.dedup();
-    let mut splits = Vec::with_capacity(start_user_keys.len());
+    let compact_data_size = size_and_start_user_keys
+        .iter()
+        .map(|(data_size, _)| *data_size)
+        .sum::<u64>();
+    size_and_start_user_keys.sort();
+    let mut splits = Vec::with_capacity(size_and_start_user_keys.len());
     splits.push(KeyRange::new(Bytes::new(), Bytes::new()));
     let mut key_split_append = |key_before_last: &Bytes| {
         splits.last_mut().unwrap().right = key_before_last.clone();
         splits.push(KeyRange::new(key_before_last.clone(), Bytes::new()));
     };
-    if start_user_keys.len() > 1 {
-        let split_num = context.options.share_buffers_sync_parallelism as usize;
-        let buffer_per_split = start_user_keys.len() / split_num;
-        for i in 1..split_num {
-            key_split_append(
-                &FullKey::from_user_key_slice(start_user_keys[i * buffer_per_split], Epoch::MAX)
-                    .into_inner()
-                    .into(),
-            );
+    let sstable_size = (context.options.sstable_size_mb as u64) << 20;
+    let parallelism = std::cmp::min(
+        context.options.share_buffers_sync_parallelism as u64,
+        size_and_start_user_keys.len() as u64,
+    );
+    let sub_compaction_data_size = if compact_data_size > sstable_size && parallelism > 1 {
+        compact_data_size / parallelism
+    } else {
+        compact_data_size
+    };
+    // mul 1.2 for other extra memory usage.
+    let sub_compaction_sstable_size = std::cmp::min(sstable_size, sub_compaction_data_size * 6 / 5);
+    if parallelism > 1 && compact_data_size > sstable_size {
+        let mut last_buffer_size = 0;
+        let mut last_user_key = vec![];
+        for (data_size, user_key) in size_and_start_user_keys {
+            if last_buffer_size >= sub_compaction_data_size
+                && !last_user_key.as_slice().eq(user_key)
+            {
+                key_split_append(
+                    &FullKey::from_user_key_slice(user_key, HummockEpoch::MAX)
+                        .into_inner()
+                        .into(),
+                );
+                last_buffer_size = data_size;
+            } else {
+                last_buffer_size += data_size;
+            }
+            last_user_key.clear();
+            last_user_key.extend_from_slice(user_key);
         }
     }
 
-    let existing_table_ids: Vec<u32> = payload
+    let existing_table_ids: HashSet<u32> = payload
         .iter()
         .flat_map(|data_list| {
             data_list
                 .iter()
                 .flat_map(|uncommitted_data| match uncommitted_data {
                     UncommittedData::Sst(local_sst_info) => local_sst_info.1.table_ids.clone(),
-
                     UncommittedData::Batch(shared_buffer_write_batch) => {
-                        vec![shared_buffer_write_batch.table_id]
+                        vec![shared_buffer_write_batch.table_id.table_id()]
                     }
                 })
         })
@@ -125,38 +178,29 @@ async fn compact_shared_buffer(
 
     assert!(!existing_table_ids.is_empty());
 
-    // Local memory compaction looks at all key ranges.
-    let compact_task = CompactTask {
-        input_ssts: vec![],
-        splits: splits.into_iter().map(|v| v.into()).collect_vec(),
-        watermark: u64::MAX,
-        sorted_output_ssts: vec![],
-        task_id: 0,
-        target_level: 0,
-        gc_delete_keys: false,
-        task_status: false,
-        compaction_group_id: StaticCompactionGroupId::SharedBuffer.into(),
-        existing_table_ids,
-        target_file_size: context.options.sstable_size_mb as u64 * (1 << 20),
-        compression_algorithm: 0,
-        compaction_filter_mask: 0,
-        table_options: HashMap::default(),
-        current_epoch_time: 0,
-        target_sub_level_id: 0,
-    };
+    let multi_filter_key_extractor = context
+        .filter_key_extractor_manager
+        .acquire(existing_table_ids)
+        .await;
+    let multi_filter_key_extractor = Arc::new(multi_filter_key_extractor);
 
+    // Local memory compaction looks at all key ranges.
     let sstable_store = context.sstable_store.clone();
     let stats = context.stats.clone();
 
-    let parallelism = compact_task.splits.len();
+    let parallelism = splits.len();
     let mut compact_success = true;
     let mut output_ssts = Vec::with_capacity(parallelism);
     let mut compaction_futures = vec![];
-    let compactor = Compactor::new(context, compact_task.clone());
 
     let mut local_stats = StoreLocalStatistic::default();
-    for (split_index, _) in compact_task.splits.iter().enumerate() {
-        let compactor = compactor.clone();
+    for (split_index, key_range) in splits.into_iter().enumerate() {
+        let compactor = SharedBufferCompactRunner::new(
+            split_index,
+            key_range,
+            context.clone(),
+            sub_compaction_sstable_size as usize,
+        );
         let iter = build_ordered_merge_iter::<ForwardIter>(
             &payload,
             sstable_store.clone(),
@@ -165,25 +209,35 @@ async fn compact_shared_buffer(
             Arc::new(SstableIteratorReadOptions::default()),
         )
         .await?;
-        let compaction_executor = compactor.context.compaction_executor.as_ref().cloned();
-
-        let split_task = async move { compactor.compact_key_range(split_index, iter).await };
-        let rx = Compactor::request_execution(compaction_executor, split_task)?;
-        compaction_futures.push(rx);
+        let compaction_executor = context.compaction_executor.clone();
+        let multi_filter_key_extractor = multi_filter_key_extractor.clone();
+        let handle = compaction_executor
+            .spawn(async move { compactor.run(iter, multi_filter_key_extractor).await });
+        compaction_futures.push(handle);
     }
     local_stats.report(stats.as_ref());
 
     let mut buffered = stream::iter(compaction_futures).buffer_unordered(parallelism);
     let mut err = None;
     while let Some(future_result) = buffered.next().await {
-        match future_result.unwrap() {
-            Ok((split_index, ssts)) => {
+        match future_result {
+            Ok(Ok((split_index, ssts))) => {
                 output_ssts.push((split_index, ssts));
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 compact_success = false;
                 tracing::warn!("Shared Buffer Compaction failed with error: {:#?}", e);
                 err = Some(e);
+            }
+            Err(e) => {
+                compact_success = false;
+                tracing::warn!(
+                    "Shared Buffer Compaction failed with future error: {:#?}",
+                    e
+                );
+                err = Some(HummockError::compaction_executor(
+                    "failed while execute in tokio",
+                ));
             }
         }
     }
@@ -196,11 +250,10 @@ async fn compact_shared_buffer(
 
         for (_, ssts) in output_ssts {
             for sst_info in &ssts {
-                compactor
-                    .context
+                context
                     .stats
                     .write_build_l0_bytes
-                    .inc_by(sst_info.file_size as u64);
+                    .inc_by(sst_info.file_size);
             }
             level0.extend(ssts);
         }
@@ -208,5 +261,48 @@ async fn compact_shared_buffer(
         Ok(level0)
     } else {
         Err(err.unwrap())
+    }
+}
+
+pub struct SharedBufferCompactRunner {
+    compactor: Compactor,
+    split_index: usize,
+}
+
+impl SharedBufferCompactRunner {
+    pub fn new(
+        split_index: usize,
+        key_range: KeyRange,
+        context: Arc<Context>,
+        sub_compaction_sstable_size: usize,
+    ) -> Self {
+        let mut options: SstableBuilderOptions = context.options.as_ref().into();
+        options.capacity = sub_compaction_sstable_size;
+        let compactor = Compactor::new(context, options, key_range, CachePolicy::Fill, false, 0);
+        Self {
+            compactor,
+            split_index,
+        }
+    }
+
+    pub async fn run(
+        &self,
+        iter: impl HummockIterator<Direction = Forward>,
+        filter_key_extractor: Arc<FilterKeyExtractorImpl>,
+    ) -> HummockResult<CompactOutput> {
+        let dummy_compaction_filter = DummyCompactionFilter {};
+        // TODO: add delete-range-tombstone from shared-buffer-batch.
+        let del_agg = Arc::new(DeleteRangeAggregator::new(KeyRange::inf(), 0, false));
+        let ssts = self
+            .compactor
+            .compact_key_range(
+                iter,
+                dummy_compaction_filter,
+                del_agg,
+                filter_key_extractor,
+                None,
+            )
+            .await?;
+        Ok((self.split_index, ssts))
     }
 }

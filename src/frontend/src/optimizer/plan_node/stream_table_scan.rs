@@ -12,18 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
 
 use itertools::Itertools;
-use risingwave_common::catalog::TableDesc;
+use risingwave_common::catalog::{Field, TableDesc};
 use risingwave_pb::stream_plan::stream_node::NodeBody as ProstStreamNode;
 use risingwave_pb::stream_plan::StreamNode as ProstStreamPlan;
 
-use super::{LogicalScan, PlanBase, PlanNodeId, StreamIndexScan, ToStreamProst};
+use super::{LogicalScan, PlanBase, PlanNodeId, StreamIndexScan, StreamNode};
 use crate::catalog::ColumnId;
 use crate::optimizer::plan_node::utils::IndicesDisplay;
 use crate::optimizer::property::{Distribution, DistributionDisplay};
+use crate::stream_fragmenter::BuildFragmentGraphState;
 
 /// `StreamTableScan` is a virtual plan node to represent a stream table scan. It will be converted
 /// to chain + merge node (for upstream materialize) + batch table scan when converting to `MView`
@@ -48,14 +50,15 @@ impl StreamTableScan {
             if distribution_key.is_empty() {
                 Distribution::Single
             } else {
-                // Follows upstream distribution from TableCatalog
-                Distribution::HashShard(distribution_key)
+                // See also `BatchSeqScan::clone_with_dist`.
+                Distribution::UpstreamHashShard(distribution_key, logical.table_desc().table_id)
             }
         };
         let base = PlanBase::new_stream(
             ctx,
             logical.schema().clone(),
             logical.base.logical_pk.clone(),
+            logical.functional_dependency().clone(),
             distribution,
             logical.table_desc().appendonly,
         );
@@ -78,7 +81,7 @@ impl StreamTableScan {
         &self,
         index_name: &str,
         index_table_desc: Rc<TableDesc>,
-        primary_to_secondary_mapping: &[usize],
+        primary_to_secondary_mapping: &HashMap<usize, usize>,
     ) -> StreamIndexScan {
         StreamIndexScan::new(self.logical.to_index_scan(
             index_name,
@@ -91,7 +94,7 @@ impl StreamTableScan {
 impl_plan_tree_node_for_leaf! { StreamTableScan }
 
 impl fmt::Display for StreamTableScan {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let verbose = self.base.ctx.is_explain_verbose();
         let mut builder = f.debug_struct("StreamTableScan");
 
@@ -118,7 +121,7 @@ impl fmt::Display for StreamTableScan {
                 },
             );
             builder.field(
-                "distribution",
+                "dist",
                 &DistributionDisplay {
                     distribution: self.distribution(),
                     input_schema: &self.base.schema,
@@ -130,15 +133,15 @@ impl fmt::Display for StreamTableScan {
     }
 }
 
-impl ToStreamProst for StreamTableScan {
-    fn to_stream_prost_body(&self) -> ProstStreamNode {
+impl StreamNode for StreamTableScan {
+    fn to_stream_prost_body(&self, _state: &mut BuildFragmentGraphState) -> ProstStreamNode {
         unreachable!("stream scan cannot be converted into a prost body -- call `adhoc_to_stream_prost` instead.")
     }
 }
 
 impl StreamTableScan {
     pub fn adhoc_to_stream_prost(&self) -> ProstStreamPlan {
-        use risingwave_pb::plan_common::*;
+        use risingwave_pb::plan_common::Field as ProstField;
         use risingwave_pb::stream_plan::*;
 
         let batch_plan_node = BatchPlanNode {
@@ -151,7 +154,7 @@ impl StreamTableScan {
                 .collect(),
         };
 
-        let pk_indices = self.logical_pk().iter().map(|x| *x as u32).collect_vec();
+        let stream_key = self.logical_pk().iter().map(|x| *x as u32).collect_vec();
 
         ProstStreamPlan {
             fields: self.schema().to_prost(),
@@ -159,15 +162,30 @@ impl StreamTableScan {
                 // The merge node should be empty
                 ProstStreamPlan {
                     node_body: Some(ProstStreamNode::Merge(Default::default())),
+                    identity: "Upstream".into(),
+                    fields: self
+                        .logical
+                        .table_desc()
+                        .columns
+                        .iter()
+                        .map(|c| Field::from(c).to_prost())
+                        .collect(),
+                    stream_key: self
+                        .logical
+                        .table_desc()
+                        .stream_key
+                        .iter()
+                        .map(|i| *i as _)
+                        .collect(),
                     ..Default::default()
                 },
                 ProstStreamPlan {
                     node_body: Some(ProstStreamNode::BatchPlan(batch_plan_node)),
                     operator_id: self.batch_plan_id.0 as u64,
                     identity: "BatchPlanNode".into(),
-                    pk_indices: pk_indices.clone(),
+                    stream_key: stream_key.clone(),
+                    fields: self.schema().to_prost(),
                     input: vec![],
-                    fields: vec![], // TODO: fill this later
                     append_only: true,
                 },
             ],
@@ -181,7 +199,7 @@ impl StreamTableScan {
                     .table_desc()
                     .columns
                     .iter()
-                    .map(|x| Field {
+                    .map(|x| ProstField {
                         data_type: Some(x.data_type.to_protobuf()),
                         name: x.name.clone(),
                     })
@@ -195,9 +213,12 @@ impl StreamTableScan {
                     .collect(),
                 is_singleton: *self.distribution() == Distribution::Single,
             })),
-            pk_indices,
+            stream_key,
             operator_id: self.base.id.0 as u64,
-            identity: format!("{}", self),
+            identity: {
+                let s = format!("{}", self);
+                s.replace("StreamTableScan", "Chain")
+            },
             append_only: self.append_only(),
         }
     }

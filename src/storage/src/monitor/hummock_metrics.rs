@@ -18,61 +18,29 @@ use prometheus::{
     register_int_counter_with_registry, Histogram, Registry,
 };
 
-/// Defines all metrics.
-#[macro_export]
-macro_rules! for_all_hummock_metrics {
-    ($macro:ident) => {
-        $macro! {
-            pin_version_counts: GenericCounter<AtomicU64>,
-            unpin_version_before_counts: GenericCounter<AtomicU64>,
-            unpin_version_counts: GenericCounter<AtomicU64>,
-            pin_snapshot_counts: GenericCounter<AtomicU64>,
-            unpin_snapshot_counts: GenericCounter<AtomicU64>,
-            get_new_sst_ids_counts: GenericCounter<AtomicU64>,
-            report_compaction_task_counts: GenericCounter<AtomicU64>,
+/// [`HummockMetrics`] stores the performance and IO metrics of hummock storage.
+#[derive(Debug)]
+pub struct HummockMetrics {
+    pub unpin_version_before_counts: GenericCounter<AtomicU64>,
+    pub pin_snapshot_counts: GenericCounter<AtomicU64>,
+    pub unpin_snapshot_counts: GenericCounter<AtomicU64>,
+    pub get_new_sst_ids_counts: GenericCounter<AtomicU64>,
+    pub report_compaction_task_counts: GenericCounter<AtomicU64>,
 
-            pin_version_latency: Histogram,
-            unpin_version_before_latency: Histogram,
-            unpin_version_latency: Histogram,
-            pin_snapshot_latency: Histogram,
-            unpin_snapshot_latency: Histogram,
-            get_new_sst_ids_latency: Histogram,
-            report_compaction_task_latency: Histogram,
-        }
-    };
+    pub unpin_version_before_latency: Histogram,
+    pub pin_snapshot_latency: Histogram,
+    pub unpin_snapshot_latency: Histogram,
+    pub get_new_sst_ids_latency: Histogram,
+    pub report_compaction_task_latency: Histogram,
 }
-
-macro_rules! define_hummock_metrics {
-    ($( $name:ident: $type:ty ),* ,) => {
-        /// [`HummockMetrics`] stores the performance and IO metrics of hummock storage.
-        #[derive(Debug)]
-        pub struct HummockMetrics {
-            $( pub $name: $type, )*
-        }
-    }
-
-}
-for_all_hummock_metrics! { define_hummock_metrics }
 
 impl HummockMetrics {
     pub fn new(registry: Registry) -> Self {
         // ----- Hummock -----
         // gRPC count
-        let pin_version_counts = register_int_counter_with_registry!(
-            "state_store_pin_version_counts",
-            "Total number of pin_version_counts requests that have been issued to state store",
-            registry
-        )
-        .unwrap();
         let unpin_version_before_counts = register_int_counter_with_registry!(
             "state_store_unpin_version_before_counts",
             "Total number of unpin_version_before_counts requests that have been issued to state store",
-            registry
-        )
-        .unwrap();
-        let unpin_version_counts = register_int_counter_with_registry!(
-            "state_store_unpin_version_counts",
-            "Total number of unpin_version_counts requests that have been issued to state store",
             registry
         )
         .unwrap();
@@ -102,24 +70,6 @@ impl HummockMetrics {
         .unwrap();
 
         // gRPC latency
-        // --
-        let pin_version_latency_opts = histogram_opts!(
-            "state_store_pin_version_latency",
-            "Total latency of pin version that have been issued to state store",
-            exponential_buckets(0.0001, 2.0, 20).unwrap() // max 52s
-        );
-        let pin_version_latency =
-            register_histogram_with_registry!(pin_version_latency_opts, registry).unwrap();
-
-        // --
-        let unpin_version_latency_opts = histogram_opts!(
-            "state_store_unpin_version_latency",
-            "Total latency of unpin version that have been issued to state store",
-            exponential_buckets(0.0001, 2.0, 20).unwrap() // max 52s
-        );
-        let unpin_version_latency =
-            register_histogram_with_registry!(unpin_version_latency_opts, registry).unwrap();
-
         // --
         let unpin_version_before_latency_opts = histogram_opts!(
             "state_store_unpin_version_before_latency",
@@ -167,17 +117,13 @@ impl HummockMetrics {
                 .unwrap();
 
         Self {
-            pin_version_counts,
             unpin_version_before_counts,
-            unpin_version_counts,
             pin_snapshot_counts,
             unpin_snapshot_counts,
             get_new_sst_ids_counts,
             report_compaction_task_counts,
 
-            pin_version_latency,
             unpin_version_before_latency,
-            unpin_version_latency,
             pin_snapshot_latency,
             unpin_snapshot_latency,
             get_new_sst_ids_latency,

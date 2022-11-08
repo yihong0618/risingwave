@@ -12,60 +12,57 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::ops::Bound;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use risingwave_hummock_sdk::compaction_group::StaticCompactionGroupId;
+use risingwave_hummock_sdk::HummockReadEpoch;
 use risingwave_meta::hummock::test_utils::setup_compute_env;
 use risingwave_meta::hummock::MockHummockMetaClient;
 use risingwave_rpc_client::HummockMetaClient;
-use risingwave_storage::hummock::compaction_group_client::DummyCompactionGroupClient;
 use risingwave_storage::hummock::iterator::test_utils::mock_sstable_store;
 use risingwave_storage::hummock::test_utils::{count_iter, default_config_for_test};
 use risingwave_storage::hummock::HummockStorage;
-use risingwave_storage::monitor::StateStoreMetrics;
 use risingwave_storage::storage_value::StorageValue;
-use risingwave_storage::store::{ReadOptions, WriteOptions};
+use risingwave_storage::store::{ReadOptions, StateStoreRead, StateStoreWrite, WriteOptions};
 use risingwave_storage::StateStore;
 
+use crate::test_utils::get_test_notification_client;
+
 #[tokio::test]
+#[ignore]
 #[cfg(all(test, feature = "failpoints"))]
 async fn test_failpoints_state_store_read_upload() {
     let mem_upload_err = "mem_upload_err";
     let mem_read_err = "mem_read_err";
     let sstable_store = mock_sstable_store();
     let hummock_options = Arc::new(default_config_for_test());
-    let (_env, hummock_manager_ref, _cluster_manager_ref, worker_node) =
+    let (env, hummock_manager_ref, _cluster_manager_ref, worker_node) =
         setup_compute_env(8080).await;
     let meta_client = Arc::new(MockHummockMetaClient::new(
         hummock_manager_ref.clone(),
         worker_node.id,
     ));
 
-    let hummock_storage = HummockStorage::with_default_stats(
-        hummock_options,
+    let hummock_storage = HummockStorage::for_test(
+        hummock_options.clone(),
         sstable_store.clone(),
         meta_client.clone(),
-        Arc::new(StateStoreMetrics::unused()),
-        Arc::new(DummyCompactionGroupClient::new(
-            StaticCompactionGroupId::StateDefault.into(),
-        )),
+        get_test_notification_client(env, hummock_manager_ref, worker_node),
     )
     .await
     .unwrap();
 
-    let local_version_manager = hummock_storage.local_version_manager();
-
     let anchor = Bytes::from("aa");
     let mut batch1 = vec![
-        (anchor.clone(), StorageValue::new_default_put("111")),
-        (Bytes::from("cc"), StorageValue::new_default_put("222")),
+        (anchor.clone(), StorageValue::new_put("111")),
+        (Bytes::from("cc"), StorageValue::new_put("222")),
     ];
     batch1.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
 
     let mut batch2 = vec![
-        (Bytes::from("cc"), StorageValue::new_default_put("333")),
-        (anchor.clone(), StorageValue::new_default_delete()),
+        (Bytes::from("cc"), StorageValue::new_put("333")),
+        (anchor.clone(), StorageValue::new_delete()),
     ];
     // Make sure the batch is sorted.
     batch2.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
@@ -84,8 +81,10 @@ async fn test_failpoints_state_store_read_upload() {
     let value = hummock_storage
         .get(
             &anchor,
+            1,
             ReadOptions {
-                epoch: 1,
+                check_bloom_filter: true,
+                prefix_hint: None,
                 table_id: Default::default(),
                 retention_seconds: None,
             },
@@ -107,19 +106,16 @@ async fn test_failpoints_state_store_read_upload() {
         .unwrap();
 
     // sync epoch1 test the read_error
-    hummock_storage.sync(Some(1)).await.unwrap();
-    meta_client
-        .commit_epoch(
-            1,
-            hummock_storage
-                .local_version_manager()
-                .get_uncommitted_ssts(1),
-        )
+    let ssts = hummock_storage
+        .seal_and_sync_epoch(1)
+        .await
+        .unwrap()
+        .uncommitted_ssts;
+    meta_client.commit_epoch(1, ssts).await.unwrap();
+    hummock_storage
+        .try_wait_epoch(HummockReadEpoch::Committed(1))
         .await
         .unwrap();
-    local_version_manager
-        .refresh_version(meta_client.as_ref())
-        .await;
     // clear block cache
     sstable_store.clear_block_cache();
     sstable_store.clear_meta_cache();
@@ -128,8 +124,10 @@ async fn test_failpoints_state_store_read_upload() {
     let result = hummock_storage
         .get(
             &anchor,
+            2,
             ReadOptions {
-                epoch: 2,
+                check_bloom_filter: true,
+                prefix_hint: None,
                 table_id: Default::default(),
                 retention_seconds: None,
             },
@@ -138,10 +136,11 @@ async fn test_failpoints_state_store_read_upload() {
     assert!(result.is_err());
     let result = hummock_storage
         .iter(
-            None,
-            ..=b"ee".to_vec(),
+            (Bound::Unbounded, Bound::Included(b"ee".to_vec())),
+            2,
             ReadOptions {
-                epoch: 2,
+                check_bloom_filter: false,
+                prefix_hint: None,
                 table_id: Default::default(),
                 retention_seconds: None,
             },
@@ -152,8 +151,10 @@ async fn test_failpoints_state_store_read_upload() {
     let value = hummock_storage
         .get(
             b"ee".as_ref(),
+            2,
             ReadOptions {
-                epoch: 2,
+                check_bloom_filter: true,
+                prefix_hint: None,
                 table_id: Default::default(),
                 retention_seconds: None,
             },
@@ -165,27 +166,28 @@ async fn test_failpoints_state_store_read_upload() {
     // test the upload_error
     fail::cfg(mem_upload_err, "return").unwrap();
 
-    let result = hummock_storage.sync(Some(3)).await;
+    let result = hummock_storage.seal_and_sync_epoch(3).await;
     assert!(result.is_err());
-    meta_client
-        .commit_epoch(
-            4,
-            hummock_storage
-                .local_version_manager()
-                .get_uncommitted_ssts(4),
-        )
+    fail::remove(mem_upload_err);
+
+    let ssts = hummock_storage
+        .seal_and_sync_epoch(3)
+        .await
+        .unwrap()
+        .uncommitted_ssts;
+    meta_client.commit_epoch(3, ssts).await.unwrap();
+    hummock_storage
+        .try_wait_epoch(HummockReadEpoch::Committed(3))
         .await
         .unwrap();
-    local_version_manager
-        .refresh_version(meta_client.as_ref())
-        .await;
-    fail::remove(mem_upload_err);
 
     let value = hummock_storage
         .get(
             &anchor,
+            5,
             ReadOptions {
-                epoch: 5,
+                check_bloom_filter: true,
+                prefix_hint: None,
                 table_id: Default::default(),
                 retention_seconds: None,
             },
@@ -196,10 +198,11 @@ async fn test_failpoints_state_store_read_upload() {
     assert_eq!(value, Bytes::from("111"));
     let mut iters = hummock_storage
         .iter(
-            None,
-            ..=b"ee".to_vec(),
+            (Bound::Unbounded, Bound::Included(b"ee".to_vec())),
+            5,
             ReadOptions {
-                epoch: 5,
+                check_bloom_filter: true,
+                prefix_hint: None,
                 table_id: Default::default(),
                 retention_seconds: None,
             },
