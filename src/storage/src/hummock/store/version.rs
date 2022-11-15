@@ -402,6 +402,11 @@ impl HummockVersionReader {
             }
         }
 
+        self.stats
+            .iter_merge_sstable_counts
+            .with_label_values(&["get-staging-imm"])
+            .observe(staging_imm_count as f64);
+
         // 2. order guarantee: imm -> sst
         let full_key = FullKey::new(read_options.table_id, table_key, epoch);
         for local_sst in &uncommitted_ssts {
@@ -419,17 +424,17 @@ impl HummockVersionReader {
                 local_stats.report(self.stats.as_ref());
                 self.stats
                     .iter_merge_sstable_counts
-                    .with_label_values(&["get-staging-imm"])
-                    .observe(staging_imm_count as f64);
-
-                self.stats
-                    .iter_merge_sstable_counts
                     .with_label_values(&["get-staging-sst"])
                     .observe(staging_sst_count as f64);
 
                 return Ok(data.into_user_value());
             }
         }
+
+        self.stats
+            .iter_merge_sstable_counts
+            .with_label_values(&["get-staging-sst"])
+            .observe(staging_sst_count as f64);
 
         // 3. read from committed_version sst file
         // Because SST meta records encoded key range,
@@ -505,16 +510,6 @@ impl HummockVersionReader {
         }
 
         local_stats.report(self.stats.as_ref());
-        self.stats
-            .iter_merge_sstable_counts
-            .with_label_values(&["get-staging-imm"])
-            .observe(staging_imm_count as f64);
-
-        self.stats
-            .iter_merge_sstable_counts
-            .with_label_values(&["get-staging-sst"])
-            .observe(staging_sst_count as f64);
-
         self.stats
             .iter_merge_sstable_counts
             .with_label_values(&["get-committed-sst"])
