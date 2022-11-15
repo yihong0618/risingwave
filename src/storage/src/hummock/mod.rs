@@ -387,23 +387,27 @@ pub async fn get_from_order_sorted_uncommitted_data(
     full_key: FullKey<&[u8]>,
     local_stats: &mut StoreLocalStatistic,
     read_options: &ReadOptions,
-) -> StorageResult<(Option<HummockValue<Bytes>>, i32)> {
-    let mut table_counts = 0;
+) -> StorageResult<(Option<HummockValue<Bytes>>, (u32, u32))> {
+    // let mut table_counts = 0;
     let epoch = full_key.epoch;
+
+    let (mut staging_imm_count, mut staging_sst_count) = (0, 0);
     for data_list in order_sorted_uncommitted_data {
         for data in data_list {
             match data {
                 UncommittedData::Batch(batch) => {
                     assert!(batch.epoch() <= epoch, "batch'epoch greater than epoch");
+                    staging_imm_count += 1;
+
                     if let Some(data) =
                         get_from_batch(&batch, full_key.user_key.table_key, local_stats)
                     {
-                        return Ok((Some(data), table_counts));
+                        return Ok((Some(data), (staging_imm_count, staging_sst_count)));
                     }
                 }
 
                 UncommittedData::Sst(LocalSstableInfo { sst_info, .. }) => {
-                    table_counts += 1;
+                    staging_sst_count += 1;
 
                     if let Some(data) = get_from_sstable_info(
                         sstable_store_ref.clone(),
@@ -414,13 +418,13 @@ pub async fn get_from_order_sorted_uncommitted_data(
                     )
                     .await?
                     {
-                        return Ok((Some(data), table_counts));
+                        return Ok((Some(data), (staging_imm_count, staging_sst_count)));
                     }
                 }
             }
         }
     }
-    Ok((None, table_counts))
+    Ok((None, (staging_imm_count, staging_sst_count)))
 }
 
 /// Get `user_value` from `SharedBufferBatch`

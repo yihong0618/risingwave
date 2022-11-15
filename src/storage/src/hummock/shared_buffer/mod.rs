@@ -119,13 +119,18 @@ pub(crate) async fn build_ordered_merge_iter<T: HummockIteratorType>(
     _stats: Arc<StateStoreMetrics>,
     local_stats: &mut StoreLocalStatistic,
     read_options: Arc<SstableIteratorReadOptions>,
-) -> HummockResult<SharedBufferIteratorType<T::Direction, T::SstableIteratorType>> {
+) -> HummockResult<(
+    SharedBufferIteratorType<T::Direction, T::SstableIteratorType>,
+    (u32, u32),
+)> {
     let mut ordered_iters = Vec::with_capacity(uncommitted_data.len());
+    let (mut staging_imm_count, mut staging_sst_count) = (0, 0);
     for data_list in uncommitted_data {
         let mut data_iters = Vec::new();
         for data in data_list {
             match data {
                 UncommittedData::Batch(batch) => {
+                    staging_imm_count += 1;
                     data_iters.push(UncommittedDataIteratorType::First(
                         batch.clone().into_directed_iter::<T::Direction>(),
                     ));
@@ -134,6 +139,7 @@ pub(crate) async fn build_ordered_merge_iter<T: HummockIteratorType>(
                     sst_info: sstable_info,
                     ..
                 }) => {
+                    staging_sst_count += 1;
                     let table = sstable_store.sstable(sstable_info, local_stats).await?;
                     data_iters.push(UncommittedDataIteratorType::Second(
                         T::SstableIteratorType::create(
@@ -155,7 +161,10 @@ pub(crate) async fn build_ordered_merge_iter<T: HummockIteratorType>(
             ));
         }
     }
-    Ok(OrderedMergeIteratorInner::new(ordered_iters))
+    Ok((
+        OrderedMergeIteratorInner::new(ordered_iters),
+        (staging_imm_count, staging_sst_count),
+    ))
 }
 
 #[derive(Debug, Clone)]

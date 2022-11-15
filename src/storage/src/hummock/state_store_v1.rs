@@ -86,13 +86,13 @@ impl HummockStorageV1 {
             sync_uncommitted_data,
         } = self.read_filter(epoch, &read_options, &(table_key..=table_key))?;
 
-        let mut table_counts = 0;
+        let (mut staging_imm_count, mut staging_sst_count, mut committed_sst_count) = (0, 0, 0);
         let full_key = FullKey::new(table_id, table_key, epoch);
 
         // Query shared buffer. Return the value without iterating SSTs if found
         for uncommitted_data in shared_buffer_data {
             // iterate over uncommitted data in order index in descending order
-            let (value, table_count) = get_from_order_sorted_uncommitted_data(
+            let (value, (imm_count, sst_count)) = get_from_order_sorted_uncommitted_data(
                 self.sstable_store.clone(),
                 uncommitted_data,
                 full_key,
@@ -104,10 +104,11 @@ impl HummockStorageV1 {
                 local_stats.report(self.stats.as_ref());
                 return Ok(v.into_user_value());
             }
-            table_counts += table_count;
+            staging_imm_count += imm_count;
+            staging_sst_count += sst_count;
         }
         for sync_uncommitted_data in sync_uncommitted_data {
-            let (value, table_count) = get_from_order_sorted_uncommitted_data(
+            let (value, (imm_count, sst_count)) = get_from_order_sorted_uncommitted_data(
                 self.sstable_store.clone(),
                 sync_uncommitted_data,
                 full_key,
@@ -117,9 +118,18 @@ impl HummockStorageV1 {
             .await?;
             if let Some(v) = value {
                 local_stats.report(self.stats.as_ref());
+                self.stats
+                    .iter_merge_sstable_counts
+                    .with_label_values(&["get-staging-imm"])
+                    .observe(staging_imm_count as f64);
+                self.stats
+                    .iter_merge_sstable_counts
+                    .with_label_values(&["get-staging-sst"])
+                    .observe(staging_sst_count as f64);
                 return Ok(v.into_user_value());
             }
-            table_counts += table_count;
+            staging_imm_count += imm_count;
+            staging_sst_count += sst_count;
         }
 
         // Because SST meta records encoded key range,
@@ -137,7 +147,7 @@ impl HummockStorageV1 {
                     let sstable_infos =
                         prune_ssts(level.table_infos.iter(), table_id, &(table_key..=table_key));
                     for sstable_info in sstable_infos {
-                        table_counts += 1;
+                        committed_sst_count += 1;
                         if let Some(v) = get_from_sstable_info(
                             self.sstable_store.clone(),
                             sstable_info,
@@ -175,7 +185,7 @@ impl HummockStorageV1 {
                         continue;
                     }
 
-                    table_counts += 1;
+                    committed_sst_count += 1;
                     if let Some(v) = get_from_sstable_info(
                         self.sstable_store.clone(),
                         &level.table_infos[table_info_idx],
@@ -186,6 +196,18 @@ impl HummockStorageV1 {
                     .await?
                     {
                         local_stats.report(self.stats.as_ref());
+                        self.stats
+                            .iter_merge_sstable_counts
+                            .with_label_values(&["get-staging-imm"])
+                            .observe(staging_imm_count as f64);
+                        self.stats
+                            .iter_merge_sstable_counts
+                            .with_label_values(&["get-staging-sst"])
+                            .observe(staging_sst_count as f64);
+                        self.stats
+                            .iter_merge_sstable_counts
+                            .with_label_values(&["get-committed-sst"])
+                            .observe(committed_sst_count as f64);
                         return Ok(v.into_user_value());
                     }
                 }
@@ -195,8 +217,16 @@ impl HummockStorageV1 {
         local_stats.report(self.stats.as_ref());
         self.stats
             .iter_merge_sstable_counts
-            .with_label_values(&["sub-iter"])
-            .observe(table_counts as f64);
+            .with_label_values(&["get-staging-imm"])
+            .observe(staging_imm_count as f64);
+        self.stats
+            .iter_merge_sstable_counts
+            .with_label_values(&["get-staging-sst"])
+            .observe(staging_sst_count as f64);
+        self.stats
+            .iter_merge_sstable_counts
+            .with_label_values(&["get-committed-sst"])
+            .observe(committed_sst_count as f64);
         Ok(None)
     }
 
@@ -242,40 +272,53 @@ impl HummockStorageV1 {
         } = self.read_filter(epoch, &read_options, &table_key_range)?;
 
         let mut local_stats = StoreLocalStatistic::default();
+        let (mut staging_imm_count, mut staging_sst_count, mut committed_sst_cout) = (0, 0, 9);
         for uncommitted_data in shared_buffer_data {
-            overlapped_iters.push(HummockIteratorUnion::Second(
-                build_ordered_merge_iter::<T>(
-                    &uncommitted_data,
-                    self.sstable_store.clone(),
-                    self.stats.clone(),
-                    &mut local_stats,
-                    iter_read_options.clone(),
-                )
-                .in_span(Span::enter_with_local_parent(
-                    "build_ordered_merge_iter_shared_buffer",
-                ))
-                .await?,
-            ));
+            let (uncommitted_data_iter, (imm_count, sst_count)) = build_ordered_merge_iter::<T>(
+                &uncommitted_data,
+                self.sstable_store.clone(),
+                self.stats.clone(),
+                &mut local_stats,
+                iter_read_options.clone(),
+            )
+            .in_span(Span::enter_with_local_parent(
+                "build_ordered_merge_iter_shared_buffer",
+            ))
+            .await?;
+
+            staging_imm_count += imm_count;
+            staging_sst_count += sst_count;
+
+            overlapped_iters.push(HummockIteratorUnion::Second(uncommitted_data_iter));
         }
         for sync_uncommitted_data in sync_uncommitted_data {
-            overlapped_iters.push(HummockIteratorUnion::Second(
-                build_ordered_merge_iter::<T>(
-                    &sync_uncommitted_data,
-                    self.sstable_store.clone(),
-                    self.stats.clone(),
-                    &mut local_stats,
-                    iter_read_options.clone(),
-                )
-                .in_span(Span::enter_with_local_parent(
-                    "build_ordered_merge_iter_uncommitted",
-                ))
-                .await?,
+            let (uncommitted_data_iter, (imm_count, sst_count)) = build_ordered_merge_iter::<T>(
+                &sync_uncommitted_data,
+                self.sstable_store.clone(),
+                self.stats.clone(),
+                &mut local_stats,
+                iter_read_options.clone(),
+            )
+            .in_span(Span::enter_with_local_parent(
+                "build_ordered_merge_iter_uncommitted",
             ))
+            .await?;
+
+            staging_imm_count += imm_count;
+            staging_sst_count += sst_count;
+
+            overlapped_iters.push(HummockIteratorUnion::Second(uncommitted_data_iter))
         }
+
         self.stats
             .iter_merge_sstable_counts
-            .with_label_values(&["memory-iter"])
-            .observe(overlapped_iters.len() as f64);
+            .with_label_values(&["iter-staging-imm"])
+            .observe(staging_imm_count as f64);
+
+        self.stats
+            .iter_merge_sstable_counts
+            .with_label_values(&["iter-staging-sst"])
+            .observe(staging_sst_count as f64);
 
         // Generate iterators for versioned ssts by filter out ssts that do not overlap with the
         // user key range derived from the given `table_key_range` and `table_id`.
@@ -344,6 +387,7 @@ impl HummockStorageV1 {
                     }
                 }
 
+                committed_sst_cout += sstables.len();
                 overlapped_iters.push(HummockIteratorUnion::Third(ConcatIteratorInner::<
                     T::SstableIteratorType,
                 >::new(
@@ -368,6 +412,7 @@ impl HummockStorageV1 {
                         }
                     }
 
+                    committed_sst_cout += 1;
                     overlapped_iters.push(HummockIteratorUnion::Fourth(
                         T::SstableIteratorType::create(
                             sstable,
@@ -381,8 +426,8 @@ impl HummockStorageV1 {
 
         self.stats
             .iter_merge_sstable_counts
-            .with_label_values(&["sub-iter"])
-            .observe(overlapped_iters.len() as f64);
+            .with_label_values(&["iter-committed-sst"])
+            .observe(committed_sst_cout as f64);
 
         // TODO: implement delete range if the code of this file would not be delete.
         let delete_range_iter = ForwardMergeRangeIterator::default();
