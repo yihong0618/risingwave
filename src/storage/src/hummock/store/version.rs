@@ -384,13 +384,20 @@ impl HummockVersionReader {
         read_options: ReadOptions,
         read_version_tuple: (Vec<ImmutableMemtable>, Vec<SstableInfo>, CommittedVersion),
     ) -> StorageResult<Option<Bytes>> {
-        let mut table_counts = 0;
+        let (mut staging_imm_count, mut staging_sst_count, mut committed_sst_count) = (0, 0, 0);
         let mut local_stats = StoreLocalStatistic::default();
         let (imms, uncommitted_ssts, committed_version) = read_version_tuple;
 
         // 1. read staging data
         for imm in &imms {
+            staging_imm_count += 1;
             if let Some(data) = get_from_batch(imm, table_key, &mut local_stats) {
+                local_stats.report(self.stats.as_ref());
+                self.stats
+                    .iter_merge_sstable_counts
+                    .with_label_values(&["get-staging-imm"])
+                    .observe(staging_imm_count as f64);
+
                 return Ok(data.into_user_value());
             }
         }
@@ -398,7 +405,7 @@ impl HummockVersionReader {
         // 2. order guarantee: imm -> sst
         let full_key = FullKey::new(read_options.table_id, table_key, epoch);
         for local_sst in &uncommitted_ssts {
-            table_counts += 1;
+            staging_sst_count += 1;
 
             if let Some(data) = get_from_sstable_info(
                 self.sstable_store.clone(),
@@ -409,6 +416,17 @@ impl HummockVersionReader {
             )
             .await?
             {
+                local_stats.report(self.stats.as_ref());
+                self.stats
+                    .iter_merge_sstable_counts
+                    .with_label_values(&["get-staging-imm"])
+                    .observe(staging_imm_count as f64);
+
+                self.stats
+                    .iter_merge_sstable_counts
+                    .with_label_values(&["get-staging-sst"])
+                    .observe(staging_sst_count as f64);
+
                 return Ok(data.into_user_value());
             }
         }
@@ -430,7 +448,7 @@ impl HummockVersionReader {
                         &(table_key..=table_key),
                     );
                     for sstable_info in sstable_infos {
-                        table_counts += 1;
+                        committed_sst_count += 1;
                         if let Some(v) = get_from_sstable_info(
                             self.sstable_store.clone(),
                             sstable_info,
@@ -469,7 +487,7 @@ impl HummockVersionReader {
                         continue;
                     }
 
-                    table_counts += 1;
+                    committed_sst_count += 1;
                     if let Some(v) = get_from_sstable_info(
                         self.sstable_store.clone(),
                         &level.table_infos[table_info_idx],
@@ -489,8 +507,18 @@ impl HummockVersionReader {
         local_stats.report(self.stats.as_ref());
         self.stats
             .iter_merge_sstable_counts
-            .with_label_values(&["sub-iter"])
-            .observe(table_counts as f64);
+            .with_label_values(&["get-staging-imm"])
+            .observe(staging_imm_count as f64);
+
+        self.stats
+            .iter_merge_sstable_counts
+            .with_label_values(&["get-staging-sst"])
+            .observe(staging_sst_count as f64);
+
+        self.stats
+            .iter_merge_sstable_counts
+            .with_label_values(&["get-committed-sst"])
+            .observe(committed_sst_count as f64);
 
         Ok(None)
     }
@@ -509,7 +537,7 @@ impl HummockVersionReader {
         let mut delete_range_iter = ForwardMergeRangeIterator::default();
         self.stats
             .iter_merge_sstable_counts
-            .with_label_values(&["staging-imm-iter"])
+            .with_label_values(&["iter-staging-imm"])
             .observe(imms.len() as f64);
         for imm in imms {
             if imm.has_range_tombstone() && !read_options.ignore_range_tombstone {
@@ -517,6 +545,7 @@ impl HummockVersionReader {
             }
             staging_iters.push(HummockIteratorUnion::First(imm.into_forward_iter()));
         }
+
         let mut staging_sst_iter_count = 0;
         for sstable_info in &uncommitted_ssts {
             let table_holder = self
@@ -550,7 +579,7 @@ impl HummockVersionReader {
         }
         self.stats
             .iter_merge_sstable_counts
-            .with_label_values(&["staging-sst-iter"])
+            .with_label_values(&["iter-staging-sst"])
             .observe(staging_sst_iter_count as f64);
         let staging_iter: StagingDataIterator = OrderedMergeIteratorInner::new(staging_iters);
 
@@ -658,11 +687,11 @@ impl HummockVersionReader {
         }
         self.stats
             .iter_merge_sstable_counts
-            .with_label_values(&["committed-overlapping-iter"])
+            .with_label_values(&["iter-committed-overlapping"])
             .observe(overlapping_iter_count as f64);
         self.stats
             .iter_merge_sstable_counts
-            .with_label_values(&["committed-non-overlapping-iter"])
+            .with_label_values(&["iter-committed-non-overlapping"])
             .observe(non_overlapping_iters.len() as f64);
 
         // 3. build user_iterator

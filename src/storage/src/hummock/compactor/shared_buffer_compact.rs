@@ -218,7 +218,7 @@ async fn compact_shared_buffer(
             context.clone(),
             sub_compaction_sstable_size as usize,
         );
-        let iter = build_ordered_merge_iter::<ForwardIter>(
+        let (iter, (_, _)) = build_ordered_merge_iter::<ForwardIter>(
             &payload,
             sstable_store.clone(),
             stats.clone(),

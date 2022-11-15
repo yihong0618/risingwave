@@ -1626,20 +1626,20 @@ def section_hummock(panels):
             ],
         ),
         panels.timeseries_count(
-            "Read Merged SSTs",
+            "Read Merged Count",
             "",
             [
                 *quantile(
                     lambda quantile, legend: panels.target(
-                        f"histogram_quantile({quantile}, sum(rate({metric('state_store_iter_merge_sstable_counts_bucket')}[$__rate_interval])) by (le, job, instance))",
-                        f"# merged ssts p{legend}" +
-                        " - {{job}} @ {{instance}}",
+                        f"histogram_quantile({quantile}, sum(rate({metric('state_store_iter_merge_sstable_counts_bucket')}[$__rate_interval])) by (le, type, job, instance))",
+                        f"# merged count p{legend}" +
+                        " - {{type}} @ {{job}} @ {{instance}}",
                     ),
                     [90, 99, "max"],
                 ),
                 panels.target(
-                    f"sum by(le, job, instance)(rate({metric('state_store_iter_merge_sstable_counts_sum')}[$__rate_interval]))  / sum by(le, job, instance)(rate({metric('state_store_iter_merge_sstable_counts_count')}[$__rate_interval]))",
-                    "# merged ssts avg  - {{job}} @ {{instance}}",
+                    f"sum by(le, type, job, instance)(rate({metric('state_store_iter_merge_sstable_counts_sum')}[$__rate_interval]))  / sum by(le, type, job, instance)(rate({metric('state_store_iter_merge_sstable_counts_count')}[$__rate_interval]))",
+                    "# merged count avg  - {{type}} @ {{job}} @ {{instance}}",
                 ),
             ],
         ),
