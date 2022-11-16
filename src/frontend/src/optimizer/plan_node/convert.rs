@@ -47,6 +47,22 @@ pub trait ToStream {
         let ret = self.to_stream()?;
         required_dist.enforce_if_not_satisfies(ret, &Order::any())
     }
+
+    // **Remove Before Merge**
+    // a temporary function for refactor
+    fn to_stream_v2(&self) -> Result<stream::PlanRef> {
+        unimplemented!();
+    }
+
+    // **Remove Before Merge**
+    // a temporary function for refactor
+    fn to_stream_with_dist_required_v2(
+        &self,
+        required_dist: &RequiredDist,
+    ) -> Result<stream::PlanRef> {
+        let ret = self.to_stream_v2()?;
+        Ok(required_dist.enforce_stream_if_not_satisfies(ret))
+    }
 }
 
 /// `ToBatch` allows to convert a logical plan node to batch physical node
