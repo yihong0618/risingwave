@@ -333,6 +333,15 @@ impl RequiredDist {
     /// can be only called by `enforce_if_not_satisfies`, insert exchange to satisfy the
     /// Distribution of a batch plan
     fn enforce(&self, plan: PlanRef, required_order: &Order) -> PlanRef {
+        let dist = self.to_dist();
+        match plan.convention() {
+            Convention::Batch => BatchExchange::new(plan, required_order.clone(), dist).into(),
+            Convention::Stream => StreamExchange::new(plan, dist).into(),
+            _ => unreachable!(),
+        }
+    }
+
+    fn to_dist(&self) -> Distribution {
         let dist = match self {
             // all the distribution satisfy the Any, and the function can be only called by
             // `enforce_if_not_satisfies`
@@ -344,38 +353,21 @@ impl RequiredDist {
             }
             RequiredDist::PhysicalDist(dist) => dist.clone(),
         };
-        match plan.convention() {
-            Convention::Batch => BatchExchange::new(plan, required_order.clone(), dist).into(),
-            Convention::Stream => StreamExchange::new(plan, dist).into(),
-            _ => unreachable!(),
-        }
+        dist
     }
 
-    pub fn enforce_stream_if_not_satisfies(&self, plan: stream::PlanRef) -> stream::PlanRef {
+    pub fn enforce_stream_if_not_satisfies(
+        &self,
+        plan: stream::PlanRef,
+    ) -> stream::PlanRef {
         if !plan.distribution().satisfies(self) {
-            self.enforce_stream(plan)
+            stream::Exchange {
+                dist: self.to_dist(),
+                input: plan,
+            }.into()
         } else {
             plan
         }
-    }
-
-    /// can be only called by `enforce_stream_if_not_satisfies`, insert exchange to satisfy the
-    /// Distribution of a stream plan
-    fn enforce_stream(&self, plan: stream::PlanRef) -> stream::PlanRef {
-        let dist = match self {
-            // all the distribution satisfy the Any, and the function can be only called by
-            // `enforce_if_not_satisfies`
-            RequiredDist::Any => unreachable!(),
-            // TODO: add round robin distributed type
-            RequiredDist::AnyShard => Distribution::HashShard(plan.logical_pk().to_vec()),
-            RequiredDist::ShardByKey(required_keys) => {
-                Distribution::HashShard(required_keys.ones().collect())
-            }
-            RequiredDist::PhysicalDist(dist) => dist.clone(),
-        };
-        // FIXME(st1page);
-        let inner = stream::Exchange { dist, input: plan };
-        inner.into()
     }
 }
 
