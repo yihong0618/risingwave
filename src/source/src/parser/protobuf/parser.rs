@@ -22,7 +22,7 @@ use prost_reflect::{
     ReflectMessage, Value,
 };
 use risingwave_common::array::{ListValue, StructValue};
-use risingwave_common::error::ErrorCode::{InternalError, NotImplemented, ProtocolError};
+use risingwave_common::error::ErrorCode::{InternalError, NotImplemented, ProtocolError, self};
 use risingwave_common::error::{Result, RwError};
 use risingwave_common::types::{DataType, Datum, Decimal, OrderedF32, OrderedF64, ScalarImpl};
 use risingwave_pb::plan_common::ColumnDesc;
@@ -273,7 +273,7 @@ fn protobuf_type_mapping(field_descriptor: &FieldDescriptor) -> Result<DataType>
         }
         Kind::Enum(_) => DataType::Varchar,
         actual_type => {
-            return Err(NotImplemented(
+            return Err(ErrorCode::NotImplemented(
                 format!("unsupported field type: {:?}", actual_type),
                 None.into(),
             )
