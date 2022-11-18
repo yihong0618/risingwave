@@ -11,7 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::collections::hash_map::Entry;
 use std::str::FromStr;
 
@@ -19,7 +18,7 @@ use itertools::Itertools;
 use risingwave_common::catalog::{
     Field, TableId, DEFAULT_SCHEMA_NAME, RW_INTERNAL_TABLE_FUNCTION_NAME,
 };
-use risingwave_common::error::{internal_error, ErrorCode, Result, RwError};
+use risingwave_common::error::{internal_error, not_implemented_err, ErrorCode, Result, RwError};
 use risingwave_sqlparser::ast::{FunctionArg, Ident, ObjectName, TableAlias, TableFactor};
 
 use super::bind_context::ColumnBinding;
@@ -349,9 +348,9 @@ impl Binder {
                     return Ok(Relation::TableFunction(Box::new(tf)));
                 }
                 let kind = WindowTableFunctionKind::from_str(func_name).map_err(|_| {
-                    ErrorCode::NotImplemented(
+                    not_implemented_err(
                         format!("unknown table function kind: {}", name.0[0].value),
-                        1191.into(),
+                        1191,
                     )
                 })?;
                 Ok(Relation::WindowTableFunction(Box::new(
@@ -371,11 +370,10 @@ impl Binder {
 
                     // Mark the lateral context as invisible once again.
                     self.try_mark_lateral_as_invisible();
-                    Err(ErrorCode::NotImplemented(
-                        "lateral subqueries are not yet supported".into(),
-                        Some(3815).into(),
-                    )
-                    .into())
+                    Err(not_implemented_err(
+                        "lateral subqueries are not yet supported",
+                        Some(3815),
+                    ))
                 } else {
                     // Non-lateral subqueries to not have access to the join-tree context.
                     self.push_lateral_context();

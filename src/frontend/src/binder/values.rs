@@ -11,10 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use itertools::Itertools;
 use risingwave_common::catalog::{Field, Schema};
-use risingwave_common::error::{ErrorCode, Result};
+use risingwave_common::error::{not_implemented_err, ErrorCode, Result};
 use risingwave_common::types::DataType;
 use risingwave_sqlparser::ast::Values;
 
@@ -123,14 +122,10 @@ impl Binder {
             .flatten()
             .any(|expr| expr.has_subquery())
         {
-            return Err(ErrorCode::NotImplemented("Subquery in VALUES".into(), None.into()).into());
+            return Err(not_implemented_err("Subquery in VALUES", None));
         }
         if bound_values.is_correlated() {
-            return Err(ErrorCode::NotImplemented(
-                "CorrelatedInputRef in VALUES".into(),
-                None.into(),
-            )
-            .into());
+            return Err(not_implemented_err("CorrelatedInputRef in VALUES", None));
         }
         Ok(bound_values)
     }

@@ -11,10 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use itertools::Itertools;
 use risingwave_common::catalog::Schema;
-use risingwave_common::error::{ErrorCode, Result};
+use risingwave_common::error::{not_implemented_err, ErrorCode, Result};
 use risingwave_common::types::DataType;
 use risingwave_expr::expr::AggKind;
 use risingwave_pb::plan_common::JoinType;
@@ -213,11 +212,10 @@ impl Planner {
                 FunctionCall::new(ExprType::Equal, vec![left_expr, right_expr.into()])?.into()
             }
             kind => {
-                return Err(ErrorCode::NotImplemented(
+                return Err(not_implemented_err(
                     format!("Not supported subquery kind: {:?}", kind),
-                    1343.into(),
-                )
-                .into())
+                    1343,
+                ))
             }
         };
         *input = Self::create_apply(
@@ -290,13 +288,7 @@ impl Planner {
                 SubqueryKind::Existential => {
                     right = self.create_exists(right)?;
                 }
-                _ => {
-                    return Err(ErrorCode::NotImplemented(
-                        format!("{:?}", subquery.kind),
-                        1343.into(),
-                    )
-                    .into())
-                }
+                _ => return Err(not_implemented_err(format!("{:?}", subquery.kind), 1343)),
             }
 
             root = Self::create_apply(

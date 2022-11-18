@@ -11,11 +11,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::str::FromStr;
 
 use itertools::Itertools;
-use risingwave_common::error::ErrorCode;
+use risingwave_common::error::{not_implemented_err, ErrorCode};
 use risingwave_common::types::{unnested_list_type, DataType, ScalarImpl};
 use risingwave_pb::expr::table_function::Type;
 use risingwave_pb::expr::TableFunction as TableFunctionProst;
@@ -155,10 +154,7 @@ impl TableFunction {
                     if let ExprImpl::Literal(lit) = flag &&
                       let Some(ScalarImpl::Utf8(flag)) = lit.get_data() {
                         if flag != "g" {
-                            return Err(ErrorCode::NotImplemented(
-                                "flag in regexp_matches".to_string(),
-                                4545.into()
-                            ).into());
+                            return Err(not_implemented_err("flag in regexp_matches",4545));
                         }
                         // Currently when 'g' is not present, regexp_matches will also return multiple rows.
                         // This is intuitive, but differs from PG's default behavior.

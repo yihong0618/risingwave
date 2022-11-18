@@ -11,11 +11,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::fmt;
 
 use itertools::Itertools;
-use risingwave_common::error::{ErrorCode, Result};
+use risingwave_common::error::{not_implemented_err, Result};
 use risingwave_common::types::{DataType, Scalar};
 
 use super::{ColPrunable, PlanBase, PlanRef, PredicatePushdown, ToBatch, ToStream};
@@ -153,10 +152,7 @@ impl ToStream for LogicalUnion {
         if !self.all() {
             // TODO: we should rely on optimizer to transform not all to all. after that, we can use
             // assert instead of return an error.
-            Err(
-                ErrorCode::NotImplemented("Union for streaming query".to_string(), 2911.into())
-                    .into(),
-            )
+            Err(not_implemented_err("Union for streaming query", 2911))
         } else {
             Ok(StreamUnion::new(new_logical).into())
         }

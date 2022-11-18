@@ -11,7 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -19,7 +18,7 @@ use itertools::Itertools;
 use risingwave_common::catalog::{
     ColumnDesc, Field, INFORMATION_SCHEMA_SCHEMA_NAME, PG_CATALOG_SCHEMA_NAME,
 };
-use risingwave_common::error::{ErrorCode, Result, RwError};
+use risingwave_common::error::{not_implemented_err, ErrorCode, Result, RwError};
 use risingwave_common::session_config::USER_NAME_WILD_CARD;
 use risingwave_sqlparser::ast::{Statement, TableAlias};
 use risingwave_sqlparser::parser::Parser;
@@ -121,7 +120,7 @@ impl Binder {
                         ) {
                             resolve_sys_table_relation(sys_table_catalog)
                         } else {
-                            return Err(ErrorCode::NotImplemented(
+                            return Err(not_implemented_err(
                                 format!(
                                     r###"{}.{} is not supported, please use `SHOW` commands for now.
 `SHOW TABLES`,
@@ -131,9 +130,8 @@ impl Binder {
 "###,
                                     schema_name, table_name
                                 ),
-                                1695.into(),
-                            )
-                            .into());
+                                1695,
+                            ));
                         }
                     } else if let Ok((table_catalog, schema_name)) =
                         self.catalog

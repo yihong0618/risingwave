@@ -11,7 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -19,7 +18,7 @@ use fixedbitset::FixedBitSet;
 use itertools::Itertools;
 use pgwire::pg_response::{PgResponse, StatementType};
 use risingwave_common::catalog::{IndexId, TableDesc, TableId};
-use risingwave_common::error::{ErrorCode, Result, RwError};
+use risingwave_common::error::{not_implemented_err, ErrorCode, Result, RwError};
 use risingwave_pb::catalog::{Index as ProstIndex, Table as ProstTable};
 use risingwave_pb::user::grant_privilege::{Action, Object};
 use risingwave_sqlparser::ast::{Ident, ObjectName, OrderByExpr};
@@ -283,17 +282,11 @@ fn check_columns(columns: Vec<OrderByExpr>) -> Result<Vec<Ident>> {
         .into_iter()
         .map(|column| {
             if column.asc.is_some() {
-                return Err(
-                    ErrorCode::NotImplemented("asc not supported".into(), None.into()).into(),
-                );
+                return Err(not_implemented_err("asc not supported", None));
             }
 
             if column.nulls_first.is_some() {
-                return Err(ErrorCode::NotImplemented(
-                    "nulls_first not supported".into(),
-                    None.into(),
-                )
-                .into());
+                return Err(not_implemented_err("nulls_first not supported", None));
             }
 
             use risingwave_sqlparser::ast::Expr;
@@ -301,11 +294,10 @@ fn check_columns(columns: Vec<OrderByExpr>) -> Result<Vec<Ident>> {
             if let Expr::Identifier(ident) = column.expr {
                 Ok::<_, RwError>(ident)
             } else {
-                Err(ErrorCode::NotImplemented(
-                    "only identifier is supported for create index".into(),
-                    None.into(),
-                )
-                .into())
+                Err(not_implemented_err(
+                    "only identifier is supported for create index",
+                    None,
+                ))
             }
         })
         .try_collect::<_, Vec<_>, _>()

@@ -11,11 +11,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use pgwire::pg_response::{PgResponse, StatementType};
 use risingwave_common::catalog::PG_CATALOG_SCHEMA_NAME;
 use risingwave_common::error::ErrorCode::PermissionDenied;
-use risingwave_common::error::{ErrorCode, Result, TrackingIssue};
+use risingwave_common::error::{not_implemented_err, ErrorCode, Result, TrackingIssue};
 use risingwave_sqlparser::ast::{DropMode, ObjectName};
 
 use super::RwPgResponse;
@@ -80,11 +79,10 @@ pub async fn handle_drop_schema(
             }
             schema.id()
         } else {
-            return Err(ErrorCode::NotImplemented(
+            return Err(not_implemented_err(
                 format!("unsupported drop mode: {:?}", mode),
                 TrackingIssue::none(),
-            )
-            .into());
+            ));
         }
     };
 

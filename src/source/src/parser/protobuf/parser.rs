@@ -11,7 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -22,8 +21,8 @@ use prost_reflect::{
     ReflectMessage, Value,
 };
 use risingwave_common::array::{ListValue, StructValue};
-use risingwave_common::error::ErrorCode::{InternalError, NotImplemented, ProtocolError, self};
-use risingwave_common::error::{Result, RwError};
+use risingwave_common::error::ErrorCode::{InternalError, ProtocolError};
+use risingwave_common::error::{not_implemented_err, Result, RwError};
 use risingwave_common::types::{DataType, Datum, Decimal, OrderedF32, OrderedF64, ScalarImpl};
 use risingwave_pb::plan_common::ColumnDesc;
 use url::Url;
@@ -273,11 +272,10 @@ fn protobuf_type_mapping(field_descriptor: &FieldDescriptor) -> Result<DataType>
         }
         Kind::Enum(_) => DataType::Varchar,
         actual_type => {
-            return Err(ErrorCode::NotImplemented(
+            return Err(not_implemented_err(
                 format!("unsupported field type: {:?}", actual_type),
-                None.into(),
-            )
-            .into());
+                None,
+            ));
         }
     };
     if field_descriptor.cardinality() == Cardinality::Repeated {

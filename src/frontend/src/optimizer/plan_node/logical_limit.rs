@@ -11,10 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::fmt;
 
-use risingwave_common::error::{ErrorCode, Result, RwError};
+use risingwave_common::error::{not_implemented_err, Result};
 
 use super::{
     gen_filter_and_pushdown, BatchLimit, ColPrunable, PlanBase, PlanRef, PlanTreeNodeUnary,
@@ -112,10 +111,10 @@ impl ToBatch for LogicalLimit {
 
 impl ToStream for LogicalLimit {
     fn to_stream(&self) -> Result<PlanRef> {
-        Err(RwError::from(ErrorCode::NotImplemented(
-            "there is no limit stream operator".to_string(),
-            None.into(),
-        )))
+        Err(not_implemented_err(
+            "there is no limit stream operator",
+            None,
+        ))
     }
 
     fn logical_rewrite_for_stream(&self) -> Result<(PlanRef, ColIndexMapping)> {

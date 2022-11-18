@@ -11,9 +11,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use itertools::Itertools;
-use risingwave_common::error::{ErrorCode, Result, RwError};
+use risingwave_common::error::{not_implemented_err, ErrorCode, Result, RwError};
 use risingwave_common::types::{DataType, DateTimeField, Decimal, IntervalUnit, ScalarImpl};
 use risingwave_expr::vector_op::cast::str_parse;
 use risingwave_sqlparser::ast::{DateTimeField as AstDateTimeField, Expr, Value};
@@ -38,7 +37,7 @@ impl Binder {
                 last_field: None,
                 fractional_seconds_precision: None,
             } => self.bind_interval(value, leading_field),
-            _ => Err(ErrorCode::NotImplemented(format!("value: {:?}", value), None.into()).into()),
+            _ => Err(not_implemented_err(format!("value: {:?}", value), None)),
         }
     }
 

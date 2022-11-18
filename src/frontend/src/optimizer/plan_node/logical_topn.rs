@@ -11,12 +11,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::fmt;
 
 use fixedbitset::FixedBitSet;
 use itertools::Itertools;
-use risingwave_common::error::{ErrorCode, Result, RwError};
+use risingwave_common::error::{not_implemented_err, ErrorCode, Result, RwError};
 
 use super::generic::GenericPlanNode;
 use super::{
@@ -83,11 +82,10 @@ impl LogicalTopN {
         with_ties: bool,
     ) -> Result<PlanRef> {
         if with_ties && offset > 0 {
-            return Err(ErrorCode::NotImplemented(
-                "WITH TIES is not supported with OFFSET".to_string(),
-                None.into(),
-            )
-            .into());
+            return Err(not_implemented_err(
+                "WITH TIES is not supported with OFFSET",
+                None,
+            ));
         }
         Ok(Self::new(input, limit, offset, with_ties, order).into())
     }
@@ -167,10 +165,9 @@ impl LogicalTopN {
 
         match input_dist {
             Distribution::Single | Distribution::SomeShard => gen_single_plan(stream_input),
-            Distribution::Broadcast => Err(RwError::from(ErrorCode::NotImplemented(
-                "topN does not support Broadcast".to_string(),
-                None.into(),
-            ))),
+            Distribution::Broadcast => {
+                Err(not_implemented_err("topN does not support Broadcast", None))
+            }
             Distribution::HashShard(dists) | Distribution::UpstreamHashShard(dists, _) => {
                 self.gen_vnode_two_phase_streaming_top_n_plan(stream_input, &dists)
             }
@@ -353,11 +350,7 @@ impl PredicatePushdown for LogicalTopN {
 impl ToBatch for LogicalTopN {
     fn to_batch(&self) -> Result<PlanRef> {
         if self.with_ties() {
-            return Err(ErrorCode::NotImplemented(
-                "TopN with ties in batch mode".to_string(),
-                5302.into(),
-            )
-            .into());
+            return Err(not_implemented_err("TopN with ties in batch mode", 5302));
         }
 
         let new_input = self.input().to_batch()?;

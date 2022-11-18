@@ -11,11 +11,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::fmt;
 
 use risingwave_common::catalog::{Field, Schema};
-use risingwave_common::error::{ErrorCode, Result};
+use risingwave_common::error::{not_implemented_err, Result};
 
 use super::{ColPrunable, LogicalFilter, PlanBase, PlanRef, PredicatePushdown, ToBatch, ToStream};
 use crate::expr::{Expr, TableFunction};
@@ -79,17 +78,13 @@ impl ToBatch for LogicalTableFunction {
 
 impl ToStream for LogicalTableFunction {
     fn to_stream(&self) -> Result<PlanRef> {
-        Err(
-            ErrorCode::NotImplemented("LogicalTableFunction::to_stream".to_string(), None.into())
-                .into(),
-        )
+        Err(not_implemented_err("LogicalTableFunction::to_stream", None))
     }
 
     fn logical_rewrite_for_stream(&self) -> Result<(PlanRef, crate::utils::ColIndexMapping)> {
-        Err(ErrorCode::NotImplemented(
-            "LogicalTableFunction::logical_rewrite_for_stream".to_string(),
-            None.into(),
-        )
-        .into())
+        Err(not_implemented_err(
+            "LogicalTableFunction::logical_rewrite_for_stream",
+            None,
+        ))
     }
 }

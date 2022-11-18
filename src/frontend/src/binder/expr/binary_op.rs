@@ -11,8 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
-use risingwave_common::error::{ErrorCode, Result};
+use risingwave_common::error::{not_implemented_err, ErrorCode, Result};
 use risingwave_common::types::DataType;
 use risingwave_sqlparser::ast::{BinaryOperator, Expr};
 
@@ -55,11 +54,7 @@ impl Binder {
                 return self.bind_regex_not_match(bound_left, bound_right)
             }
 
-            _ => {
-                return Err(
-                    ErrorCode::NotImplemented(format!("binary op: {:?}", op), 112.into()).into(),
-                )
-            }
+            _ => return Err(not_implemented_err(format!("binary op: {:?}", op), 112)),
         };
         Ok(FunctionCall::new(func_type, vec![bound_left, bound_right])?.into())
     }

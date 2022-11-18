@@ -11,11 +11,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::collections::HashMap;
 
 use risingwave_common::catalog::Schema;
-use risingwave_common::error::{ErrorCode, Result};
+use risingwave_common::error::{not_implemented_err, ErrorCode, Result};
 use risingwave_common::types::DataType;
 use risingwave_sqlparser::ast::{Cte, Expr, Fetch, OrderByExpr, Query, Value, With};
 
@@ -208,11 +207,7 @@ impl Binder {
         visible_output_num: usize,
     ) -> Result<FieldOrder> {
         if nulls_first.is_some() {
-            return Err(ErrorCode::NotImplemented(
-                "NULLS FIRST or NULLS LAST".to_string(),
-                4743.into(),
-            )
-            .into());
+            return Err(not_implemented_err("NULLS FIRST or NULLS LAST", 4743));
         }
         let direct = match asc {
             None | Some(true) => Direction::Asc,
@@ -243,7 +238,7 @@ impl Binder {
 
     fn bind_with(&mut self, with: With) -> Result<()> {
         if with.recursive {
-            Err(ErrorCode::NotImplemented("recursive cte".into(), None.into()).into())
+            Err(not_implemented_err("recursive cte", None))
         } else {
             for cte_table in with.cte_tables {
                 let Cte { alias, query, .. } = cte_table;

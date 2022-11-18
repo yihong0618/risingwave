@@ -11,11 +11,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::fmt;
 use std::rc::Rc;
 
-use risingwave_common::error::{ErrorCode, Result, RwError};
+use risingwave_common::error::{not_implemented_err, Result};
 
 use super::generic::GenericPlanNode;
 use super::{
@@ -102,10 +101,10 @@ impl PredicatePushdown for LogicalSource {
 
 impl ToBatch for LogicalSource {
     fn to_batch(&self) -> Result<PlanRef> {
-        Err(RwError::from(ErrorCode::NotImplemented(
-            "there is no batch source operator".to_string(),
-            None.into(),
-        )))
+        Err(not_implemented_err(
+            "there is no batch source operator",
+            None,
+        ))
     }
 }
 

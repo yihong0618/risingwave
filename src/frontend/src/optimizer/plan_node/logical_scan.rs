@@ -11,7 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::rc::Rc;
@@ -19,7 +18,7 @@ use std::rc::Rc;
 use fixedbitset::FixedBitSet;
 use itertools::Itertools;
 use risingwave_common::catalog::{ColumnDesc, Field, Schema, TableDesc};
-use risingwave_common::error::{ErrorCode, Result, RwError};
+use risingwave_common::error::{not_implemented_err, Result};
 use risingwave_common::util::sort_util::OrderType;
 
 use super::generic::GenericPlanNode;
@@ -551,10 +550,10 @@ impl ToBatch for LogicalScan {
 impl ToStream for LogicalScan {
     fn to_stream(&self) -> Result<PlanRef> {
         if self.is_sys_table() {
-            return Err(RwError::from(ErrorCode::NotImplemented(
-                "streaming on system table is not allowed".to_string(),
-                None.into(),
-            )));
+            return Err(not_implemented_err(
+                "streaming on system table is not allowed",
+                None,
+            ));
         }
         if self.predicate().always_true() {
             Ok(StreamTableScan::new(self.clone()).into())
@@ -570,10 +569,10 @@ impl ToStream for LogicalScan {
 
     fn logical_rewrite_for_stream(&self) -> Result<(PlanRef, ColIndexMapping)> {
         if self.is_sys_table() {
-            return Err(RwError::from(ErrorCode::NotImplemented(
-                "streaming on system table is not allowed".to_string(),
-                None.into(),
-            )));
+            return Err(not_implemented_err(
+                "streaming on system table is not allowed",
+                None,
+            ));
         }
         match self.base.logical_pk.is_empty() {
             true => {

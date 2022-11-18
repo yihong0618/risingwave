@@ -11,13 +11,12 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use itertools::{iproduct, Itertools as _};
 use num_integer::Integer as _;
-use risingwave_common::error::{ErrorCode, Result};
+use risingwave_common::error::{not_implemented_err, ErrorCode, Result};
 use risingwave_common::types::{DataType, DataTypeName};
 
 use super::{align_types, cast_ok_base, CastContext};
@@ -217,11 +216,7 @@ fn infer_type_for_special(
         ExprType::RegexpMatch => {
             ensure_arity!("regexp_match", 2 <= | inputs | <= 3);
             if inputs.len() == 3 {
-                return Err(ErrorCode::NotImplemented(
-                    "flag in regexp_match".to_string(),
-                    4545.into(),
-                )
-                .into());
+                return Err(not_implemented_err("flag in regexp_match", 4545));
             }
             Ok(Some(DataType::List {
                 datatype: Box::new(DataType::Varchar),
@@ -347,15 +342,14 @@ fn infer_type_name<'a, 'b>(
     let mut candidates = top_matches(candidates, inputs);
 
     if candidates.is_empty() {
-        return Err(ErrorCode::NotImplemented(
+        return Err(not_implemented_err(
             format!(
                 "{:?}{:?}",
                 func_type,
                 inputs.iter().map(TypeDebug).collect_vec()
             ),
-            112.into(),
-        )
-        .into());
+            112,
+        ));
     }
 
     // After this line `candidates` will never be empty, as the narrow rules will retain original

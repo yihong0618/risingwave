@@ -11,12 +11,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::sync::Arc;
 use std::{fmt, vec};
 
 use risingwave_common::catalog::Schema;
-use risingwave_common::error::{ErrorCode, Result, RwError};
+use risingwave_common::error::{not_implemented_err, Result};
 
 use super::{
     BatchValues, ColPrunable, LogicalFilter, PlanBase, PlanRef, PredicatePushdown, ToBatch,
@@ -102,17 +101,17 @@ impl ToBatch for LogicalValues {
 
 impl ToStream for LogicalValues {
     fn to_stream(&self) -> Result<PlanRef> {
-        Err(RwError::from(ErrorCode::NotImplemented(
-            "Stream values executor is unimplemented!".to_string(),
-            None.into(),
-        )))
+        Err(not_implemented_err(
+            "Stream values executor is unimplemented!",
+            None,
+        ))
     }
 
     fn logical_rewrite_for_stream(&self) -> Result<(PlanRef, crate::utils::ColIndexMapping)> {
-        Err(RwError::from(ErrorCode::NotImplemented(
-            "Stream values executor is unimplemented!".to_string(),
-            None.into(),
-        )))
+        Err(not_implemented_err(
+            "Stream values executor is unimplemented!",
+            None,
+        ))
     }
 }
 

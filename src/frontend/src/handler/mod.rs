@@ -11,7 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -22,7 +21,7 @@ use pgwire::pg_response::StatementType::{ABORT, BEGIN, COMMIT, ROLLBACK, START_T
 use pgwire::pg_response::{PgResponse, RowSetResult};
 use pgwire::pg_server::BoxedError;
 use pgwire::types::Row;
-use risingwave_common::error::{ErrorCode, Result};
+use risingwave_common::error::{not_implemented_err, ErrorCode, Result};
 use risingwave_sqlparser::ast::{DropStatement, ObjectType, Statement};
 
 use self::util::DataChunkToRowSetAdapter;
@@ -121,28 +120,16 @@ pub async fn handle(
             if_not_exists,
         } => {
             if or_replace {
-                return Err(ErrorCode::NotImplemented(
-                    "CREATE OR REPLACE TABLE".to_string(),
-                    None.into(),
-                )
-                .into());
+                return Err(not_implemented_err("CREATE OR REPLACE TABLE", None));
             }
             if temporary {
-                return Err(ErrorCode::NotImplemented(
-                    "CREATE TEMPORARY TABLE".to_string(),
-                    None.into(),
-                )
-                .into());
+                return Err(not_implemented_err("CREATE TEMPORARY TABLE", None));
             }
             if if_not_exists {
-                return Err(ErrorCode::NotImplemented(
-                    "CREATE TABLE IF NOT EXISTS".to_string(),
-                    None.into(),
-                )
-                .into());
+                return Err(not_implemented_err("CREATE TABLE IF NOT EXISTS", None));
             }
             if query.is_some() {
-                return Err(ErrorCode::NotImplemented("CREATE AS".to_string(), 6215.into()).into());
+                return Err(not_implemented_err("CREATE AS", 6215));
             }
             create_table::handle_create_table(context, name, columns, constraints).await
         }
@@ -215,11 +202,7 @@ pub async fn handle(
             or_replace,      // not supported
         } => {
             if or_replace {
-                return Err(ErrorCode::NotImplemented(
-                    "CREATE OR REPLACE VIEW".to_string(),
-                    None.into(),
-                )
-                .into());
+                return Err(not_implemented_err("CREATE OR REPLACE VIEW", None));
             }
             if materialized {
                 create_mv::handle_create_mv(context, name, *query, columns).await
@@ -244,9 +227,7 @@ pub async fn handle(
             if_not_exists,
         } => {
             if unique {
-                return Err(
-                    ErrorCode::NotImplemented("create unique index".into(), None.into()).into(),
-                );
+                return Err(not_implemented_err("create unique index", None));
             }
 
             create_index::handle_create_index(
@@ -285,8 +266,9 @@ pub async fn handle(
             ROLLBACK,
             "Ignored temporarily. See detail in issue#2541".to_string(),
         )),
-        _ => Err(
-            ErrorCode::NotImplemented(format!("Unhandled statement: {}", stmt), None.into()).into(),
-        ),
+        _ => Err(not_implemented_err(
+            format!("Unhandled statement: {}", stmt),
+            None,
+        )),
     }
 }

@@ -11,10 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use itertools::Itertools;
 use risingwave_common::catalog::Schema;
-use risingwave_common::error::{ErrorCode, Result};
+use risingwave_common::error::{not_implemented_err, ErrorCode, Result};
 use risingwave_sqlparser::ast::{SetExpr, SetOperator};
 
 use crate::binder::{BindContext, Binder, BoundQuery, BoundSelect, BoundValues};
@@ -151,11 +150,9 @@ impl Binder {
                             right,
                         })
                     }
-                    SetOperator::Intersect | SetOperator::Except => Err(ErrorCode::NotImplemented(
-                        format!("set expr: {:?}", op),
-                        None.into(),
-                    )
-                    .into()),
+                    SetOperator::Intersect | SetOperator::Except => {
+                        Err(not_implemented_err(format!("set expr: {:?}", op), None))
+                    }
                 }
             }
         }

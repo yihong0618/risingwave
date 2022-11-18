@@ -11,13 +11,12 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::sync::atomic::Ordering;
 
 use pgwire::pg_field_descriptor::PgFieldDescriptor;
 use pgwire::pg_response::{PgResponse, StatementType};
 use pgwire::types::Row;
-use risingwave_common::error::{ErrorCode, Result};
+use risingwave_common::error::{not_implemented_err, Result};
 use risingwave_common::types::DataType;
 use risingwave_sqlparser::ast::{ExplainOptions, ExplainType, Statement};
 
@@ -40,10 +39,10 @@ pub(super) fn handle_explain(
     analyze: bool,
 ) -> Result<RwPgResponse> {
     if analyze {
-        return Err(ErrorCode::NotImplemented("explain analyze".to_string(), 4856.into()).into());
+        return Err(not_implemented_err("explain analyze", 4856));
     }
     if options.explain_type == ExplainType::Logical {
-        return Err(ErrorCode::NotImplemented("explain logical".to_string(), 4856.into()).into());
+        return Err(not_implemented_err("explain logical", 4856));
     }
 
     let session = context.session_ctx.clone();
@@ -94,11 +93,7 @@ pub(super) fn handle_explain(
         }
 
         Statement::CreateSource { .. } => {
-            return Err(ErrorCode::NotImplemented(
-                "explain create source".to_string(),
-                4776.into(),
-            )
-            .into());
+            return Err(not_implemented_err("explain create source", 4776));
         }
 
         stmt => gen_batch_query_plan(&session, context.into(), stmt)?.0,

@@ -11,10 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use itertools::{zip_eq, Itertools};
 use risingwave_common::catalog::{ColumnDesc, ColumnId};
-use risingwave_common::error::{ErrorCode, Result};
+use risingwave_common::error::{not_implemented_err, ErrorCode, Result};
 use risingwave_common::types::DataType;
 use risingwave_sqlparser::ast::{
     BinaryOperator, DataType as AstDataType, Expr, Function, ObjectName, Query, StructField,
@@ -121,11 +120,10 @@ impl Binder {
                 start,
                 count,
             } => self.bind_overlay(*expr, *new_substring, *start, count),
-            _ => Err(ErrorCode::NotImplemented(
+            _ => Err(not_implemented_err(
                 format!("unsupported expression {:?}", expr),
-                112.into(),
-            )
-            .into()),
+                112,
+            )),
         }
     }
 
@@ -137,12 +135,12 @@ impl Binder {
             vec![self.bind_string(field.clone())?.into(), arg],
         )
         .map_err(|_| {
-            ErrorCode::NotImplemented(
+            not_implemented_err(
                 format!(
                     "function extract({} from {:?}) doesn't exist",
                     field, arg_type
                 ),
-                112.into(),
+                112,
             )
         })?
         .into())
@@ -216,11 +214,10 @@ impl Binder {
                 return self.rewrite_positive(expr);
             }
             _ => {
-                return Err(ErrorCode::NotImplemented(
+                return Err(not_implemented_err(
                     format!("unsupported unary expression: {:?}", op),
-                    112.into(),
-                )
-                .into())
+                    112,
+                ))
             }
         };
         let expr = self.bind_expr(expr)?;
@@ -425,12 +422,7 @@ pub fn bind_struct_field(column_def: &StructField) -> Result<ColumnDesc> {
 }
 
 pub fn bind_data_type(data_type: &AstDataType) -> Result<DataType> {
-    let new_err = || {
-        ErrorCode::NotImplemented(
-            format!("unsupported data type: {:}", data_type),
-            None.into(),
-        )
-    };
+    let new_err = || not_implemented_err(format!("unsupported data type: {:}", data_type), None);
     let data_type = match data_type {
         AstDataType::Boolean => DataType::Boolean,
         AstDataType::SmallInt(None) => DataType::Int16,
@@ -449,11 +441,10 @@ pub fn bind_data_type(data_type: &AstDataType) -> Result<DataType> {
             datatype: Box::new(bind_data_type(datatype)?),
         },
         AstDataType::Char(..) => {
-            return Err(ErrorCode::NotImplemented(
-                "CHAR is not supported, please use VARCHAR instead\n".to_string(),
-                None.into(),
-            )
-            .into())
+            return Err(not_implemented_err(
+                "CHAR is not supported,please use VARCHAR instead\n",
+                None,
+            ))
         }
         AstDataType::Struct(types) => DataType::new_struct(
             types
@@ -472,10 +463,10 @@ pub fn bind_data_type(data_type: &AstDataType) -> Result<DataType> {
                 "float4" => DataType::Float32,
                 "float8" => DataType::Float64,
                 "timestamptz" => DataType::Timestampz,
-                _ => return Err(new_err().into()),
+                _ => return Err(new_err()),
             }
         }
-        _ => return Err(new_err().into()),
+        _ => return Err(new_err()),
     };
     Ok(data_type)
 }

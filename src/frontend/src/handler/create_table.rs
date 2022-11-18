@@ -11,7 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -19,7 +18,7 @@ use fixedbitset::FixedBitSet;
 use itertools::Itertools;
 use pgwire::pg_response::{PgResponse, StatementType};
 use risingwave_common::catalog::ColumnDesc;
-use risingwave_common::error::{ErrorCode, Result};
+use risingwave_common::error::{not_implemented_err, ErrorCode, Result};
 use risingwave_pb::catalog::source::Info;
 use risingwave_pb::catalog::{
     ColumnIndex as ProstColumnIndex, Source as ProstSource, Table as ProstTable, TableSourceInfo,
@@ -61,11 +60,10 @@ pub fn bind_sql_columns(columns: Vec<ColumnDef>) -> Result<(Vec<ColumnDesc>, Opt
                 options,
             } = column;
             if let Some(collation) = collation {
-                return Err(ErrorCode::NotImplemented(
+                return Err(not_implemented_err(
                     format!("collation \"{}\"", collation),
-                    None.into(),
-                )
-                .into());
+                    None,
+                ));
             }
             for option_def in options {
                 match option_def.option {
@@ -79,11 +77,10 @@ pub fn bind_sql_columns(columns: Vec<ColumnDef>) -> Result<(Vec<ColumnDesc>, Opt
                         pk_column_id = Some(column_id);
                     }
                     _ => {
-                        return Err(ErrorCode::NotImplemented(
+                        return Err(not_implemented_err(
                             format!("column constraints \"{}\"", option_def),
-                            None.into(),
-                        )
-                        .into())
+                            None,
+                        ))
                     }
                 }
             }
@@ -135,11 +132,10 @@ pub fn bind_sql_table_constraints(
                 pk_column_names = columns;
             }
             _ => {
-                return Err(ErrorCode::NotImplemented(
+                return Err(not_implemented_err(
                     format!("table constraint \"{}\"", constraint),
-                    None.into(),
-                )
-                .into())
+                    None,
+                ))
             }
         }
     }

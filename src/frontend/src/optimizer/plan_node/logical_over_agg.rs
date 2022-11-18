@@ -11,13 +11,12 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::fmt;
 
 use fixedbitset::FixedBitSet;
 use itertools::Itertools;
 use risingwave_common::catalog::{Field, Schema};
-use risingwave_common::error::{ErrorCode, Result};
+use risingwave_common::error::{not_implemented_err, ErrorCode, Result};
 use risingwave_common::types::DataType;
 
 use super::generic::{PlanAggOrderByField, PlanAggOrderByFieldDisplay};
@@ -147,11 +146,10 @@ impl LogicalOverAgg {
                 .into();
             }
             if expr.has_window_function() {
-                return Err(ErrorCode::NotImplemented(
+                return Err(not_implemented_err(
                     format!("window function in expression: {:?}", expr),
-                    None.into(),
-                )
-                .into());
+                    None,
+                ));
             }
         }
         for f in &window_funcs {
@@ -164,20 +162,15 @@ impl LogicalOverAgg {
                     .into());
                 }
                 if f.function_type == WindowFunctionType::DenseRank {
-                    return Err(ErrorCode::NotImplemented(
+                    return Err(not_implemented_err(
                         format!("window rank function: {}", f.function_type),
-                        4847.into(),
-                    )
-                    .into());
+                        4847,
+                    ));
                 }
             }
         }
         if window_funcs.len() > 1 {
-            return Err(ErrorCode::NotImplemented(
-                "Multiple window functions".to_string(),
-                None.into(),
-            )
-            .into());
+            return Err(not_implemented_err("Multiple window functions", None));
         }
         let WindowFunction {
             args,
@@ -199,22 +192,20 @@ impl LogicalOverAgg {
                     direction: e.direction,
                     nulls_first: e.nulls_first,
                 }),
-                None => Err(ErrorCode::NotImplemented(
-                    "ORDER BY expression in window function".to_string(),
-                    None.into(),
-                )
-                .into()),
+                None => Err(not_implemented_err(
+                    "ORDER BY expression in window function",
+                    None,
+                )),
             })
             .collect::<Result<Vec<_>>>()?;
         let partition_by = partition_by
             .into_iter()
             .map(|e| match e.as_input_ref() {
                 Some(i) => Ok(*i.clone()),
-                None => Err(ErrorCode::NotImplemented(
-                    "PARTITION BY expression in window function".to_string(),
-                    None.into(),
-                )
-                .into()),
+                None => Err(not_implemented_err(
+                    "PARTITION BY expression in window function",
+                    None,
+                )),
             })
             .collect::<Result<Vec<_>>>()?;
 
@@ -275,16 +266,16 @@ impl PredicatePushdown for LogicalOverAgg {
 
 impl ToBatch for LogicalOverAgg {
     fn to_batch(&self) -> Result<PlanRef> {
-        Err(ErrorCode::NotImplemented("OverAgg to batch".to_string(), 4847.into()).into())
+        Err(not_implemented_err("OverAgg to batch", 4847))
     }
 }
 
 impl ToStream for LogicalOverAgg {
     fn to_stream(&self) -> Result<PlanRef> {
-        Err(ErrorCode::NotImplemented("OverAgg to stream".to_string(), 4847.into()).into())
+        Err(not_implemented_err("OverAgg to stream", 4847))
     }
 
     fn logical_rewrite_for_stream(&self) -> Result<(PlanRef, crate::utils::ColIndexMapping)> {
-        Err(ErrorCode::NotImplemented("OverAgg to stream".to_string(), 4847.into()).into())
+        Err(not_implemented_err("OverAgg to stream", 4847))
     }
 }

@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use risingwave_common::error::{ErrorCode, Result};
+use risingwave_common::error::{not_implemented_err, Result};
 
 use crate::binder::{BoundSetExpr, BoundSetOperation};
 use crate::optimizer::plan_node::LogicalUnion;
@@ -33,7 +33,7 @@ impl Planner {
                 Ok(LogicalUnion::create(all, vec![left, right]))
             }
             BoundSetOperation::Except | BoundSetOperation::Intersect => {
-                Err(ErrorCode::NotImplemented(format!("set expr: {:?}", op), None.into()).into())
+                Err(not_implemented_err(format!("set expr: {:?}", op), None))
             }
         }
     }

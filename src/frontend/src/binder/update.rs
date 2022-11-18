@@ -11,13 +11,12 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
 use itertools::Itertools;
 use risingwave_common::ensure;
-use risingwave_common::error::{ErrorCode, Result};
+use risingwave_common::error::{not_implemented_err, ErrorCode, Result};
 use risingwave_sqlparser::ast::{Assignment, Expr, TableFactor, TableWithJoins};
 
 use super::{Binder, BoundTableSource, Relation};
@@ -77,11 +76,10 @@ impl Binder {
 
                 // (col1, col2) = (subquery)
                 (_ids, Expr::Subquery(_)) => {
-                    return Err(ErrorCode::NotImplemented(
-                        "subquery on the right side of multi-assignment".to_owned(),
-                        None.into(),
-                    )
-                    .into())
+                    return Err(not_implemented_err(
+                        "subquery on the right side of multi-assignment",
+                        None,
+                    ))
                 }
                 // (col1, col2) = (expr1, expr2)
                 (ids, Expr::Row(values)) if ids.len() == values.len() => {

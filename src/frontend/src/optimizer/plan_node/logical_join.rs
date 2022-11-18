@@ -11,13 +11,12 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::fmt;
 
 use fixedbitset::FixedBitSet;
 use itertools::Itertools;
 use risingwave_common::catalog::Schema;
-use risingwave_common::error::{ErrorCode, Result, RwError};
+use risingwave_common::error::{not_implemented_err, Result};
 use risingwave_pb::plan_common::JoinType;
 
 use super::generic::GenericPlanNode;
@@ -976,10 +975,7 @@ impl ToStream for LogicalJoin {
         } else if let Some(dynamic_filter) = self.to_stream_dynamic_filter(predicate)? {
             Ok(dynamic_filter)
         } else {
-            Err(RwError::from(ErrorCode::NotImplemented(
-                "stream nested-loop join".to_string(),
-                None.into(),
-            )))
+            Err(not_implemented_err("stream nested-loop join", None))
         }
     }
 

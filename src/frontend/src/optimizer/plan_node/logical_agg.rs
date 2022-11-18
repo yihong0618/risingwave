@@ -11,13 +11,12 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::{fmt, iter};
 
 use fixedbitset::FixedBitSet;
 use itertools::Itertools;
 use risingwave_common::catalog::FieldDisplay;
-use risingwave_common::error::{ErrorCode, Result, TrackingIssue};
+use risingwave_common::error::{not_implemented_err_code, ErrorCode, Result, TrackingIssue};
 use risingwave_common::types::DataType;
 use risingwave_expr::expr::AggKind;
 
@@ -318,9 +317,7 @@ impl LogicalAggBuilder {
             .into_iter()
             .map(|expr| input_proj_builder.add_expr(&expr))
             .try_collect()
-            .map_err(|err| {
-                ErrorCode::NotImplemented(format!("{err} inside GROUP BY"), None.into())
-            })?;
+            .map_err(|err| not_implemented_err_code(format!("{err} inside GROUP BY"), None))?;
 
         Ok(LogicalAggBuilder {
             group_key,
@@ -394,8 +391,8 @@ impl LogicalAggBuilder {
         // two-phase aggregates, while string_agg can not be rewritten as two-phase aggregates, so
         // we have to ban this case now.
         if has_distinct && has_non_distinct_string_agg {
-            return Err(ErrorCode::NotImplemented(
-                "Non-distinct string_agg can't appear with distinct aggregates".into(),
+            return Err(not_implemented_err_code(
+                "Non-distinct string_agg can't appear with distinct aggregates",
                 TrackingIssue::none(),
             )
             .into());
@@ -446,7 +443,7 @@ impl LogicalAggBuilder {
             })
             .try_collect()
             .map_err(|err: &'static str| {
-                ErrorCode::NotImplemented(format!("{err} inside aggregation calls"), None.into())
+                not_implemented_err_code(format!("{err} inside aggregation calls"), None)
             })?;
 
         let order_by_fields: Vec<_> = order_by
@@ -462,10 +459,7 @@ impl LogicalAggBuilder {
             })
             .try_collect()
             .map_err(|err: &'static str| {
-                ErrorCode::NotImplemented(
-                    format!("{err} inside aggregation calls order by"),
-                    None.into(),
-                )
+                not_implemented_err_code(format!("{err} inside aggregation calls order by"), None)
             })?;
 
         if agg_kind == AggKind::Avg {
@@ -574,9 +568,9 @@ impl ExprRewriter for LogicalAggBuilder {
 
     fn rewrite_subquery(&mut self, subquery: crate::expr::Subquery) -> ExprImpl {
         if subquery.is_correlated() {
-            self.error = Some(ErrorCode::NotImplemented(
-                "correlated subquery in HAVING or SELECT with agg".into(),
-                2275.into(),
+            self.error = Some(not_implemented_err_code(
+                "correlated subquery in HAVING or SELECT with agg",
+                2275,
             ));
         }
         subquery.into()

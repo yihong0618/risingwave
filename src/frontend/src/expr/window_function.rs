@@ -11,12 +11,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::str::FromStr;
 
 use itertools::Itertools;
 use parse_display::Display;
-use risingwave_common::error::ErrorCode;
+use risingwave_common::error::{not_implemented_err_code, ErrorCode};
 use risingwave_common::types::DataType;
 
 use super::{Expr, ExprImpl, OrderBy, Result};
@@ -63,9 +62,9 @@ impl FromStr for WindowFunctionType {
             "row_number" => Ok(WindowFunctionType::RowNumber),
             "rank" => Ok(WindowFunctionType::Rank),
             "dense_rank" => Ok(WindowFunctionType::DenseRank),
-            _ => Err(ErrorCode::NotImplemented(
+            _ => Err(not_implemented_err_code(
                 format!("unknown table function kind: {s}"),
-                None.into(),
+                None,
             )),
         }
     }

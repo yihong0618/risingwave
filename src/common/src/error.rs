@@ -68,14 +68,32 @@ impl Display for TrackingIssue {
     }
 }
 
+#[derive(Debug)]
+pub struct NotImplementedError {
+    reason: String,
+    tracking: TrackingIssue,
+}
+
+impl std::error::Error for NotImplementedError {
+    fn provide<'a>(&'a self, demand: &mut std::any::Demand<'a>) {
+        demand.provide_value::<TrackingIssue>(self.tracking);
+    }
+}
+
+impl Display for NotImplementedError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "feature not implemented: {}", self.reason)
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum ErrorCode {
     #[error("internal error: {0}")]
     InternalError(String),
     #[error("connector error: {0}")]
     ConnectorError(BoxedError),
-    #[error("Feature is not yet implemented: {0}\n{1}")]
-    NotImplemented(String, TrackingIssue),
+    #[error(transparent)]
+    NotImplemented(NotImplementedError),
     #[error(transparent)]
     IoError(IoError),
     #[error("Storage error: {0}")]
@@ -139,6 +157,23 @@ pub fn internal_err(msg: impl Into<anyhow::Error>) -> RwError {
 
 pub fn internal_error(msg: impl Into<String>) -> RwError {
     ErrorCode::InternalError(msg.into()).into()
+}
+
+pub fn not_implemented_err(
+    reason: impl Into<String>,
+    tracking: impl Into<TrackingIssue>,
+) -> RwError {
+    not_implemented_err_code(reason, tracking).into()
+}
+
+pub fn not_implemented_err_code(
+    reason: impl Into<String>,
+    tracking: impl Into<TrackingIssue>,
+) -> ErrorCode {
+    ErrorCode::NotImplemented(NotImplementedError {
+        reason: reason.into(),
+        tracking: tracking.into(),
+    })
 }
 
 #[derive(Error)]
@@ -222,10 +257,15 @@ impl From<Infallible> for RwError {
 
 impl Debug for RwError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{}", self.inner)?;
+        if let Some(tracking) =
+            (&self.inner as &dyn std::error::Error).request_value::<TrackingIssue>()
+        {
+            writeln!(f, "{}", tracking)?;
+        }
         write!(
             f,
-            "{}\n{}",
-            self.inner,
+            "{}",
             // Use inner error's backtrace by default, otherwise use the generated one in `From`.
             (&self.inner as &dyn std::error::Error)
                 .request_ref::<Backtrace>()
@@ -508,10 +548,6 @@ mod tests {
 
         check_grpc_error(ErrorCode::TaskNotFound, Code::Internal);
         check_grpc_error(ErrorCode::InternalError(String::new()), Code::Internal);
-        check_grpc_error(
-            ErrorCode::NotImplemented(String::new(), None.into()),
-            Code::Internal,
-        );
     }
 
     #[test]

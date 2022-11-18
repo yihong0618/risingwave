@@ -11,14 +11,13 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use std::iter::once;
 use std::str::FromStr;
 
 use itertools::Itertools;
 use risingwave_common::array::ListValue;
 use risingwave_common::catalog::PG_CATALOG_SCHEMA_NAME;
-use risingwave_common::error::{ErrorCode, Result};
+use risingwave_common::error::{not_implemented_err, ErrorCode, Result};
 use risingwave_common::session_config::USER_NAME_WILD_CARD;
 use risingwave_common::types::{DataType, Scalar};
 use risingwave_expr::expr::AggKind;
@@ -49,22 +48,20 @@ impl Binder {
                 }
             }
             _ => {
-                return Err(ErrorCode::NotImplemented(
+                return Err(not_implemented_err(
                     format!("qualified function: {}", f.name),
-                    112.into(),
-                )
-                .into());
+                    112,
+                ));
             }
         };
 
         // agg calls
         if let Ok(kind) = function_name.parse() {
             if f.over.is_some() {
-                return Err(ErrorCode::NotImplemented(
+                return Err(not_implemented_err(
                     format!("aggregate function as over window function: {}", kind),
-                    4978.into(),
-                )
-                .into());
+                    4978,
+                ));
             }
             return self.bind_agg(f, kind);
         }
@@ -192,10 +189,7 @@ impl Binder {
                 }
 
                 let ExprImpl::Literal(literal) = &inputs[0] else {
-                    return Err(ErrorCode::NotImplemented(
-                        "Only boolean literals are supported in `current_schemas`.".to_string(), None.into()
-                    )
-                    .into());
+                    return Err(not_implemented_err("Only boolean literals are supported in `current_schemas`.",None));
                 };
 
                 let Some(bool) = literal.get_data().as_ref().map(|bool| bool.clone().into_bool()) else {
@@ -262,11 +256,10 @@ impl Binder {
             // internal
             "rw_vnode" => ExprType::Vnode,
             _ => {
-                return Err(ErrorCode::NotImplemented(
+                return Err(not_implemented_err(
                     format!("unsupported function: {:?}", function_name),
-                    112.into(),
-                )
-                .into());
+                    112,
+                ));
             }
         };
         Ok(FunctionCall::new(function_type, inputs)?.into())
@@ -323,25 +316,16 @@ impl Binder {
                     .into());
                 }
                 if expr.has_subquery() {
-                    return Err(ErrorCode::NotImplemented(
-                        "subquery in filter clause".to_string(),
-                        None.into(),
-                    )
-                    .into());
+                    return Err(not_implemented_err("subquery in filter clause", None));
                 }
                 if expr.has_agg_call() {
-                    return Err(ErrorCode::NotImplemented(
-                        "aggregation function in filter clause".to_string(),
-                        None.into(),
-                    )
-                    .into());
+                    return Err(not_implemented_err(
+                        "aggregation function in filter clause",
+                        None,
+                    ));
                 }
                 if expr.has_table_function() {
-                    return Err(ErrorCode::NotImplemented(
-                        "table function in filter clause".to_string(),
-                        None.into(),
-                    )
-                    .into());
+                    return Err(not_implemented_err("table function in filter clause", None));
                 }
                 Condition::with_expr(expr)
             }
@@ -379,11 +363,10 @@ impl Binder {
     ) -> Result<ExprImpl> {
         self.ensure_window_function_allowed()?;
         if let Some(window_frame) = window_frame {
-            return Err(ErrorCode::NotImplemented(
+            return Err(not_implemented_err(
                 format!("window frame: {}", window_frame),
-                None.into(),
-            )
-            .into());
+                None,
+            ));
         }
         let window_function_type = WindowFunctionType::from_str(&function_name)?;
         let partition_by = partition_by
