@@ -1301,6 +1301,16 @@ def section_streaming_actors(outer_panels):
                         ),
                     ],
                 ),
+                panels.timeseries_percentage(
+                    "Join Actor Match Duration",
+                    "",
+                    [
+                        panels.target(
+                            f"rate({metric('stream_join_match_duration_ns')}[$__rate_interval]) / 1000000000",
+                            "{{actor_id}}.{{side}}",
+                        ),
+                    ],
+                ),
                 panels.timeseries_count(
                     "Join Cached Entries",
                     "",
@@ -1323,6 +1333,23 @@ def section_streaming_actors(outer_panels):
                     [
                         panels.target(f"{metric('stream_join_cached_estimated_size')}",
                                       "{{actor_id}} {{side}}"),
+                    ],
+                ),
+                panels.timeseries_count(
+                    "Join Key Match Degree",
+                    "",
+                    [
+                        *quantile(
+                            lambda quantile, legend: panels.target(
+                                f"histogram_quantile({quantile}, sum(rate({metric('stream_join_key_match_degree_bucket')}[$__rate_interval])) by (le, actor_id, side, job, instance))",
+                                f"p{legend} {{{{actor_id}}}}.{{{{side}}}} - {{{{job}}}} @ {{{{instance}}}}",
+                            ),
+                            [50, 90, 99, 999, "max"],
+                        ),
+                        panels.target(
+                            f"sum by(le, actor_id, side, job, instance)(rate({metric('stream_join_key_match_degree_sum')}[$__rate_interval])) / sum by(le,actor_id,side,job,instance) (rate({metric('stream_join_key_match_degree_count')}[$__rate_interval]))",
+                            "avg {{actor_id}}.{{side}} - {{job}} @ {{instance}}",
+                        ),
                     ],
                 ),
                 panels.timeseries_actor_ops(

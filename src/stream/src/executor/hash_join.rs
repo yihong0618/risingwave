@@ -14,6 +14,7 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_stack_trace::StackTrace;
 use fixedbitset::FixedBitSet;
@@ -620,9 +621,14 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     todo!("https://github.com/risingwavelabs/risingwave/issues/6042")
                 }
                 AlignedMessage::Left(chunk) => {
+                    let mut left_time = Duration::from_nanos(0);
+                    let mut left_start_time = minstant::Instant::now();
                     #[for_await]
                     for chunk in Self::eq_join_oneside::<{ SideType::Left }>(
                         &self.ctx,
+                        &self.metrics,
+                        &actor_id_str,
+                        "left",
                         &self.identity,
                         &mut self.side_l,
                         &mut self.side_r,
@@ -632,6 +638,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                         self.append_only_optimize,
                         self.chunk_size,
                     ) {
+                        left_time += left_start_time.elapsed();
                         yield chunk.map(|v| match v {
                             Message::Watermark(_) => {
                                 todo!("https://github.com/risingwavelabs/risingwave/issues/6042")
@@ -639,12 +646,22 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                             Message::Chunk(chunk) => Message::Chunk(chunk),
                             barrier @ Message::Barrier(_) => barrier,
                         })?;
+                        left_start_time = minstant::Instant::now();
                     }
+                    self.metrics
+                        .join_match_duration_ns
+                        .with_label_values(&[&actor_id_str, "left"])
+                        .inc_by(left_time.as_nanos() as u64);
                 }
                 AlignedMessage::Right(chunk) => {
+                    let mut right_time = Duration::from_nanos(0);
+                    let mut right_start_time = minstant::Instant::now();
                     #[for_await]
                     for chunk in Self::eq_join_oneside::<{ SideType::Right }>(
                         &self.ctx,
+                        &self.metrics,
+                        &actor_id_str,
+                        "right",
                         &self.identity,
                         &mut self.side_l,
                         &mut self.side_r,
@@ -654,6 +671,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                         self.append_only_optimize,
                         self.chunk_size,
                     ) {
+                        right_time += right_start_time.elapsed();
                         yield chunk.map(|v| match v {
                             Message::Watermark(_) => {
                                 todo!("https://github.com/risingwavelabs/risingwave/issues/6042")
@@ -661,9 +679,15 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                             Message::Chunk(chunk) => Message::Chunk(chunk),
                             barrier @ Message::Barrier(_) => barrier,
                         })?;
+                        right_start_time = minstant::Instant::now();
                     }
+                    self.metrics
+                        .join_match_duration_ns
+                        .with_label_values(&[&actor_id_str, "right"])
+                        .inc_by(right_time.as_nanos() as u64);
                 }
                 AlignedMessage::Barrier(barrier) => {
+                    let barrier_start_time = minstant::Instant::now();
                     self.flush_data(barrier.epoch).await?;
 
                     // Update the vnode bitmap for state tables of both sides if asked.
@@ -695,7 +719,10 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                         //     .with_label_values(&[&actor_id_str, side])
                         //     .set(ht.estimated_size() as i64);
                     }
-
+                    self.metrics
+                        .join_match_duration_ns
+                        .with_label_values(&[&actor_id_str, "barrier"])
+                        .inc_by(barrier_start_time.elapsed().as_nanos() as u64);
                     yield Message::Barrier(barrier);
                 }
             }
@@ -750,6 +777,9 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
     #[expect(clippy::too_many_arguments)]
     async fn eq_join_oneside<'a, const SIDE: SideTypePrimitive>(
         ctx: &'a ActorContextRef,
+        metrics: &'a Arc<StreamingMetrics>,
+        actor_id_str: &'a str,
+        side_str: &'static str,
         identity: &'a str,
         side_l: &'a mut JoinSide<K, S>,
         side_r: &'a mut JoinSide<K, S>,
@@ -800,14 +830,16 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
         for ((op, row), key) in chunk.rows().zip_eq(keys.iter()) {
             let matched_rows: Option<HashValueType> =
                 Self::hash_eq_match(key, &mut side_match.ht).await?;
+            let mut degree = 0;
+            let mut unconditional_degree = 0;
             match op {
                 Op::Insert | Op::UpdateInsert => {
-                    let mut degree = 0;
                     let mut append_only_matched_row = None;
                     if let Some(mut matched_rows) = matched_rows {
                         for (matched_row_ref, matched_row) in
                             matched_rows.values_mut(&side_match.all_data_types)
                         {
+                            unconditional_degree += 1;
                             let mut matched_row = matched_row?;
                             if check_join_condition(&row, &matched_row.row) {
                                 degree += 1;
@@ -860,11 +892,11 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     }
                 }
                 Op::Delete | Op::UpdateDelete => {
-                    let mut degree = 0;
                     if let Some(mut matched_rows) = matched_rows {
                         for (matched_row_ref, matched_row) in
                             matched_rows.values_mut(&side_match.all_data_types)
                         {
+                            unconditional_degree += 1;
                             let mut matched_row = matched_row?;
                             if check_join_condition(&row, &matched_row.row) {
                                 degree += 1;
@@ -907,6 +939,10 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     };
                 }
             }
+            metrics
+                .join_key_match_degree
+                .with_label_values(&[actor_id_str, side_str])
+                .observe(unconditional_degree as f64);
         }
         if let Some(chunk) = hashjoin_chunk_builder.take() {
             yield Message::Chunk(chunk);
