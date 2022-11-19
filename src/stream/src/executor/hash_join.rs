@@ -665,7 +665,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     self.metrics
                         .join_match_duration_ns
                         .with_label_values(&[&actor_id_str, "left"])
-                        .inc_by(left_start_time.elapsed().as_nanos() as u64);
+                        .inc_by(left_time.as_nanos() as u64);
                 }
                 AlignedMessage::Right(chunk) => {
                     let mut right_time = Duration::from_nanos(0);
@@ -695,7 +695,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     self.metrics
                         .join_match_duration_ns
                         .with_label_values(&[&actor_id_str, "right"])
-                        .inc_by(right_start_time.elapsed().as_nanos() as u64);
+                        .inc_by(right_time.as_nanos() as u64);
                 }
                 AlignedMessage::Barrier(barrier) => {
                     let barrier_start_time = minstant::Instant::now();
