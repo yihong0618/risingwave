@@ -247,6 +247,7 @@ impl<S: StateStore> RangeCache<S> {
                 self.cache.insert(vnode, map);
             }
         }
+
         self.vnodes = new_vnodes;
         Ok(old_vnodes)
     }
