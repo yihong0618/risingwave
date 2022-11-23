@@ -12,4 +12,7 @@ description = "Local allocator with statistics"
 [target.'cfg(not(madsim))'.dependencies]
 workspace-hack = { path = "../../workspace-hack" }
 
+[dependencies]
+hytra = "0.1.2"
+
 [dev-dependencies]

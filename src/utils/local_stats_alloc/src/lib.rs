@@ -18,23 +18,26 @@ use std::alloc::Allocator;
 use std::ops::Deref;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{atomic, Arc};
+use hytra::TrAdder;
 
 pub struct StatsAlloc<T> {
-    bytes_in_use: AtomicUsize,
-
+    // bytes_in_use: AtomicUsize,
+    bytes_in_use: hytra::TrAdder<i64>,
     inner: T,
 }
 
 impl<T> StatsAlloc<T> {
     pub fn new(inner: T) -> Self {
         Self {
-            bytes_in_use: AtomicUsize::new(0),
+            // bytes_in_use: AtomicUsize::new(0),
+            bytes_in_use: TrAdder::new(),
             inner,
         }
     }
 
-    pub fn bytes_in_use(&self) -> usize {
-        self.bytes_in_use.load(atomic::Ordering::Relaxed)
+    pub fn bytes_in_use(&self) -> i64 {
+        // self.bytes_in_use.load(atomic::Ordering::Relaxed)
+        self.bytes_in_use.get()
     }
 
     pub fn shared(self) -> SharedStatsAlloc<T> {
@@ -51,15 +54,17 @@ where
         &self,
         layout: std::alloc::Layout,
     ) -> Result<std::ptr::NonNull<[u8]>, std::alloc::AllocError> {
-        self.bytes_in_use
-            .fetch_add(layout.size(), atomic::Ordering::Relaxed);
+        self.bytes_in_use.inc(layout.size() as i64);
+        // self.bytes_in_use
+        //     .fetch_add(layout.size(), atomic::Ordering::Relaxed);
         self.inner.allocate(layout)
     }
 
     #[inline(always)]
     unsafe fn deallocate(&self, ptr: std::ptr::NonNull<u8>, layout: std::alloc::Layout) {
-        self.bytes_in_use
-            .fetch_sub(layout.size(), atomic::Ordering::Relaxed);
+        // self.bytes_in_use
+        //     .fetch_sub(layout.size(), atomic::Ordering::Relaxed);
+        self.bytes_in_use.inc(-layout.size() as i64);
         self.inner.deallocate(ptr, layout)
     }
 
@@ -68,8 +73,9 @@ where
         &self,
         layout: std::alloc::Layout,
     ) -> Result<std::ptr::NonNull<[u8]>, std::alloc::AllocError> {
-        self.bytes_in_use
-            .fetch_add(layout.size(), atomic::Ordering::Relaxed);
+        // self.bytes_in_use
+        //     .fetch_add(layout.size(), atomic::Ordering::Relaxed);
+        self.bytes_in_use.inc(layout.size() as i64);
         self.inner.allocate_zeroed(layout)
     }
 
@@ -80,10 +86,12 @@ where
         old_layout: std::alloc::Layout,
         new_layout: std::alloc::Layout,
     ) -> Result<std::ptr::NonNull<[u8]>, std::alloc::AllocError> {
-        self.bytes_in_use
-            .fetch_add(new_layout.size(), atomic::Ordering::Relaxed);
-        self.bytes_in_use
-            .fetch_sub(old_layout.size(), atomic::Ordering::Relaxed);
+        self.bytes_in_use.inc(new_layout.size() as i64);
+        // self.bytes_in_use
+        //     .fetch_add(new_layout.size(), atomic::Ordering::Relaxed);
+        // self.bytes_in_use
+        //     .fetch_sub(old_layout.size(), atomic::Ordering::Relaxed);
+        self.bytes_in_use.inc(-old_layout.size() as i64);
         self.inner.grow(ptr, old_layout, new_layout)
     }
 
@@ -94,10 +102,12 @@ where
         old_layout: std::alloc::Layout,
         new_layout: std::alloc::Layout,
     ) -> Result<std::ptr::NonNull<[u8]>, std::alloc::AllocError> {
-        self.bytes_in_use
-            .fetch_add(new_layout.size(), atomic::Ordering::Relaxed);
-        self.bytes_in_use
-            .fetch_sub(old_layout.size(), atomic::Ordering::Relaxed);
+        self.bytes_in_use.inc(new_layout.size() as i64);
+        self.bytes_in_use.inc(-old_layout.size() as i64);
+        // self.bytes_in_use
+        //     .fetch_add(new_layout.size(), atomic::Ordering::Relaxed);
+        // self.bytes_in_use
+        //     .fetch_sub(old_layout.size(), atomic::Ordering::Relaxed);
         self.inner.grow_zeroed(ptr, old_layout, new_layout)
     }
 
@@ -108,10 +118,12 @@ where
         old_layout: std::alloc::Layout,
         new_layout: std::alloc::Layout,
     ) -> Result<std::ptr::NonNull<[u8]>, std::alloc::AllocError> {
-        self.bytes_in_use
-            .fetch_add(new_layout.size(), atomic::Ordering::Relaxed);
-        self.bytes_in_use
-            .fetch_sub(old_layout.size(), atomic::Ordering::Relaxed);
+        self.bytes_in_use.inc(new_layout.size() as i64);
+        self.bytes_in_use.inc(-old_layout.size() as i64);
+        // self.bytes_in_use
+        //     .fetch_add(new_layout.size(), atomic::Ordering::Relaxed);
+        // self.bytes_in_use
+        //     .fetch_sub(old_layout.size(), atomic::Ordering::Relaxed);
         self.inner.shrink(ptr, old_layout, new_layout)
     }
 }
