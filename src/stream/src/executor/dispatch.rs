@@ -56,43 +56,35 @@ struct DispatchExecutorInner {
 }
 
 impl DispatchExecutorInner {
-    fn single_inner_mut(&mut self) -> &mut DispatcherImpl {
-        assert_eq!(
-            self.dispatchers.len(),
-            1,
-            "only support mutation on one-dispatcher actors"
-        );
-        &mut self.dispatchers[0]
+    async fn for_each_dispatcher_concurrent<'a, F, Fut>(&'a mut self, f: F) -> StreamResult<()>
+    where
+        Fut: Future<Output = StreamResult<()>> + 'a,
+        F: FnMut(&'a mut DispatcherImpl) -> Fut,
+    {
+        futures::future::try_join_all(self.dispatchers.iter_mut().map(f)).await?;
+        Ok(())
     }
 
     async fn dispatch(&mut self, msg: Message) -> StreamResult<()> {
         let start_time = minstant::Instant::now();
         match msg {
             Message::Watermark(watermark) => {
-                for dispatcher in &mut self.dispatchers {
-                    dispatcher.dispatch_watermark(watermark.clone()).await?;
-                }
+                self.for_each_dispatcher_concurrent(|d| d.dispatch_watermark(watermark.clone()))
+                    .await?;
             }
             Message::Chunk(chunk) => {
                 self.metrics
                     .actor_out_record_cnt
                     .with_label_values(&[&self.actor_id_str])
                     .inc_by(chunk.cardinality() as _);
-                if self.dispatchers.len() == 1 {
-                    // special clone optimization when there is only one downstream dispatcher
-                    self.single_inner_mut().dispatch_data(chunk).await?;
-                } else {
-                    for dispatcher in &mut self.dispatchers {
-                        dispatcher.dispatch_data(chunk.clone()).await?;
-                    }
-                }
+                self.for_each_dispatcher_concurrent(|d| d.dispatch_data(chunk.clone()))
+                    .await?;
             }
             Message::Barrier(barrier) => {
                 let mutation = barrier.mutation.clone();
                 self.pre_mutate_dispatchers(&mutation)?;
-                for dispatcher in &mut self.dispatchers {
-                    dispatcher.dispatch_barrier(barrier.clone()).await?;
-                }
+                self.for_each_dispatcher_concurrent(|d| d.dispatch_barrier(barrier.clone()))
+                    .await?;
                 self.post_mutate_dispatchers(&mutation)?;
             }
         };
