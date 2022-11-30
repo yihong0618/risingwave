@@ -73,17 +73,6 @@ type ScalarRange = (Bound<ScalarImpl>, Bound<ScalarImpl>);
 // impl ManagedRangeCache {
 // }
 
-
-// TODO: What are our assumptions again?
-
-// Represents the 
-struct LeftBoundLastAccessed {
-    inclusive: bool, // Whether or not this left bound is inclusive of the key
-    epoch: Option<u64>, // If `None`, the range to the left is not included in the bound (i.e. this is an upper bound)
-
-    // TODO: fix logic by using `u64::MAX` for `None` instead?
-}
-
 #[derive(Default)]
 struct RangeLRU {
     // We should be aware of the existing range since 
@@ -113,7 +102,7 @@ fn merge_continuous_ranges(r1: ScalarRange, r2: ScalarRange) -> ScalarRange {
             (Excluded(x), Excluded(y)) => if x < y { Excluded(x) } else { Excluded(y) },
             (Included(x), Included(y)) => if x < y { Included(x) } else { Included(y) },
             (Included(x), Excluded(y)) => if x <= y { Included(x) } else { Excluded(y) },
-            (Excluded(x), Included(y)) => if y <= x { Included(x) } else { Excluded(y) },
+            (Excluded(x), Included(y)) => if y <= x { Included(y) } else { Excluded(x) },
             _ => unreachable!(),
         } 
     };
@@ -125,7 +114,7 @@ fn merge_continuous_ranges(r1: ScalarRange, r2: ScalarRange) -> ScalarRange {
             (Excluded(x), Excluded(y)) => if x > y { Excluded(x) } else { Excluded(y) },
             (Included(x), Included(y)) => if x > y { Included(x) } else { Included(y) },
             (Included(x), Excluded(y)) => if x >= y { Included(x) } else { Excluded(y) },
-            (Excluded(x), Included(y)) => if y >= x { Included(x) } else { Excluded(y) },
+            (Excluded(x), Included(y)) => if y >= x { Included(y) } else { Excluded(x) },
             _ => unreachable!(),
         } 
     };
@@ -148,14 +137,6 @@ fn translate_upper_bound(bound: Bound<ScalarImpl>) -> Bound<(ScalarImpl, bool)> 
     }
 }
 
-fn invert_bound(bound: Bound<ScalarImpl>) -> Bound<ScalarImpl> {
-    match bound {
-        Unbounded => Unbounded,
-        Included(x) => Excluded(x),
-        Excluded(x) => Included(x),
-    }
-}
-
 impl RangeLRU {
     /// Evicts ranges that are last accessed prior to the given epoch
     /// Due to continuity in the range changes, this range is always contiguous.
@@ -167,6 +148,7 @@ impl RangeLRU {
         let new = self.last_accessed_at.split_off(&epoch);
         let old = std::mem::replace(&mut self.last_accessed_at, new);
 
+        // TODO: Can use fold for this.
         for r in old.values() {
             if let Some(r2) = range {
                 range = Some(merge_continuous_ranges(r.clone(), r2));
@@ -177,6 +159,13 @@ impl RangeLRU {
         if let Some(range) = range {
             // If there is a range, there is an existing range
             let existing_range = self.existing_range.as_ref().unwrap();
+            if range == *existing_range {
+                // Reset the LRU
+                assert!(self.last_accessed_at.is_empty());
+                self.lower_unbounded_epoch = None;
+                self.secondary_index.clear();
+                return Some((range, None));
+            }
             let mut iter = old.iter().rev().peekable(); 
             let (from_bottom, new_existing_range) = if range.0 == existing_range.0 {
                 // Evict from the bottom
@@ -187,7 +176,7 @@ impl RangeLRU {
                 };
                 self.existing_range = new_existing_range.clone();
                 (true, new_existing_range)
-            } else {
+            } else if range.1 == existing_range.1 {
                 // Evict from the top
                 let new_existing_range = match range.0.clone() {
                     Unbounded => None,
@@ -196,17 +185,30 @@ impl RangeLRU {
                 };
                 self.existing_range = new_existing_range.clone();
                 (false, new_existing_range)
+            } else {
+                panic!("The evicted range {range:?} does not share a bound with the existing range {existing_range:?}");
             };
-    
+            
+            // If from top, delete top part of the range 
+            if !from_bottom {
+                // If from top remove the top marker as well.
+                match range.1.clone() {
+                    Included(x) => assert!(self.secondary_index.remove(&(x, true)).unwrap().is_none()),
+                    Excluded(x) => assert!(self.secondary_index.remove(&(x, false)).unwrap().is_none()),
+                    Unbounded => (),
+                }
+            }
             while let Some((k, v)) = iter.next() {
                 match translate_lower_bound(v.0.clone()) {
                     Included(x) => {
                         if from_bottom || iter.peek().is_some() {
-                            self.secondary_index.remove(&x).unwrap(); // TODO assert the epochs are the same?
+                            self.secondary_index.remove(&x).unwrap(); // TODO: assert the epochs are the same?
                         } else {
                             // From top and last element, we should simply convert it to `None` instead of removing
                             let old = self.secondary_index.get_mut(&x).unwrap();
-                            assert_eq!(old.unwrap(), *k);
+                            if let Some(e) = old {
+                                assert_eq!(*e, *k);
+                            }
                             *old = None;
                         }
                     },
@@ -233,15 +235,16 @@ impl RangeLRU {
                 |er| Some(merge_continuous_ranges(range.clone(), er))
             );
         self.existing_range = new_existing_range;
-        // TODO: sanity check that
 
         let mut last_deleted_epoch = None;
+        let mut delete_upper_range = false;
         let mut remove_keys = vec![];
         {
             let encoded_range = (
                 translate_lower_bound(range.0.clone()), 
                 translate_upper_bound(range.1.clone())
             );
+
             let mut iter = self.secondary_index.range(encoded_range).peekable();
             
             while let Some((k, v)) = iter.next() {
@@ -254,12 +257,26 @@ impl RangeLRU {
                 } else {
                     if let Some(e) = v {
                         // Our secondary index contains this epoch, so it must be `Some`
-                        let split_range = self.last_accessed_at.get_mut(&e).unwrap();
-                        split_range.0 = range.1.clone();
+                        {
+                            let split_range = self.last_accessed_at.get_mut(&e).unwrap();
+                            if split_range.1 == range.1 {
+                                delete_upper_range = true;
+                            } else {
+                                split_range.0 = match range.1.clone() {
+                                    Excluded(x) => Included(x),
+                                    Included(x) => Excluded(x),
+                                    _ => unreachable!(),
+                                };
+                            }
+                        }
+                        if delete_upper_range {
+                            self.last_accessed_at.remove(&e).unwrap();
+                        }
                     }
                     last_deleted_epoch = v.clone();
                 }
             }
+            // Deal with the precursor to the range (by shortening it).
             if !matches!(range.0, Unbounded) {
                 let upper = match translate_lower_bound(range.0.clone()) {
                     Included(x) => Excluded(x),
@@ -280,7 +297,6 @@ impl RangeLRU {
             }
         }
         for key in remove_keys {
-            println!("REMOVING KEY: {key:?}");
             self.secondary_index.remove(&key).unwrap();
         }
         self.last_accessed_at.insert(epoch, range.clone());
@@ -297,84 +313,116 @@ impl RangeLRU {
         }
 
         // Insert upper bound of our range into secondary index
-        if matches!(range.1, Unbounded) { /* do nothing */ } else {
+        if delete_upper_range || matches!(range.1, Unbounded) { /* do nothing */ } else {
             let k = match range.1 {
                 Included(x) => (x, true),
                 Excluded(x) => (x, false),
                 _ => unreachable!()
             };
-            self.secondary_index.insert(k, last_deleted_epoch);
+            // If is `Some`, we hit a boundary condition.
+            if self.secondary_index.get(&k).is_none() {
+                self.secondary_index.insert(k, last_deleted_epoch);
+            }
         }
-
-        // self.
-
     }
-
-    // Private function
-    // fn 
 }
 
 #[cfg(test)]
 mod range_lru_test {
     use super::*;
+
     #[test]
-    fn test_range_lru_access() {
-        let mut range_lru = RangeLRU::default();
-        range_lru.access((Unbounded, Included(ScalarImpl::Int64(100))), 1);
-        println!("LAST ACCESSED: {:?}", range_lru.last_accessed_at);
-        println!("S-INDEX: {:?}, {:?}", range_lru.lower_unbounded_epoch, range_lru.secondary_index);
-        range_lru.access((Excluded(ScalarImpl::Int64(50)), Excluded(ScalarImpl::Int64(150))), 2);
-
-        println!("LAST ACCESSED: {:?}", range_lru.last_accessed_at);
-        println!("S-INDEX: {:?}, {:?}", range_lru.lower_unbounded_epoch, range_lru.secondary_index);
-        assert_eq!(*range_lru.last_accessed_at.get(&1).unwrap(), (Unbounded, Included(ScalarImpl::Int64(50))));
-        assert_eq!(*range_lru.last_accessed_at.get(&2).unwrap(), (Excluded(ScalarImpl::Int64(50)), Excluded(ScalarImpl::Int64(150))));
-
-        range_lru.access((Included(ScalarImpl::Int64(150)), Excluded(ScalarImpl::Int64(151))), 3);
-        assert_eq!(*range_lru.last_accessed_at.get(&3).unwrap(), (Included(ScalarImpl::Int64(150)), Excluded(ScalarImpl::Int64(151))));
-
-        range_lru.access((Included(ScalarImpl::Int64(5)), Excluded(ScalarImpl::Int64(50))), 4);
-        println!("LAST ACCESSED: {:?}", range_lru.last_accessed_at);
-        println!("S-INDEX: {:?}, {:?}", range_lru.lower_unbounded_epoch, range_lru.secondary_index);
-
-        // TODO: test more behaviours?
+    fn test_range_lru_merge_continuous_range() {
+        
     }
 
     #[test]
-    fn test_range_lru_merge_continuous_range() {}
-
-    #[test]
     fn test_range_lru_access_and_evict() {
+        // Range of behaviours tested:
+        // 1. Accessing with (Unbounded, x), (x, Unbounded), (Included, Included), (Excluded, Excluded), (Included, Excluded), (Excluded, Included)
+        // 2. Evicting unbounded upper range [(x, y) (y, Unbounded)]
+
+        // Testing the `access` correctness
         let mut range_lru = RangeLRU::default();
-        range_lru.access((Unbounded, Included(ScalarImpl::Int64(100))), 1);
-        println!("LAST ACCESSED: {:?}", range_lru.last_accessed_at);
-        println!("S-INDEX: {:?}, {:?}", range_lru.lower_unbounded_epoch, range_lru.secondary_index);
-        range_lru.access((Excluded(ScalarImpl::Int64(50)), Excluded(ScalarImpl::Int64(150))), 2);
+        range_lru.access((Unbounded, Included(ScalarImpl::Int64(50))), 1);
+        range_lru.access((Excluded(ScalarImpl::Int64(50)), Excluded(ScalarImpl::Int64(135))), 2);
+        range_lru.access((Included(ScalarImpl::Int64(135)), Excluded(ScalarImpl::Int64(150))), 3);
 
-        println!("LAST ACCESSED: {:?}", range_lru.last_accessed_at);
-        println!("S-INDEX: {:?}, {:?}", range_lru.lower_unbounded_epoch, range_lru.secondary_index);
         assert_eq!(*range_lru.last_accessed_at.get(&1).unwrap(), (Unbounded, Included(ScalarImpl::Int64(50))));
-        assert_eq!(*range_lru.last_accessed_at.get(&2).unwrap(), (Excluded(ScalarImpl::Int64(50)), Excluded(ScalarImpl::Int64(150))));
+        assert_eq!(*range_lru.last_accessed_at.get(&2).unwrap(), (Excluded(ScalarImpl::Int64(50)), Excluded(ScalarImpl::Int64(135))));
+        assert_eq!(*range_lru.last_accessed_at.get(&3).unwrap(), (Included(ScalarImpl::Int64(135)), Excluded(ScalarImpl::Int64(150))));
 
-        range_lru.access((Included(ScalarImpl::Int64(150)), Excluded(ScalarImpl::Int64(151))), 3);
-        assert_eq!(*range_lru.last_accessed_at.get(&3).unwrap(), (Included(ScalarImpl::Int64(150)), Excluded(ScalarImpl::Int64(151))));
+        range_lru.access((Included(ScalarImpl::Int64(100)), Excluded(ScalarImpl::Int64(150))), 4);
+        assert_eq!(*range_lru.last_accessed_at.get(&2).unwrap(), (Excluded(ScalarImpl::Int64(50)), Excluded(ScalarImpl::Int64(100))));
+        assert_eq!(*range_lru.last_accessed_at.get(&4).unwrap(), (Included(ScalarImpl::Int64(100)), Excluded(ScalarImpl::Int64(150))));
 
-        range_lru.access((Included(ScalarImpl::Int64(5)), Excluded(ScalarImpl::Int64(50))), 4);
-        println!("LAST ACCESSED: {:?}", range_lru.last_accessed_at);
-        println!("S-INDEX: {:?}, {:?}", range_lru.lower_unbounded_epoch, range_lru.secondary_index);
+        range_lru.access((Included(ScalarImpl::Int64(100)), Included(ScalarImpl::Int64(125))), 5);
 
+        assert_eq!(*range_lru.last_accessed_at.get(&2).unwrap(), (Excluded(ScalarImpl::Int64(50)), Excluded(ScalarImpl::Int64(100))));
+        assert_eq!(*range_lru.last_accessed_at.get(&4).unwrap(), (Excluded(ScalarImpl::Int64(125)), Excluded(ScalarImpl::Int64(150))));
+        assert_eq!(*range_lru.last_accessed_at.get(&5).unwrap(), (Included(ScalarImpl::Int64(100)), Included(ScalarImpl::Int64(125))));
+        
+        // Testing `evict_before` correctness
         assert_eq!(
             range_lru.evict_before(2).unwrap(), 
             (
-                (Unbounded, Excluded(ScalarImpl::Int64(5))), 
-                Some((Included(ScalarImpl::Int64(5)), Excluded(ScalarImpl::Int64(151))))
+                (Unbounded, Included(ScalarImpl::Int64(50))), 
+                Some((Excluded(ScalarImpl::Int64(50)), Excluded(ScalarImpl::Int64(150))))
             )
         );
         assert_eq!(
-            range_lru.evict_before(3).unwrap(), 
+            range_lru.evict_before(4).unwrap(), 
             (
-                (Excluded(ScalarImpl::Int64(50)), Excluded(ScalarImpl::Int64(150))), 
-                Some((Included(ScalarImpl::Int64(5)), Included(ScalarImpl::Int64(50))))
+                (Excluded(ScalarImpl::Int64(50)), Excluded(ScalarImpl::Int64(100))), 
+                Some((Included(ScalarImpl::Int64(100)), Excluded(ScalarImpl::Int64(150))))
+            )
+        );
+        range_lru.access((Excluded(ScalarImpl::Int64(99)), Included(ScalarImpl::Int64(100))), 6);
+        range_lru.access((Excluded(ScalarImpl::Int64(99)), Included(ScalarImpl::Int64(105))), 7);
+
+        assert_eq!(
+            range_lru.evict_before(5).unwrap(), 
+            (
+                (Excluded(ScalarImpl::Int64(125)), Excluded(ScalarImpl::Int64(150))), 
+                Some((Excluded(ScalarImpl::Int64(99)), Included(ScalarImpl::Int64(125))))
+            )
+        );
+
+        assert_eq!(
+            range_lru.evict_before(6).unwrap(), 
+            (
+                (Excluded(ScalarImpl::Int64(105)), Included(ScalarImpl::Int64(125))), 
+                Some((Excluded(ScalarImpl::Int64(99)), Included(ScalarImpl::Int64(105))))
+            )
+        );
+
+        range_lru.access((Excluded(ScalarImpl::Int64(105)), Unbounded), 8);
+
+        assert_eq!(
+            range_lru.evict_before(8).unwrap(), 
+            (
+                (Excluded(ScalarImpl::Int64(99)), Included(ScalarImpl::Int64(105))), 
+                Some((Excluded(ScalarImpl::Int64(105)), Unbounded))
+            )
+        );
+
+        assert_eq!(
+            range_lru.evict_before(9).unwrap(), 
+            (
+                (Excluded(ScalarImpl::Int64(105)), Unbounded),
+                None,
+            )
+        );
+
+        // Evicting unbounded upper range [(x, y) (y, Unbounded)]:
+        range_lru.access((Included(ScalarImpl::Int64(150)), Unbounded), 9);
+        range_lru.access((Included(ScalarImpl::Int64(50)), Excluded(ScalarImpl::Int64(150))), 10);
+        
+        assert_eq!(
+            range_lru.evict_before(10).unwrap(), 
+            (
+                (Included(ScalarImpl::Int64(150)), Unbounded),
+                Some((Included(ScalarImpl::Int64(50)), Excluded(ScalarImpl::Int64(150)))),
             )
         );
     }
@@ -470,35 +518,35 @@ impl<S: StateStore> RangeCache<S> {
     // We thus check in debug mode whether the ranges agree at the point at which they are connected.
     #[cfg(debug_assertions)]
     pub fn check_consistency(&self, direction_is_up: bool, range: &ScalarRange) {
-        // if let Some(existing_range) = &self.range {
-        //     fn is_inversion(b1: &Bound<ScalarImpl>, b2: &Bound<ScalarImpl>) -> bool {
-        //         match b1 {
-        //             Unbounded => b2.as_ref() == Unbounded,
-        //             Included(x) => b2.as_ref() == Excluded(x),
-        //             Excluded(x) => b2.as_ref() == Included(x),
-        //         }
-        //     }
-        //     // 
-        //     if self.prev_direction_is_up.unwrap() == direction_is_up {
-        //         // We have an extension
-        //         if direction_is_up {
-        //             // Check the lower bound of new range is inversion of
-        //             // upper bound of old range
-        //             assert!(is_inversion(&range.0, &existing_range.1));
-        //         } else {
-        //             assert!(is_inversion(&range.1, &existing_range.0));
-        //         }
-        //     } else {
-        //         // We have an inflexion
-        //         if direction_is_up {
-        //             // Check lower bound of new range is equal to lower
-        //             // bound of old range
-        //             assert_eq!(range.0, existing_range.0)
-        //         } else {
-        //             assert_eq!(range.1, existing_range.1)
-        //         }
-        //     }
-        // }
+        if let Some(existing_range) = &self.range {
+            fn is_inversion(b1: &Bound<ScalarImpl>, b2: &Bound<ScalarImpl>) -> bool {
+                match b1 {
+                    Unbounded => b2.as_ref() == Unbounded,
+                    Included(x) => b2.as_ref() == Excluded(x),
+                    Excluded(x) => b2.as_ref() == Included(x),
+                }
+            }
+            // 
+            if self.prev_direction_is_up.unwrap() == direction_is_up {
+                // We have an extension
+                if direction_is_up {
+                    // Check the lower bound of new range is inversion of
+                    // upper bound of old range
+                    assert!(is_inversion(&range.0, &existing_range.1));
+                } else {
+                    assert!(is_inversion(&range.1, &existing_range.0));
+                }
+            } else {
+                // We have an inflexion
+                if direction_is_up {
+                    // Check lower bound of new range is equal to lower
+                    // bound of old range
+                    assert_eq!(range.0, existing_range.0)
+                } else {
+                    assert_eq!(range.1, existing_range.1)
+                }
+            }
+        }
     }
 
     /// Return an iterator over sets of rows that satisfy the given range. 
