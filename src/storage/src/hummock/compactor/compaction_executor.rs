@@ -48,4 +48,8 @@ impl CompactionExecutor {
     {
         self.runtime.spawn(t)
     }
+
+    pub fn runtime(&self) -> &'static tokio::runtime::Runtime {
+        self.runtime
+    }
 }
