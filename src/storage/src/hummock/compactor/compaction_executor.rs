@@ -15,6 +15,7 @@
 use std::future::Future;
 
 use tokio::task::JoinHandle;
+use tokio_metrics::RuntimeMonitor;
 
 /// `CompactionExecutor` is a dedicated runtime for compaction's CPU intensive jobs.
 pub struct CompactionExecutor {
@@ -32,6 +33,26 @@ impl CompactionExecutor {
             }
             builder.enable_all().build().unwrap()
         };
+
+        // print runtime metrics every 1000ms
+        {
+            use std::time::Duration;
+            let runtime_monitor = RuntimeMonitor::new(runtime.handle());
+            tokio::spawn(async move {
+                for runtime_interval in runtime_monitor.intervals() {
+                    // pretty-print the metric interval
+                    // println!("{:?}", interval);
+                    tracing::info!(
+                        "busy_ratio {:?} runtime_monitor {:?}",
+                        runtime_interval.busy_ratio(),
+                        runtime_interval
+                    );
+
+                    // wait 500ms
+                    tokio::time::sleep(Duration::from_millis(1000)).await;
+                }
+            });
+        }
 
         Self {
             // Leak the runtime to avoid runtime shutting-down in the main async context.

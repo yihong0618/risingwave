@@ -389,16 +389,6 @@ impl Compactor {
         let task_progress = compactor_context.context.task_progress_manager.clone();
         let task_progress_update_interval = Duration::from_millis(1000);
 
-        let runtime_monitor = tokio_metrics::RuntimeMonitor::new(
-            compactor_context
-                .context
-                .compaction_executor
-                .runtime()
-                .handle(),
-        );
-
-        let mut runtime_interval = runtime_monitor.intervals();
-
         let join_handle = tokio::spawn(async move {
             let shutdown_map = CompactionShutdownMap::default();
             let mut min_interval = tokio::time::interval(stream_retry_interval);
@@ -439,8 +429,6 @@ impl Compactor {
                 'consume_stream: loop {
                     let message = tokio::select! {
                         _ = task_progress_interval.tick() => {
-                            tracing::info!("runtime_monitor {:?}", runtime_interval.next().unwrap());
-
                             let mut progress_list = Vec::new();
                             for (&task_id, progress) in task_progress.lock().iter() {
                                 progress_list.push(CompactTaskProgress {
