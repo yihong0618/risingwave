@@ -55,6 +55,7 @@ pub type MonitoredStateStoreIterStream<S: StateStoreRead> = impl StateStoreReadI
 impl<S: StateStoreRead> MonitoredStateStore<S> {
     async fn monitored_iter(
         &self,
+        table_id: TableId,
         iter_stream_future: impl Future<Output = StorageResult<S::IterStream>>,
     ) -> StorageResult<MonitoredStateStoreIterStream<S>> {
         // start time takes iterator build time into account
@@ -73,6 +74,7 @@ impl<S: StateStoreRead> MonitoredStateStore<S> {
         let monitored = MonitoredStateStoreIter {
             inner: iter_stream,
             stats: MonitoredStateStoreIterStats {
+                table_id,
                 total_items: 0,
                 total_size: 0,
                 start_time,
@@ -128,7 +130,10 @@ impl<S: StateStoreRead> StateStoreRead for MonitoredStateStore<S> {
         epoch: u64,
         read_options: ReadOptions,
     ) -> Self::IterFuture<'_> {
-        self.monitored_iter(self.inner.iter(key_range, epoch, read_options))
+        self.monitored_iter(
+            read_options.table_id,
+            self.inner.iter(key_range, epoch, read_options),
+        )
     }
 }
 
@@ -240,6 +245,7 @@ pub struct MonitoredStateStoreIter<S> {
 }
 
 struct MonitoredStateStoreIterStats {
+    table_id: TableId,
     total_items: usize,
     total_size: usize,
     start_time: minstant::Instant,

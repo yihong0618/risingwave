@@ -20,7 +20,9 @@ use std::sync::Arc;
 use crate::monitor::StateStoreMetrics;
 
 #[derive(Default, Debug)]
+#[cfg_attr(debug_assertions, derive(Clone))]
 pub struct StoreLocalStatistic {
+    table_id_str: String,
     pub cache_data_block_miss: u64,
     pub cache_data_block_total: u64,
     pub cache_meta_block_miss: u64,
@@ -43,7 +45,15 @@ pub struct StoreLocalStatistic {
 }
 
 impl StoreLocalStatistic {
+    pub fn new(table_id: u32) -> Self {
+        Self {
+            table_id_str: table_id.to_string(),
+            ..Default::default()
+        }
+    }
+
     pub fn add(&mut self, other: &StoreLocalStatistic) {
+        assert_eq!(self.table_id_str, other.table_id_str);
         self.cache_meta_block_miss += other.cache_data_block_miss;
         self.cache_meta_block_total += other.cache_meta_block_total;
 
@@ -72,34 +82,35 @@ impl StoreLocalStatistic {
         if self.cache_data_block_total > 0 {
             metrics
                 .sst_store_block_request_counts
-                .with_label_values(&["data_total"])
+                .with_label_values(&["data_total", &self.table_id_str])
                 .inc_by(self.cache_data_block_total);
         }
 
         if self.cache_data_block_miss > 0 {
             metrics
                 .sst_store_block_request_counts
-                .with_label_values(&["data_miss"])
+                .with_label_values(&["data_miss", &self.table_id_str])
                 .inc_by(self.cache_data_block_miss);
         }
 
         if self.cache_meta_block_total > 0 {
             metrics
                 .sst_store_block_request_counts
-                .with_label_values(&["meta_total"])
+                .with_label_values(&["meta_total", &self.table_id_str])
                 .inc_by(self.cache_meta_block_total);
         }
 
         if self.cache_meta_block_miss > 0 {
             metrics
                 .sst_store_block_request_counts
-                .with_label_values(&["meta_miss"])
+                .with_label_values(&["meta_miss", &self.table_id_str])
                 .inc_by(self.cache_meta_block_miss);
         }
 
         if self.bloom_filter_true_negative_count > 0 {
             metrics
                 .bloom_filter_true_negative_counts
+                .with_label_values(&[&self.table_id_str])
                 .inc_by(self.bloom_filter_true_negative_count);
         }
 
@@ -111,39 +122,41 @@ impl StoreLocalStatistic {
         if self.bloom_filter_check_counts > 0 {
             metrics
                 .bloom_filter_check_counts
+                .with_label_values(&[&self.table_id_str])
                 .inc_by(self.bloom_filter_check_counts);
         }
         if self.processed_key_count > 0 {
             metrics
                 .iter_scan_key_counts
-                .with_label_values(&["processed"])
+                .with_label_values(&["processed", &self.table_id_str])
                 .inc_by(self.processed_key_count);
         }
 
         if self.skip_multi_version_key_count > 0 {
             metrics
                 .iter_scan_key_counts
-                .with_label_values(&["skip_multi_version"])
+                .with_label_values(&["skip_multi_version", &self.table_id_str])
                 .inc_by(self.skip_multi_version_key_count);
         }
 
         if self.skip_delete_key_count > 0 {
             metrics
                 .iter_scan_key_counts
-                .with_label_values(&["skip_delete"])
+                .with_label_values(&["skip_delete", &self.table_id_str])
                 .inc_by(self.skip_delete_key_count);
         }
 
         if self.get_shared_buffer_hit_counts > 0 {
             metrics
                 .get_shared_buffer_hit_counts
+                .with_label_values(&[&self.table_id_str])
                 .inc_by(self.get_shared_buffer_hit_counts);
         }
 
         if self.total_key_count > 0 {
             metrics
                 .iter_scan_key_counts
-                .with_label_values(&["total"])
+                .with_label_values(&["total", &self.table_id_str])
                 .inc_by(self.total_key_count);
         }
 

@@ -25,7 +25,7 @@ use risingwave_hummock_sdk::key::FullKey;
 use risingwave_hummock_sdk::{HummockReadEpoch, LocalSstableInfo};
 
 use crate::error::{StorageError, StorageResult};
-use crate::monitor::{MonitoredStateStore, StateStoreMetrics};
+use crate::monitor::{MonitoredStateStore, StateStoreMetrics, StoreLocalStatistic};
 use crate::storage_value::StorageValue;
 use crate::write_batch::WriteBatch;
 
@@ -271,7 +271,8 @@ pub trait LocalStateStore: StateStoreRead + StateStoreWrite + StaticSendSync {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default)]
+#[cfg_attr(debug_assertions, derive(Clone))]
 pub struct ReadOptions {
     /// A hint for prefix key to check bloom filter.
     /// If the `prefix_hint` is not None, it should be included in
@@ -282,6 +283,7 @@ pub struct ReadOptions {
 
     pub retention_seconds: Option<u32>,
     pub table_id: TableId,
+    pub stat: Option<StoreLocalStatistic>,
 }
 
 pub fn gen_min_epoch(base_epoch: u64, retention_seconds: Option<&u32>) -> u64 {

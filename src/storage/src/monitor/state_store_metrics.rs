@@ -31,21 +31,21 @@ macro_rules! for_all_metrics {
             get_duration: Histogram,
             get_key_size: Histogram,
             get_value_size: Histogram,
-            get_shared_buffer_hit_counts: GenericCounter<AtomicU64>,
+            get_shared_buffer_hit_counts: GenericCounterVec<AtomicU64>,
 
-            bloom_filter_true_negative_counts: GenericCounter<AtomicU64>,
-            bloom_filter_check_counts: GenericCounter<AtomicU64>,
+            bloom_filter_true_negative_counts: GenericCounterVec<AtomicU64>,
+            bloom_filter_check_counts: GenericCounterVec<AtomicU64>,
 
             range_scan_size: Histogram,
             range_scan_duration: Histogram,
             range_backward_scan_size: Histogram,
             range_backward_scan_duration: Histogram,
 
-            iter_size: Histogram,
-            iter_item: Histogram,
-            iter_duration: Histogram,
-            iter_scan_duration: Histogram,
-            iter_in_process_counts: GenericCounter<AtomicU64>,
+            iter_size: HistogramVec,
+            iter_item: HistogramVec,
+            iter_duration: HistogramVec,
+            iter_scan_duration: HistogramVec,
+            iter_in_process_counts: GenericCounterVec<AtomicU64>,
             iter_scan_key_counts: GenericCounterVec<AtomicU64>,
 
             write_batch_tuple_counts: GenericCounter<AtomicU64>,
@@ -131,23 +131,26 @@ impl StateStoreMetrics {
         );
         let get_duration = register_histogram_with_registry!(get_duration_opts, registry).unwrap();
 
-        let get_shared_buffer_hit_counts = register_int_counter_with_registry!(
+        let get_shared_buffer_hit_counts = register_int_counter_vec_with_registry!(
             "state_store_get_shared_buffer_hit_counts",
             "Total number of get requests that have been fulfilled by shared buffer",
+            &["table_Id"],
             registry
         )
         .unwrap();
 
-        let bloom_filter_true_negative_counts = register_int_counter_with_registry!(
+        let bloom_filter_true_negative_counts = register_int_counter_vec_with_registry!(
             "state_store_bloom_filter_true_negative_counts",
             "Total number of sstables that have been considered true negative by bloom filters",
+            &["table_id"],
             registry
         )
         .unwrap();
 
-        let bloom_filter_check_counts = register_int_counter_with_registry!(
+        let bloom_filter_check_counts = register_int_counter_vec_with_registry!(
             "state_bloom_filter_check_counts",
             "Total number of read request to check bloom filters",
+            &["table_id"],
             registry
         )
         .unwrap();
@@ -187,32 +190,37 @@ impl StateStoreMetrics {
             "Total bytes gotten from state store scan(), for calculating read throughput",
             exponential_buckets(1.0, 2.0, 25).unwrap() // max 16MB
         );
-        let iter_size = register_histogram_with_registry!(opts, registry).unwrap();
+        let iter_size =
+            register_histogram_vec_with_registry!(opts, &["table_id"], registry).unwrap();
 
         let opts = histogram_opts!(
             "state_store_iter_item",
             "Total bytes gotten from state store scan(), for calculating read throughput",
             exponential_buckets(1.0, 2.0, 20).unwrap() // max 2^20 items
         );
-        let iter_item = register_histogram_with_registry!(opts, registry).unwrap();
+        let iter_item =
+            register_histogram_vec_with_registry!(opts, &["table_id"], registry).unwrap();
 
         let opts = histogram_opts!(
             "state_store_iter_duration",
             "Histogram of iterator scan and initialization time that have been issued to state store",
             exponential_buckets(0.0001, 2.0, 21).unwrap() // max 104s
         );
-        let iter_duration = register_histogram_with_registry!(opts, registry).unwrap();
+        let iter_duration =
+            register_histogram_vec_with_registry!(opts, &["table_id"], registry).unwrap();
 
         let opts = histogram_opts!(
             "state_store_iter_scan_duration",
             "Histogram of iterator scan time that have been issued to state store",
             exponential_buckets(0.0001, 2.0, 21).unwrap() // max 104s
         );
-        let iter_scan_duration = register_histogram_with_registry!(opts, registry).unwrap();
+        let iter_scan_duration =
+            register_histogram_vec_with_registry!(opts, &["table_id"], registry).unwrap();
 
-        let iter_in_process_counts = register_int_counter_with_registry!(
+        let iter_in_process_counts = register_int_counter_vec_with_registry!(
             "state_store_iter_in_process_counts",
             "Total number of iter_in_process that have been issued to state store",
+            &["table_id"],
             registry
         )
         .unwrap();
@@ -220,7 +228,7 @@ impl StateStoreMetrics {
         let iter_scan_key_counts = register_int_counter_vec_with_registry!(
             "state_store_iter_scan_key_counts",
             "Total number of keys read by iterator",
-            &["type"],
+            &["type", "table_id"],
             registry
         )
         .unwrap();
@@ -296,7 +304,7 @@ impl StateStoreMetrics {
         let sst_store_block_request_counts = register_int_counter_vec_with_registry!(
             "state_store_sst_store_block_request_counts",
             "Total number of sst block requests that have been issued to sst store",
-            &["type"],
+            &["type", "table_id"],
             registry
         )
         .unwrap();
