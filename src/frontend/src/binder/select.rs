@@ -338,7 +338,7 @@ impl Binder {
                 ExprType::Equal,
                 vec![
                     input,
-                    InputRef::new(PG_CLASS_RELNAME_INDEX, DataType::Int32).into(),
+                    InputRef::new(PG_CLASS_RELNAME_INDEX, DataType::Varchar).into(),
                 ],
             )?
             .into(),
