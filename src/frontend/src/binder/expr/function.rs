@@ -259,8 +259,31 @@ impl Binder {
                 };
             }
             "pg_table_is_visible" => return Ok(ExprImpl::literal_bool(true)),
+            "pg_get_keywords" => {
+                return if inputs.len() == 0 {
+                    let bound_query = self.bind_pg_get_keywords()?;
+                    Ok(ExprImpl::Subquery(Box::new(Subquery::new(
+                        BoundQuery {
+                            body: BoundSetExpr::Select(Box::new(bound_query)),
+                            order: vec![],
+                            limit: None,
+                            offset: None,
+                            with_ties: false,
+                            extra_order_exprs: vec![],
+                        },
+                        SubqueryKind::Scalar,
+                    ))))
+                } else {
+                    Err(ErrorCode::ExprError(
+                        "Too many/few arguments for pg_get_keywords()".into(),
+                    )
+                    .into())
+                };
+            },
             // internal
             "rw_vnode" => ExprType::Vnode,
+            // TODO: include version/tag/commit_id
+            "version" => return Ok(ExprImpl::literal_varchar("PostgreSQL 13.9-RW".to_string())),
             _ => {
                 return Err(ErrorCode::NotImplemented(
                     format!("unsupported function: {:?}", function_name),
