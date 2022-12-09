@@ -327,6 +327,7 @@ impl TestCase {
                     columns,
                     constraints,
                     if_not_exists,
+                    source_schema,
                     ..
                 } => {
                     create_table::handle_create_table(
@@ -335,6 +336,7 @@ impl TestCase {
                         columns,
                         constraints,
                         if_not_exists,
+                        source_schema,
                     )
                     .await?;
                 }

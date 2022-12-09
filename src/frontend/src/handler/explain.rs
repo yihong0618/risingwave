@@ -70,8 +70,19 @@ pub(super) fn handle_explain(
             name,
             columns,
             constraints,
+            source_schema,
             ..
-        } => gen_create_table_plan(&session, context.into(), name, columns, constraints)?.0,
+        } => {
+            gen_create_table_plan(
+                &session,
+                context.into(),
+                name,
+                columns,
+                constraints,
+                source_schema,
+            )?
+            .0
+        }
 
         Statement::CreateIndex {
             name,

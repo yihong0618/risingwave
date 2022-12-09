@@ -26,7 +26,7 @@ use risingwave_pb::catalog::{
 };
 use risingwave_pb::plan_common::ColumnCatalog as ProstColumnCatalog;
 use risingwave_sqlparser::ast::{
-    ColumnDef, ColumnOption, DataType as AstDataType, ObjectName, TableConstraint,
+    ColumnDef, ColumnOption, DataType as AstDataType, ObjectName, SourceSchema, TableConstraint,
 };
 
 use super::create_source::make_prost_source;
@@ -202,6 +202,7 @@ pub(crate) fn gen_create_table_plan(
     table_name: ObjectName,
     columns: Vec<ColumnDef>,
     constraints: Vec<TableConstraint>,
+    _source_schema: Option<SourceSchema>,
 ) -> Result<(PlanRef, ProstSource, ProstTable)> {
     let (column_descs, pk_column_id_from_columns) = bind_sql_columns(columns)?;
     let (columns, pk_column_ids, row_id_index) =
@@ -275,6 +276,7 @@ pub async fn handle_create_table(
     columns: Vec<ColumnDef>,
     constraints: Vec<TableConstraint>,
     if_not_exists: bool,
+    source_schema: Option<SourceSchema>,
 ) -> Result<RwPgResponse> {
     let session = handler_args.session.clone();
 
@@ -297,6 +299,7 @@ pub async fn handle_create_table(
             table_name.clone(),
             columns,
             constraints,
+            source_schema,
         )?;
         let graph = build_graph(plan);
 
