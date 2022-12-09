@@ -22,7 +22,9 @@ use risingwave_sqlparser::ast::{
 };
 
 use crate::binder::Binder;
-use crate::expr::{Expr as _, ExprImpl, ExprType, FunctionCall, SubqueryKind};
+use crate::expr::{Expr as _, ExprImpl, ExprType, FunctionCall, SubqueryKind, Subquery};
+
+use super::{BoundSetExpr, BoundQuery};
 
 mod binary_op;
 mod column;
@@ -385,7 +387,27 @@ impl Binder {
     }
 
     pub(super) fn bind_cast(&mut self, expr: Expr, data_type: AstDataType) -> Result<ExprImpl> {
-        self.bind_cast_inner(expr, bind_data_type(&data_type)?)
+        match &data_type {
+            // This is a workaround. 
+            // Current implementation can cause problem if there are same names for differnet oid.
+            // TODO: handle this in a more elegant way
+            AstDataType::Regclass => {
+                let input = self.bind_expr(expr)?;
+                let bound_query = self.bind_regclass(&input)?;
+                Ok(ExprImpl::Subquery(Box::new(Subquery::new(
+                    BoundQuery {
+                        body: BoundSetExpr::Select(Box::new(bound_query)),
+                        order: vec![],
+                        limit: Some(1),
+                        offset: None,
+                        with_ties: false,
+                        extra_order_exprs: vec![],
+                    },
+                    SubqueryKind::Scalar,
+                ))))
+            }
+            _ => self.bind_cast_inner(expr, bind_data_type(&data_type)?),
+        }
     }
 
     pub fn bind_cast_inner(&mut self, expr: Expr, data_type: DataType) -> Result<ExprImpl> {
