@@ -260,8 +260,8 @@ impl Binder {
             }
             "format_type" => {
                 return if inputs.len() == 2 {
-                    // return null as an workaround for now
                     // TODO
+                    // return null as an workaround for now
                     Ok(ExprImpl::literal_null(DataType::Varchar))
                 } else {
                     Err(
