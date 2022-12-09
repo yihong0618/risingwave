@@ -258,31 +258,23 @@ impl Binder {
                     .into())
                 };
             }
-            "pg_table_is_visible" => return Ok(ExprImpl::literal_bool(true)),
-            "pg_get_keywords" => {
-                return if inputs.len() == 0 {
-                    let bound_query = self.bind_pg_get_keywords()?;
-                    Ok(ExprImpl::Subquery(Box::new(Subquery::new(
-                        BoundQuery {
-                            body: BoundSetExpr::Select(Box::new(bound_query)),
-                            order: vec![],
-                            limit: None,
-                            offset: None,
-                            with_ties: false,
-                            extra_order_exprs: vec![],
-                        },
-                        SubqueryKind::Scalar,
-                    ))))
+            "format_type" => {
+                return if inputs.len() == 2 {
+                    // return null as an workaround for now
+                    // TODO
+                    Ok(ExprImpl::literal_null(DataType::Varchar))
                 } else {
-                    Err(ErrorCode::ExprError(
-                        "Too many/few arguments for pg_get_keywords()".into(),
+                    Err(
+                        ErrorCode::ExprError("Too many/few arguments for format_type()".into())
+                            .into(),
                     )
-                    .into())
                 };
-            },
+            }
+            "pg_table_is_visible" => return Ok(ExprImpl::literal_bool(true)),
             // internal
             "rw_vnode" => ExprType::Vnode,
             // TODO: include version/tag/commit_id
+            // TODO: choose which pg version we should return.
             "version" => return Ok(ExprImpl::literal_varchar("PostgreSQL 13.9-RW".to_string())),
             _ => {
                 return Err(ErrorCode::NotImplemented(

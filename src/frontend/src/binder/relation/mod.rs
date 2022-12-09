@@ -17,7 +17,7 @@ use std::str::FromStr;
 
 use itertools::Itertools;
 use risingwave_common::catalog::{
-    Field, TableId, DEFAULT_SCHEMA_NAME, RW_INTERNAL_TABLE_FUNCTION_NAME, PG_CATALOG_SCHEMA_NAME,
+    Field, TableId, DEFAULT_SCHEMA_NAME, PG_CATALOG_SCHEMA_NAME, RW_INTERNAL_TABLE_FUNCTION_NAME,
 };
 use risingwave_common::error::{internal_error, ErrorCode, Result, RwError};
 use risingwave_sqlparser::ast::{FunctionArg, Ident, ObjectName, TableAlias, TableFactor};
@@ -318,7 +318,11 @@ impl Binder {
                 if func_name.eq_ignore_ascii_case(RW_INTERNAL_TABLE_FUNCTION_NAME) {
                     return self.bind_internal_table(args, alias);
                 }
-                if func_name.eq_ignore_ascii_case("pg_get_keywords") {
+                if func_name.eq_ignore_ascii_case("pg_get_keywords")
+                    || name
+                        .real_value()
+                        .eq_ignore_ascii_case("pg_catalog.pg_get_keywords")
+                {
                     return self.bind_relation_by_name_inner(
                         Some(PG_CATALOG_SCHEMA_NAME),
                         PG_KEYWORDS_TABLE_NAME,

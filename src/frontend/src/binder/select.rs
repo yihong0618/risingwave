@@ -25,9 +25,7 @@ use super::UNNAMED_COLUMN;
 use crate::binder::{Binder, Relation};
 use crate::catalog::check_valid_column_name;
 use crate::catalog::system_catalog::pg_catalog::{
-    PG_KEYWORDS_CATCODE_INDEX, PG_KEYWORDS_CATDESC_INDEX, PG_KEYWORDS_COLUMNS,
-    PG_KEYWORDS_TABLE_NAME, PG_KEYWORDS_WORD_INDEX, PG_USER_ID_INDEX, PG_USER_NAME_INDEX,
-    PG_USER_TABLE_NAME,
+    PG_USER_ID_INDEX, PG_USER_NAME_INDEX, PG_USER_TABLE_NAME,
 };
 use crate::expr::{
     CorrelatedId, CorrelatedInputRef, Depth, Expr as _, ExprImpl, ExprType, FunctionCall, InputRef,
@@ -309,34 +307,6 @@ impl Binder {
             aliases: vec![None],
             from,
             where_clause,
-            group_by: vec![],
-            having: None,
-            schema,
-        })
-    }
-
-    /// `bind_pg_get_keywords` binds a select statement that returns the keywords (currently empty),
-    /// this is used for function `pg_catalog.pg_get_keywords()`.
-    pub fn bind_pg_get_keywords(&mut self) -> Result<BoundSelect> {
-        let mut select_items: Vec<ExprImpl> = Vec::with_capacity(PG_KEYWORDS_COLUMNS.len());
-        let mut fields = Vec::with_capacity(PG_KEYWORDS_COLUMNS.len());
-        for (idx, (col_type, col_name)) in PG_KEYWORDS_COLUMNS.iter().enumerate() {
-            select_items.push(InputRef::new(idx, col_type.clone()).into());
-            fields.push(Field::with_name(col_type.clone(), col_name.to_string()));
-        }
-
-        let schema = Schema { fields };
-
-        Ok(BoundSelect {
-            distinct: BoundDistinct::All,
-            select_items,
-            aliases: vec![None],
-            from: Some(self.bind_relation_by_name_inner(
-                Some(PG_CATALOG_SCHEMA_NAME),
-                PG_KEYWORDS_TABLE_NAME,
-                None,
-            )?),
-            where_clause: None,
             group_by: vec![],
             having: None,
             schema,
