@@ -21,10 +21,9 @@ use risingwave_sqlparser::ast::{
     TrimWhereField, UnaryOperator,
 };
 
+use super::{BoundQuery, BoundSetExpr};
 use crate::binder::Binder;
-use crate::expr::{Expr as _, ExprImpl, ExprType, FunctionCall, SubqueryKind, Subquery};
-
-use super::{BoundSetExpr, BoundQuery};
+use crate::expr::{Expr as _, ExprImpl, ExprType, FunctionCall, Subquery, SubqueryKind};
 
 mod binary_op;
 mod column;
@@ -388,23 +387,36 @@ impl Binder {
 
     pub(super) fn bind_cast(&mut self, expr: Expr, data_type: AstDataType) -> Result<ExprImpl> {
         match &data_type {
-            // This is a workaround. 
-            // Current implementation can cause problem if there are same names for differnet oid.
-            // TODO: handle this in a more elegant way
+            // Casting to Regclass type means getting the oid of expr. 
+            // See https://www.postgresql.org/docs/current/datatype-oid.html.
+            // Currently only string liter expr is supported since we cannot handle subquery in join
+            // on condition: https://github.com/risingwavelabs/risingwave/issues/6852
+            // TODO: Add generic expr support when needed
             AstDataType::Regclass => {
                 let input = self.bind_expr(expr)?;
-                let bound_query = self.bind_regclass(&input)?;
-                Ok(ExprImpl::Subquery(Box::new(Subquery::new(
-                    BoundQuery {
-                        body: BoundSetExpr::Select(Box::new(bound_query)),
-                        order: vec![],
-                        limit: Some(1),
-                        offset: None,
-                        with_ties: false,
-                        extra_order_exprs: vec![],
-                    },
-                    SubqueryKind::Scalar,
-                ))))
+                let class_name = match &input {
+                    ExprImpl::Literal(literal)
+                        if literal.return_type() == DataType::Varchar
+                            && let Some(scalar) = literal.get_data() =>
+                    {
+                        match scalar {
+                            risingwave_common::types::ScalarImpl::Utf8(s) => s,
+                            _ => {
+                                return Err(ErrorCode::BindError(
+                                    "Unsupported input type".to_string(),
+                                )
+                                .into())
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(
+                            ErrorCode::BindError("Unsupported input type".to_string()).into()
+                        )
+                    }
+                };
+                self.resolve_regclass(class_name)
+                    .map(|id| ExprImpl::literal_int(id as i32))
             }
             _ => self.bind_cast_inner(expr, bind_data_type(&data_type)?),
         }
