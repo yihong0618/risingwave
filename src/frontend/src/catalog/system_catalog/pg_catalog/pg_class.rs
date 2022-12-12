@@ -28,4 +28,3 @@ pub const PG_CLASS_COLUMNS: &[SystemCatalogColumnsDef<'_>] = &[
     (DataType::Int32, "relowner"),
     (DataType::Varchar, "relkind"),
 ];
-

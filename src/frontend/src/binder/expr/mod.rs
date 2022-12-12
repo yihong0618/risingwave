@@ -21,9 +21,8 @@ use risingwave_sqlparser::ast::{
     TrimWhereField, UnaryOperator,
 };
 
-use super::{BoundQuery, BoundSetExpr};
 use crate::binder::Binder;
-use crate::expr::{Expr as _, ExprImpl, ExprType, FunctionCall, Subquery, SubqueryKind};
+use crate::expr::{Expr as _, ExprImpl, ExprType, FunctionCall, SubqueryKind};
 
 mod binary_op;
 mod column;
@@ -387,7 +386,7 @@ impl Binder {
 
     pub(super) fn bind_cast(&mut self, expr: Expr, data_type: AstDataType) -> Result<ExprImpl> {
         match &data_type {
-            // Casting to Regclass type means getting the oid of expr. 
+            // Casting to Regclass type means getting the oid of expr.
             // See https://www.postgresql.org/docs/current/datatype-oid.html.
             // Currently only string liter expr is supported since we cannot handle subquery in join
             // on condition: https://github.com/risingwavelabs/risingwave/issues/6852

@@ -25,8 +25,8 @@ use super::UNNAMED_COLUMN;
 use crate::binder::{Binder, Relation};
 use crate::catalog::check_valid_column_name;
 use crate::catalog::system_catalog::pg_catalog::{
-    PG_CLASS_OID_INDEX, PG_CLASS_TABLE_NAME, PG_USER_ID_INDEX, PG_USER_NAME_INDEX,
-    PG_USER_TABLE_NAME, PG_CLASS_RELNAME_INDEX,
+    PG_CLASS_OID_INDEX, PG_CLASS_RELNAME_INDEX, PG_CLASS_TABLE_NAME, PG_USER_ID_INDEX,
+    PG_USER_NAME_INDEX, PG_USER_TABLE_NAME,
 };
 use crate::expr::{
     CorrelatedId, CorrelatedInputRef, Depth, Expr as _, ExprImpl, ExprType, FunctionCall, InputRef,
@@ -314,8 +314,8 @@ impl Binder {
         })
     }
 
-    /// `bind_regclass` binds a select statement that returns a single oid from pg_class
-    /// e.g. SELECT oid FROM pg_class WHERE relname = 'xxx';
+    /// `bind_regclass` binds a select statement that returns a single oid from `pg_class`
+    /// e.g. SELECT oid FROM `pg_class` WHERE relname = 'xxx';
     pub fn bind_regclass(&mut self, input: &ExprImpl) -> Result<BoundSelect> {
         let select_items = vec![InputRef::new(PG_CLASS_OID_INDEX, DataType::Int32).into()];
         let schema = Schema {
@@ -325,7 +325,9 @@ impl Binder {
             )],
         };
         let input = match input {
-            ExprImpl::Literal(literal) if literal.return_type() == DataType::Varchar => input.clone(),
+            ExprImpl::Literal(literal) if literal.return_type() == DataType::Varchar => {
+                input.clone()
+            }
             _ => return Err(ErrorCode::BindError("Unsupported input type".to_string()).into()),
         };
         let from = Some(self.bind_relation_by_name_inner(

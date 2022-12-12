@@ -625,7 +625,7 @@ impl Catalog {
     ) -> CatalogResult<u32> {
         match schema_path {
             SchemaPath::Name(schema_name) => {
-                return self.get_id_by_class_name_inner(db_name, schema_name, class_name);
+                self.get_id_by_class_name_inner(db_name, schema_name, class_name)
             }
             SchemaPath::Path(search_path, user_name) => {
                 for path in search_path.path() {
