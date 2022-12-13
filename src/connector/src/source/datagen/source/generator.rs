@@ -27,6 +27,8 @@ pub struct DatagenEventGenerator {
     offset: u64,
     split_id: SplitId,
     partition_rows_per_second: u64,
+    // If the user didn't specify, then u64::MAX by default.
+    partition_num_events: u64,
 }
 
 impl DatagenEventGenerator {
@@ -37,17 +39,30 @@ impl DatagenEventGenerator {
         split_id: SplitId,
         split_num: u64,
         split_index: u64,
+        num_events: Option<String>,
     ) -> Result<Self> {
         let partition_rows_per_second = if rows_per_second % split_num > split_index {
             rows_per_second / split_num + 1
         } else {
             rows_per_second / split_num
         };
+        let partition_num_events = match num_events {
+            Some(num_events) => {
+                let num_events = num_events.parse::<u64>()?;
+                if num_events % split_num > split_index {
+                    num_events / split_num + 1
+                } else {
+                    num_events / split_num
+                }
+            }
+            None => u64::MAX,
+        };
         Ok(Self {
             fields_map,
             offset,
             split_id,
             partition_rows_per_second,
+            partition_num_events,
         })
     }
 
@@ -58,7 +73,10 @@ impl DatagenEventGenerator {
             // generate `partition_rows_per_second` rows per second
             interval.tick().await;
             let mut msgs = vec![];
-            for _ in 0..self.partition_rows_per_second {
+            let num_events_current_round =
+                std::cmp::min(self.partition_rows_per_second, self.partition_num_events);
+            self.partition_num_events -= num_events_current_round;
+            for _ in 0..num_events_current_round {
                 let value = Value::Object(
                     self.fields_map
                         .iter_mut()
@@ -75,6 +93,9 @@ impl DatagenEventGenerator {
                 self.offset += 1;
             }
             yield msgs;
+            if self.partition_num_events == 0 {
+                break;
+            }
         }
     }
 }
@@ -82,6 +103,7 @@ impl DatagenEventGenerator {
 #[cfg(test)]
 mod tests {
     use futures::stream::StreamExt;
+    use itertools::Itertools;
 
     use super::*;
 
@@ -89,6 +111,7 @@ mod tests {
         split_num: u64,
         split_index: u64,
         rows_per_second: u64,
+        num_events: Option<String>,
         expected_length: usize,
     ) {
         let split_id = format!("{}-{}", split_num, split_index).into();
@@ -124,6 +147,7 @@ mod tests {
             split_id,
             split_num,
             split_index,
+            num_events,
         )
         .unwrap();
 
@@ -139,19 +163,48 @@ mod tests {
 
     #[tokio::test]
     async fn test_one_partition_sequence() {
-        check_sequence_partition_result(1, 0, 10, 10).await;
+        check_sequence_partition_result(1, 0, 10, None, 10).await;
+        check_sequence_partition_result(1, 0, 10, Some("8".to_string()), 8).await;
+        check_sequence_partition_result(1, 0, 10, Some("0".to_string()), 0).await;
     }
 
     #[tokio::test]
     async fn test_two_partition_sequence() {
-        check_sequence_partition_result(2, 0, 10, 5).await;
-        check_sequence_partition_result(2, 1, 10, 5).await;
+        let num_events_vec = [
+            None,
+            Some("11".to_string()),
+            Some("9".to_string()),
+            Some("1".to_string()),
+            Some("0".to_string()),
+        ];
+        let expected_lengths_vec: [[usize; 2]; 5] = [[5, 5], [5, 5], [5, 4], [1, 0], [0, 0]];
+
+        for (num_events, expected_lengths) in num_events_vec
+            .into_iter()
+            .zip_eq(expected_lengths_vec.into_iter())
+        {
+            check_sequence_partition_result(2, 0, 10, num_events.clone(), expected_lengths[0])
+                .await;
+            check_sequence_partition_result(2, 1, 10, num_events, expected_lengths[1]).await;
+        }
     }
 
     #[tokio::test]
     async fn test_three_partition_sequence() {
-        check_sequence_partition_result(3, 0, 10, 4).await;
-        check_sequence_partition_result(3, 1, 10, 3).await;
-        check_sequence_partition_result(3, 2, 10, 3).await;
+        let num_events_vec = [
+            None,
+            Some("11".to_string()),
+            Some("8".to_string()),
+            Some("1".to_string()),
+        ];
+        let expected_lengths_vec: [[usize; 3]; 4] = [[4, 3, 3], [4, 3, 3], [3, 3, 2], [1, 0, 0]];
+        for (num_events, expected_length) in num_events_vec
+            .into_iter()
+            .zip_eq(expected_lengths_vec.into_iter())
+        {
+            check_sequence_partition_result(3, 0, 10, num_events.clone(), expected_length[0]).await;
+            check_sequence_partition_result(3, 1, 10, num_events.clone(), expected_length[1]).await;
+            check_sequence_partition_result(3, 2, 10, num_events, expected_length[2]).await;
+        }
     }
 }

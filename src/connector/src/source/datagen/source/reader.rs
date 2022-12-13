@@ -110,6 +110,7 @@ impl SplitReader for DatagenSplitReader {
             split_id,
             split_num,
             split_index,
+            properties.num_events,
         )?;
 
         Ok(DatagenSplitReader {
@@ -257,6 +258,7 @@ mod tests {
         let properties = DatagenProperties {
             split_num: None,
             rows_per_second: 10,
+            num_events: None,
             fields: convert_args!(hashmap!(
                 "fields.random_int.min" => "1",
                 "fields.random_int.max" => "1000",
@@ -309,6 +311,7 @@ mod tests {
         let properties = DatagenProperties {
             split_num: None,
             rows_per_second: 10,
+            num_events: None,
             fields: HashMap::new(),
         };
         let stream = DatagenSplitReader::new(properties.clone(), state, Some(mock_datum.clone()))

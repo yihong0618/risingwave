@@ -43,6 +43,11 @@ pub struct DatagenProperties {
     #[serde_as(as = "DisplayFromStr")]
     pub rows_per_second: u64,
 
+    /// number of total events to be generated
+    /// We remark that the smaller value between `end-start+1` and `num.events` takes effect.
+    #[serde(rename = "datagen.num.events")]
+    pub num_events: Option<String>,
+
     /// Some connector options of the datagen source's fields
     /// for example: create datagen source with column v1 int, v2 float
     /// 'fields.v1.kind'='sequence',
@@ -57,4 +62,8 @@ pub struct DatagenProperties {
 
 fn default_rows_per_second() -> u64 {
     10
+}
+
+fn default_num_events() -> Option<u64> {
+    None
 }
