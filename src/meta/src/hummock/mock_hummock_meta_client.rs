@@ -12,31 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
 use fail::fail_point;
+use futures::stream::BoxStream;
 use risingwave_hummock_sdk::compaction_group::StaticCompactionGroupId;
 use risingwave_hummock_sdk::table_stats::{to_prost_table_stats_map, TableStatsMap};
 use risingwave_hummock_sdk::{
     HummockContextId, HummockEpoch, HummockSstableId, HummockVersionId, LocalSstableInfo,
     SstIdRange,
 };
+use risingwave_pb::common::{HostAddress, WorkerType};
+use risingwave_pb::hummock::subscribe_compact_tasks_response::Task;
 use risingwave_pb::hummock::{
     CompactTask, CompactTaskProgress, CompactionGroup, HummockSnapshot, HummockVersion,
     SubscribeCompactTasksResponse, VacuumTask,
 };
 use risingwave_rpc_client::error::{Result, RpcError};
-use risingwave_rpc_client::HummockMetaClient;
-use tonic::Streaming;
+use risingwave_rpc_client::{CompactTaskItem, HummockMetaClient};
 
+use crate::hummock::compaction_scheduler::CompactionRequestChannel;
 use crate::hummock::HummockManager;
 use crate::storage::MemStore;
 
 pub struct MockHummockMetaClient {
     hummock_manager: Arc<HummockManager<MemStore>>,
     context_id: HummockContextId,
+    compact_context_id: AtomicU32,
 }
 
 impl MockHummockMetaClient {
@@ -47,6 +52,7 @@ impl MockHummockMetaClient {
         MockHummockMetaClient {
             hummock_manager,
             context_id,
+            compact_context_id: AtomicU32::new(context_id),
         }
     }
 
@@ -124,7 +130,7 @@ impl HummockMetaClient for MockHummockMetaClient {
     ) -> Result<()> {
         self.hummock_manager
             .report_compact_task(
-                self.context_id,
+                self.compact_context_id.load(Ordering::Acquire),
                 &mut compact_task,
                 Some(to_prost_table_stats_map(table_stats_change)),
             )
@@ -148,18 +154,71 @@ impl HummockMetaClient for MockHummockMetaClient {
             .map_err(mock_err)
     }
 
+    async fn update_current_epoch(&self, epoch: HummockEpoch) -> Result<()> {
+        self.hummock_manager
+            .update_current_epoch(epoch)
+            .map_err(mock_err)
+    }
+
     async fn subscribe_compact_tasks(
         &self,
         _max_concurrent_task_number: u64,
-    ) -> Result<Streaming<SubscribeCompactTasksResponse>> {
-        unimplemented!()
+    ) -> Result<BoxStream<'static, CompactTaskItem>> {
+        let (sched_tx, mut sched_rx) = tokio::sync::mpsc::unbounded_channel();
+        let sched_channel = Arc::new(CompactionRequestChannel::new(sched_tx));
+        self.hummock_manager
+            .init_compaction_scheduler(sched_channel.clone(), None);
+
+        let worker_node = self
+            .hummock_manager
+            .cluster_manager()
+            .add_worker_node(
+                WorkerType::Compactor,
+                HostAddress {
+                    host: "compactor".to_string(),
+                    port: 0,
+                },
+                1,
+            )
+            .await
+            .unwrap();
+        let context_id = worker_node.id;
+        let _ = self
+            .hummock_manager
+            .compactor_manager_ref_for_test()
+            .add_compactor(context_id, 8);
+        self.compact_context_id.store(context_id, Ordering::Release);
+
+        let hummock_manager_compact = self.hummock_manager.clone();
+        let (task_tx, task_rx) = tokio::sync::mpsc::unbounded_channel();
+        let _ = tokio::spawn(async move {
+            while let Some(group) = sched_rx.recv().await {
+                sched_channel.unschedule(group);
+                if let Some(task) = hummock_manager_compact
+                    .get_compact_task(group)
+                    .await
+                    .unwrap()
+                {
+                    hummock_manager_compact
+                        .assign_compaction_task(&task, context_id)
+                        .await
+                        .unwrap();
+                    let resp = SubscribeCompactTasksResponse {
+                        task: Some(Task::CompactTask(task)),
+                    };
+                    let _ = task_tx.send(Ok(resp));
+                }
+            }
+        });
+        let s = tokio_stream::wrappers::UnboundedReceiverStream::new(task_rx);
+        Ok(Box::pin(s))
     }
 
     async fn report_compaction_task_progress(
         &self,
         _progress: Vec<CompactTaskProgress>,
     ) -> Result<()> {
-        unimplemented!()
+        Ok(())
     }
 
     async fn report_vacuum_task(&self, _vacuum_task: VacuumTask) -> Result<()> {
