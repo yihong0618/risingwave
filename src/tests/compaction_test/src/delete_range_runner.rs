@@ -60,16 +60,15 @@ pub fn start_delete_range(opts: CompactionTestOpts) -> Pin<Box<dyn Future<Output
 
         match ret {
             Ok(_) => {
-                tracing::info!("Success");
+                tracing::info!("Compaction delete-range test Success");
             }
             Err(e) => {
-                tracing::error!("Failure {}", e);
+                panic!("Compaction delete-range test Fail: {}", e);
             }
         }
     })
 }
 pub async fn compaction_test_main(opts: CompactionTestOpts) -> anyhow::Result<()> {
-    tracing::info!("Started embedded Meta");
     let config = load_config(&opts.config_path);
     let mut storage_config = config.storage;
     storage_config.enable_state_store_v1 = false;
@@ -183,8 +182,7 @@ async fn compaction_test(
         state_store_metrics.clone(),
         Arc::new(risingwave_tracing::RwTracingService::disabled()),
     )
-    .await
-    .unwrap();
+    .await?;
     let sstable_id_manager = store.sstable_id_manager().clone();
     let filter_key_extractor_manager = store.filter_key_extractor_manager().clone();
     filter_key_extractor_manager.update(
@@ -316,7 +314,7 @@ async fn run_compare_result(
         meta_client
             .commit_epoch(epoch, ret.uncommitted_ssts)
             .await
-            .unwrap();
+            .map_err(|e| format!("{:?}", e))?;
         if epoch % 200 == 0 {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
