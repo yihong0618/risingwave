@@ -57,6 +57,7 @@ pub enum SourceFormat {
     Maxwell,
     CanalJson,
     Csv,
+    Native,
 }
 
 pub type BoxSourceWithStateStream<T> = BoxStream<'static, Result<T, RwError>>;
