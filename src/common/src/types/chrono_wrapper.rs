@@ -12,18 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::error::Error;
 use std::hash::Hash;
 use std::io::Write;
 
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Weekday};
-use postgres_types::{ToSql, Type};
+use postgres_types::{to_sql_checked, IsNull, ToSql, Type};
 
-use super::to_binary::ToBinary;
-use super::to_text::ToText;
-use super::{CheckedAdd, DataType, IntervalUnit};
+use super::{CheckedAdd, IntervalUnit};
 use crate::array::ArrayResult;
-use crate::error::Result;
 use crate::util::value_encoding;
 use crate::util::value_encoding::error::ValueEncodingError;
 
@@ -44,6 +42,22 @@ macro_rules! impl_chrono_wrapper {
         impl $variant_name {
             pub fn new(data: $chrono) -> Self {
                 $variant_name(data)
+            }
+        }
+
+        impl ToSql for $variant_name {
+            to_sql_checked!();
+
+            fn to_sql(
+                &self,
+                ty: &Type,
+                out: &mut BytesMut,
+            ) -> std::result::Result<IsNull, Box<dyn Error + 'static + Send + Sync>> {
+                self.0.to_sql(ty, out)
+            }
+
+            fn accepts(ty: &Type) -> bool {
+                <$chrono as ToSql>::accepts(ty)
             }
         }
     };
@@ -68,84 +82,6 @@ impl Default for NaiveTimeWrapper {
 impl Default for NaiveDateTimeWrapper {
     fn default() -> Self {
         NaiveDateWrapper::default().into()
-    }
-}
-
-impl ToText for NaiveDateWrapper {
-    fn write<W: std::fmt::Write>(&self, f: &mut W) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-
-    fn write_with_type<W: std::fmt::Write>(&self, ty: &DataType, f: &mut W) -> std::fmt::Result {
-        match ty {
-            super::DataType::Date => self.write(f),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl ToText for NaiveTimeWrapper {
-    fn write<W: std::fmt::Write>(&self, f: &mut W) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-
-    fn write_with_type<W: std::fmt::Write>(&self, ty: &DataType, f: &mut W) -> std::fmt::Result {
-        match ty {
-            super::DataType::Time => self.write(f),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl ToText for NaiveDateTimeWrapper {
-    fn write<W: std::fmt::Write>(&self, f: &mut W) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-
-    fn write_with_type<W: std::fmt::Write>(&self, ty: &DataType, f: &mut W) -> std::fmt::Result {
-        match ty {
-            super::DataType::Timestamp => self.write(f),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl ToBinary for NaiveDateWrapper {
-    fn to_binary_with_type(&self, ty: &DataType) -> Result<Option<Bytes>> {
-        match ty {
-            super::DataType::Date => {
-                let mut output = BytesMut::new();
-                self.0.to_sql(&Type::ANY, &mut output).unwrap();
-                Ok(Some(output.freeze()))
-            }
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl ToBinary for NaiveTimeWrapper {
-    fn to_binary_with_type(&self, ty: &DataType) -> Result<Option<Bytes>> {
-        match ty {
-            super::DataType::Time => {
-                let mut output = BytesMut::new();
-                self.0.to_sql(&Type::ANY, &mut output).unwrap();
-                Ok(Some(output.freeze()))
-            }
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl ToBinary for NaiveDateTimeWrapper {
-    fn to_binary_with_type(&self, ty: &DataType) -> Result<Option<Bytes>> {
-        match ty {
-            super::DataType::Timestamp => {
-                let mut output = BytesMut::new();
-                self.0.to_sql(&Type::ANY, &mut output).unwrap();
-                Ok(Some(output.freeze()))
-            }
-            _ => unreachable!(),
-        }
     }
 }
 

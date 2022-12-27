@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use risingwave_common::array::{
-    Array, BoolArray, DecimalArray, I32Array, I64Array, IntervalArray, ListArray, NaiveDateArray,
-    NaiveDateTimeArray, StructArray, Utf8Array,
+    Array, BoolArray, DecimalArray, I32Array, IntervalArray, ListArray, NaiveDateArray,
+    NaiveDateTimeArray, StructArray, TimestamptzArray, Utf8Array,
 };
 use risingwave_common::types::*;
 use risingwave_pb::expr::expr_node::Type;
@@ -355,35 +355,34 @@ fn build_extract_expr(
     l: BoxedExpression,
     r: BoxedExpression,
 ) -> Result<BoxedExpression> {
-    let expr: BoxedExpression =
-        match r.return_type() {
-            DataType::Date => Box::new(BinaryExpression::<
-                Utf8Array,
-                NaiveDateArray,
-                DecimalArray,
-                _,
-            >::new(l, r, ret, extract_from_date)),
-            DataType::Timestamp => Box::new(BinaryExpression::<
-                Utf8Array,
-                NaiveDateTimeArray,
-                DecimalArray,
-                _,
-            >::new(l, r, ret, extract_from_timestamp)),
-            DataType::Timestamptz => Box::new(BinaryExpression::<
-                Utf8Array,
-                I64Array,
-                DecimalArray,
-                _,
-            >::new(
-                l, r, ret, extract_from_timestamptz
-            )),
-            _ => {
-                return Err(ExprError::UnsupportedFunction(format!(
-                    "Extract ( {:?} ) is not supported yet!",
-                    r.return_type()
-                )))
-            }
-        };
+    let expr: BoxedExpression = match r.return_type() {
+        DataType::Date => Box::new(
+            BinaryExpression::<Utf8Array, NaiveDateArray, DecimalArray, _>::new(
+                l,
+                r,
+                ret,
+                extract_from_date,
+            ),
+        ),
+        DataType::Timestamp => Box::new(BinaryExpression::<
+            Utf8Array,
+            NaiveDateTimeArray,
+            DecimalArray,
+            _,
+        >::new(l, r, ret, extract_from_timestamp)),
+        DataType::Timestamptz => Box::new(BinaryExpression::<
+            Utf8Array,
+            TimestamptzArray,
+            DecimalArray,
+            _,
+        >::new(l, r, ret, extract_from_timestamptz)),
+        _ => {
+            return Err(ExprError::UnsupportedFunction(format!(
+                "Extract ( {:?} ) is not supported yet!",
+                r.return_type()
+            )))
+        }
+    };
     Ok(expr)
 }
 
@@ -396,11 +395,11 @@ fn build_at_time_zone_expr(
         DataType::Timestamp => Box::new(BinaryExpression::<
             NaiveDateTimeArray,
             Utf8Array,
-            I64Array,
+            TimestamptzArray,
             _,
         >::new(l, r, ret, timestamp_at_time_zone)),
         DataType::Timestamptz => Box::new(BinaryExpression::<
-            I64Array,
+            TimestamptzArray,
             Utf8Array,
             NaiveDateTimeArray,
             _,
@@ -434,7 +433,7 @@ pub fn new_date_trunc_expr(
             // timestamp AT TIME ZONE zone -> timestamptz
             let (timezone1, timezone2) = timezone
                 .expect("A time zone must be specified when processing timestamp with time zone");
-            let timestamp = BinaryExpression::<I64Array, Utf8Array, NaiveDateTimeArray, _>::new(
+            let timestamp = BinaryExpression::<TimestamptzArray, Utf8Array, NaiveDateTimeArray, _>::new(
                 source,
                 timezone1,
                 DataType::Timestamp,
@@ -451,7 +450,7 @@ pub fn new_date_trunc_expr(
                 DataType::Timestamp,
                 date_trunc_timestamp,
             ).boxed();
-            BinaryExpression::<NaiveDateTimeArray, Utf8Array, I64Array, _>::new(
+            BinaryExpression::<NaiveDateTimeArray, Utf8Array, TimestamptzArray, _>::new(
                 truncated,
                 timezone2,
                 DataType::Timestamptz,
@@ -676,14 +675,16 @@ fn new_tumble_start(
         >::new(
             expr_ia1, expr_ia2, return_type, tumble_start_date_time
         )),
-        DataType::Timestamptz => Box::new(
-            BinaryExpression::<I64Array, IntervalArray, I64Array, _>::new(
-                expr_ia1,
-                expr_ia2,
-                return_type,
-                tumble_start_timestamptz,
-            ),
-        ),
+        DataType::Timestamptz => {
+            Box::new(BinaryExpression::<
+                TimestamptzArray,
+                IntervalArray,
+                TimestamptzArray,
+                _,
+            >::new(
+                expr_ia1, expr_ia2, return_type, tumble_start_timestamptz
+            ))
+        }
         _ => {
             return Err(ExprError::UnsupportedFunction(format!(
                 "tumble_start is not supported for {:?}",

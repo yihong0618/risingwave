@@ -14,7 +14,7 @@
 
 use super::HashKey;
 use crate::hash;
-use crate::types::DataType;
+use crate::types::{DataType, Timestamptz};
 
 /// An enum to help to dynamically dispatch [`HashKey`] template.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -96,7 +96,7 @@ fn hash_key_size(data_type: &DataType) -> HashKeySize {
         DataType::Date => HashKeySize::Fixed(size_of::<NaiveDateWrapper>()),
         DataType::Time => HashKeySize::Fixed(size_of::<NaiveTimeWrapper>()),
         DataType::Timestamp => HashKeySize::Fixed(size_of::<NaiveDateTimeWrapper>()),
-        DataType::Timestamptz => HashKeySize::Fixed(size_of::<i64>()),
+        DataType::Timestamptz => HashKeySize::Fixed(size_of::<Timestamptz>()),
         DataType::Interval => HashKeySize::Fixed(size_of::<IntervalUnit>()),
 
         DataType::Varchar => HashKeySize::Variable,

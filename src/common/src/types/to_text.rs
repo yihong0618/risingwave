@@ -15,23 +15,19 @@
 use std::fmt::{Result, Write};
 use std::num::FpCategory;
 
-use chrono::{TimeZone, Utc};
-
-use super::{DataType, DatumRef, ScalarRefImpl};
+use super::{
+    DataType, DatumRef, Decimal, IntervalUnit, NaiveDateTimeWrapper, NaiveDateWrapper,
+    NaiveTimeWrapper, ScalarRefImpl,
+};
 use crate::for_all_scalar_variants;
 
 // Used to convert ScalarRef to text format
 pub trait ToText {
-    /// Write the text to the writer.
+    /// Write the text to the writer using the default type.
     fn write<W: Write>(&self, f: &mut W) -> Result;
 
+    /// Write the text to the writer according to the data type.
     fn write_with_type<W: Write>(&self, _ty: &DataType, f: &mut W) -> Result;
-
-    fn to_text_with_type(&self, ty: &DataType) -> String {
-        let mut s = String::new();
-        self.write_with_type(ty, &mut s).unwrap();
-        s
-    }
 
     /// `to_text` is a special version of `to_text_with_type`, it convert the scalar to default type
     /// text. E.g. for Int64, it will convert to text as a Int64 type.
@@ -61,9 +57,15 @@ pub trait ToText {
         self.write(&mut s).unwrap();
         s
     }
+
+    fn to_text_with_type(&self, ty: &DataType) -> String {
+        let mut s = String::new();
+        self.write_with_type(ty, &mut s).unwrap();
+        s
+    }
 }
 
-macro_rules! implement_using_to_string {
+macro_rules! implement_using_display {
     ($({ $scalar_type:ty , $data_type:ident} ),*) => {
         $(
             impl ToText for $scalar_type {
@@ -79,6 +81,15 @@ macro_rules! implement_using_to_string {
             }
         )*
     };
+}
+implement_using_display! {
+    { String, Varchar },
+    { &str, Varchar },
+    { Decimal, Decimal },
+    { IntervalUnit, Interval },
+    { NaiveDateWrapper, Date },
+    { NaiveTimeWrapper, Time },
+    { NaiveDateTimeWrapper, Timestamp }
 }
 
 macro_rules! implement_using_itoa {
@@ -98,20 +109,15 @@ macro_rules! implement_using_itoa {
         )*
     };
 }
-
-implement_using_to_string! {
-    { String ,Varchar },
-    { &str ,Varchar}
-}
-
 implement_using_itoa! {
-    { i16 ,Int16},
-    { i32 ,Int32}
+    { i16, Int16 },
+    { i32, Int32 },
+    { i64, Int64 }
 }
 
 macro_rules! implement_using_ryu {
     ($({ $scalar_type:ty, $data_type:ident } ),*) => {
-            $(
+        $(
             impl ToText for $scalar_type {
                 fn write<W: Write>(&self, f: &mut W) -> Result {
                     match self.classify() {
@@ -159,30 +165,6 @@ macro_rules! implement_using_ryu {
 implement_using_ryu! {
     { crate::types::OrderedF32, Float32 },
     { crate::types::OrderedF64, Float64 }
-}
-
-impl ToText for i64 {
-    fn write<W: Write>(&self, f: &mut W) -> Result {
-        write!(f, "{self}")
-    }
-
-    fn write_with_type<W: Write>(&self, ty: &DataType, f: &mut W) -> Result {
-        match ty {
-            DataType::Int64 => self.write(f),
-            DataType::Timestamptz => {
-                // Just a meaningful representation as placeholder. The real implementation depends
-                // on TimeZone from session. See #3552.
-                let secs = self.div_euclid(1_000_000);
-                let nsecs = self.rem_euclid(1_000_000) * 1000;
-                let instant = Utc.timestamp_opt(secs, nsecs as u32).unwrap();
-                // PostgreSQL uses a space rather than `T` to separate the date and time.
-                // https://www.postgresql.org/docs/current/datatype-datetime.html#DATATYPE-DATETIME-OUTPUT
-                // same as `instant.format("%Y-%m-%d %H:%M:%S%.f%:z")` but faster
-                write!(f, "{}+00:00", instant.naive_local())
-            }
-            _ => unreachable!(),
-        }
-    }
 }
 
 impl ToText for bool {

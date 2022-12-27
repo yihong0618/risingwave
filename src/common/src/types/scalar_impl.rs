@@ -313,6 +313,32 @@ impl<'a> ScalarRef<'a> for NaiveTimeWrapper {
     }
 }
 
+/// Implement `Scalar` for `Timestamptz`.
+impl Scalar for Timestamptz {
+    type ScalarRefType<'a> = Timestamptz;
+
+    fn as_scalar_ref(&self) -> Timestamptz {
+        *self
+    }
+
+    fn to_scalar_value(self) -> ScalarImpl {
+        ScalarImpl::Timestamptz(self)
+    }
+}
+
+/// Implement `ScalarRef` for `Timestamptz`.
+impl<'a> ScalarRef<'a> for Timestamptz {
+    type ScalarType = Timestamptz;
+
+    fn to_owned_scalar(&self) -> Timestamptz {
+        *self
+    }
+
+    fn hash_scalar<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.hash(state)
+    }
+}
+
 /// Implement `Scalar` for `StructValue`.
 impl<'a> ScalarRef<'a> for StructRef<'a> {
     type ScalarType = StructValue;

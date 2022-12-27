@@ -13,15 +13,17 @@
 // limitations under the License.
 
 use super::{PrimitiveArray, PrimitiveArrayBuilder};
-use crate::types::{NaiveDateTimeWrapper, NaiveDateWrapper, NaiveTimeWrapper};
+use crate::types::{NaiveDateTimeWrapper, NaiveDateWrapper, NaiveTimeWrapper, Timestamptz};
 
 pub type NaiveDateArray = PrimitiveArray<NaiveDateWrapper>;
 pub type NaiveTimeArray = PrimitiveArray<NaiveTimeWrapper>;
 pub type NaiveDateTimeArray = PrimitiveArray<NaiveDateTimeWrapper>;
+pub type TimestamptzArray = PrimitiveArray<Timestamptz>;
 
 pub type NaiveDateArrayBuilder = PrimitiveArrayBuilder<NaiveDateWrapper>;
 pub type NaiveTimeArrayBuilder = PrimitiveArrayBuilder<NaiveTimeWrapper>;
 pub type NaiveDateTimeArrayBuilder = PrimitiveArrayBuilder<NaiveDateTimeWrapper>;
+pub type TimestamptzArrayBuilder = PrimitiveArrayBuilder<Timestamptz>;
 
 #[cfg(test)]
 mod tests {

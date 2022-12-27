@@ -13,10 +13,12 @@
 // limitations under the License.
 
 use bytes::{Bytes, BytesMut};
-use chrono::{TimeZone, Utc};
 use postgres_types::{ToSql, Type};
 
-use super::{DataType, DatumRef, ScalarRefImpl};
+use super::{
+    DataType, DatumRef, IntervalUnit, NaiveDateTimeWrapper, NaiveDateWrapper, NaiveTimeWrapper,
+    OrderedF32, OrderedF64, ScalarRefImpl,
+};
 use crate::error::Result;
 // Used to convert ScalarRef to text format
 pub trait ToBinary {
@@ -29,14 +31,10 @@ macro_rules! implement_using_to_sql {
         $(
             impl ToBinary for $scalar_type {
                 fn to_binary_with_type(&self, ty: &DataType) -> Result<Option<Bytes>> {
-                    match ty {
-                        DataType::$data_type => {
-                            let mut output = BytesMut::new();
-                            self.to_sql(&Type::ANY, &mut output).unwrap();
-                            Ok(Some(output.freeze()))
-                        },
-                        _ => unreachable!(),
-                    }
+                    assert!(matches!(ty, DataType::$data_type));
+                    let mut output = BytesMut::new();
+                    self.to_sql(&Type::ANY, &mut output).unwrap();
+                    Ok(Some(output.freeze()))
                 }
             }
         )*
@@ -44,37 +42,18 @@ macro_rules! implement_using_to_sql {
 }
 
 implement_using_to_sql! {
-    { i16,Int16  },
-    { i32,Int32  },
-    { &str,Varchar },
-    { crate::types::OrderedF32,Float32 },
-    { crate::types::OrderedF64,Float64 },
-    { bool,Boolean },
-    { &[u8],Bytea }
-}
-
-impl ToBinary for i64 {
-    fn to_binary_with_type(&self, ty: &DataType) -> Result<Option<Bytes>> {
-        match ty {
-            DataType::Int64 => {
-                let mut output = BytesMut::new();
-                self.to_sql(&Type::ANY, &mut output).unwrap();
-                Ok(Some(output.freeze()))
-            }
-            DataType::Timestamptz => {
-                let secs = self.div_euclid(1_000_000);
-                let nsecs = self.rem_euclid(1_000_000) * 1000;
-                let instant = Utc.timestamp_opt(secs, nsecs as u32).unwrap();
-                let mut out = BytesMut::new();
-                // postgres_types::Type::ANY is only used as a placeholder.
-                instant
-                    .to_sql(&postgres_types::Type::ANY, &mut out)
-                    .unwrap();
-                Ok(Some(out.freeze()))
-            }
-            _ => unreachable!(),
-        }
-    }
+    { i16, Int16 },
+    { i32, Int32 },
+    { i64, Int64 },
+    { OrderedF32,Float32 },
+    { OrderedF64,Float64 },
+    { bool, Boolean },
+    { NaiveDateWrapper, Date },
+    { NaiveTimeWrapper, Time },
+    { NaiveDateTimeWrapper, Timestamp },
+    { IntervalUnit, Interval },
+    { &str, Varchar },
+    { &[u8], Bytea }
 }
 
 impl ToBinary for ScalarRefImpl<'_> {
@@ -90,8 +69,9 @@ impl ToBinary for ScalarRefImpl<'_> {
             ScalarRefImpl::Decimal(v) => v.to_binary_with_type(ty),
             ScalarRefImpl::Interval(v) => v.to_binary_with_type(ty),
             ScalarRefImpl::NaiveDate(v) => v.to_binary_with_type(ty),
-            ScalarRefImpl::NaiveDateTime(v) => v.to_binary_with_type(ty),
             ScalarRefImpl::NaiveTime(v) => v.to_binary_with_type(ty),
+            ScalarRefImpl::NaiveDateTime(v) => v.to_binary_with_type(ty),
+            ScalarRefImpl::Timestamptz(v) => v.to_binary_with_type(ty),
             ScalarRefImpl::Bytea(v) => v.to_binary_with_type(ty),
             ScalarRefImpl::Struct(_) => todo!(),
             ScalarRefImpl::List(_) => todo!(),

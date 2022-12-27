@@ -177,8 +177,9 @@ pub fn compare_rows(lhs: &OwnedRow, rhs: &OwnedRow, order_pairs: &[OrderPair]) -
                 Decimal,
                 Interval,
                 NaiveDate,
-                NaiveDateTime,
                 NaiveTime,
+                NaiveDateTime,
+                Timestamptz,
                 Struct,
                 List,
                 Bytea
@@ -243,8 +244,9 @@ pub fn compare_rows_in_chunk(
                 Decimal,
                 Interval,
                 NaiveDate,
-                NaiveDateTime,
                 NaiveTime,
+                NaiveDateTime,
+                Timestamptz,
                 Struct,
                 List
             ]
@@ -337,8 +339,9 @@ mod tests {
             Some(ScalarImpl::Decimal(10.into())),
             Some(ScalarImpl::Interval(Default::default())),
             Some(ScalarImpl::NaiveDate(Default::default())),
-            Some(ScalarImpl::NaiveDateTime(Default::default())),
             Some(ScalarImpl::NaiveTime(Default::default())),
+            Some(ScalarImpl::NaiveDateTime(Default::default())),
+            Some(ScalarImpl::Timestamptz(Default::default())),
             Some(ScalarImpl::Struct(StructValue::new(vec![
                 Some(ScalarImpl::Int32(1)),
                 Some(ScalarImpl::Float32(3.0.into())),
@@ -359,8 +362,9 @@ mod tests {
             Some(ScalarImpl::Decimal(10.into())),
             Some(ScalarImpl::Interval(Default::default())),
             Some(ScalarImpl::NaiveDate(Default::default())),
-            Some(ScalarImpl::NaiveDateTime(Default::default())),
             Some(ScalarImpl::NaiveTime(Default::default())),
+            Some(ScalarImpl::NaiveDateTime(Default::default())),
+            Some(ScalarImpl::Timestamptz(Default::default())),
             Some(ScalarImpl::Struct(StructValue::new(vec![
                 Some(ScalarImpl::Int32(1)),
                 Some(ScalarImpl::Float32(33333.0.into())), // larger than row1
@@ -396,8 +400,9 @@ mod tests {
                 DataType::Decimal,
                 DataType::Interval,
                 DataType::Date,
-                DataType::Timestamp,
                 DataType::Time,
+                DataType::Timestamp,
+                DataType::Timestamptz,
                 DataType::new_struct(vec![DataType::Int32, DataType::Float32], vec![]),
                 DataType::List {
                     datatype: Box::new(DataType::Int32),
