@@ -163,9 +163,9 @@ pub fn start(opts: ComputeNodeOpts) -> Pin<Box<dyn Future<Output = ()> + Send>> 
 
 fn default_total_memory_bytes() -> usize {
     // total_memory_available_bytes()
-    6442450944
+    6042450944
 }
 
 fn default_parallelism() -> usize {
-    total_cpu_available().ceil() as usize
+    1
 }
