@@ -161,5 +161,6 @@ fn default_total_memory_bytes() -> usize {
 }
 
 fn default_parallelism() -> usize {
-    total_cpu_available() as usize
+    1
+    // total_cpu_available() as usize
 }

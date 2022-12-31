@@ -154,7 +154,7 @@ impl SharedContext {
             )
         } else {
             permit::channel(
-                65536,
+                131072,
                 2048,
             )
         };
