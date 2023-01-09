@@ -580,6 +580,12 @@ impl<R: RangeKv> StateStoreRead for RangeKvStateStore<R> {
             .into_stream())
         }
     }
+
+    fn surely_not_have(&self, _prefix_key: Vec<u8>, _table_id: TableId) -> Self::SurelyNotHaveFuture<'_> {
+        async move {
+            Ok(false)
+        }
+    }
 }
 
 impl<R: RangeKv> StateStoreWrite for RangeKvStateStore<R> {

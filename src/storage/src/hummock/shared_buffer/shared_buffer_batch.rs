@@ -194,6 +194,16 @@ impl SharedBufferBatch {
                 .le(table_key.as_ref())
     }
 
+    pub fn prefix_exists(&self, prefix_key: TableKey<&[u8]>) -> bool {
+        match self.inner.binary_search_by(|m| (m.0[..]).cmp(*prefix_key)) {
+            Ok(_) => true,
+            Err(i) => {
+                (i > 0 && self.inner[i - 1].0.starts_with(&prefix_key))
+                    || (i < self.inner.len() && self.inner[i].0.starts_with(&prefix_key))
+            }
+        }
+    }
+
     pub fn into_directed_iter<D: HummockIteratorDirection>(self) -> SharedBufferBatchIterator<D> {
         SharedBufferBatchIterator::<D>::new(self.inner, self.table_id, self.epoch)
     }
@@ -763,5 +773,45 @@ mod tests {
         iter.seek(FullKey::for_test(TableId::new(1), vec![], epoch).to_ref())
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_shared_buffer_batch_prefix_existx() {
+        let epoch = 1;
+        let shared_buffer_items = vec![
+            (
+                "a_1".as_bytes().to_vec(),
+                HummockValue::put(Bytes::from("value1")),
+            ),
+            (
+                "a_3".as_bytes().to_vec(),
+                HummockValue::put(Bytes::from("value2")),
+            ),
+            (
+                "a_5".as_bytes().to_vec(),
+                HummockValue::put(Bytes::from("value3")),
+            ),
+            (
+                "b_2".as_bytes().to_vec(),
+                HummockValue::put(Bytes::from("value3")),
+            ),
+        ];
+        let shared_buffer_batch = SharedBufferBatch::for_test(
+            transform_shared_buffer(shared_buffer_items.clone()),
+            epoch,
+            Default::default(),
+        );
+
+        assert!(shared_buffer_batch.prefix_exists(TableKey("a".as_bytes())));
+        assert!(shared_buffer_batch.prefix_exists(TableKey("a_1".as_bytes())));
+        assert!(shared_buffer_batch.prefix_exists(TableKey("a_".as_bytes())));
+        assert!(shared_buffer_batch.prefix_exists(TableKey("b".as_bytes())));
+        assert!(shared_buffer_batch.prefix_exists(TableKey("b_2".as_bytes())));
+
+        assert!(!shared_buffer_batch.prefix_exists(TableKey("a_0".as_bytes())));
+        assert!(!shared_buffer_batch.prefix_exists(TableKey("a__".as_bytes())));
+        assert!(!shared_buffer_batch.prefix_exists(TableKey("b_1".as_bytes())));
+        assert!(!shared_buffer_batch.prefix_exists(TableKey("b_3".as_bytes())));
+        assert!(!shared_buffer_batch.prefix_exists(TableKey("b__".as_bytes())));
     }
 }

@@ -342,6 +342,14 @@ pub mod verify {
                 Ok(verify_stream(actual, expected))
             }
         }
+
+        fn surely_not_have(
+            &self,
+            _filter_key: Vec<u8>,
+            _table_id: TableId,
+        ) -> Self::SurelyNotHaveFuture<'_> {
+            async move { Ok(false) }
+        }
     }
 
     #[try_stream(ok = StateStoreIterItem, error = StorageError)]
@@ -695,6 +703,8 @@ pub mod boxed_state_store {
             epoch: u64,
             read_options: ReadOptions,
         ) -> StorageResult<BoxStateStoreReadIterStream>;
+
+        async fn surely_not_have(&self, _prefix_key: Vec<u8>, _table_id: TableId) -> StorageResult<bool>;
     }
 
     #[async_trait::async_trait]
@@ -716,6 +726,10 @@ pub mod boxed_state_store {
         ) -> StorageResult<BoxStateStoreReadIterStream> {
             use futures::StreamExt;
             Ok(self.iter(key_range, epoch, read_options).await?.boxed())
+        }
+
+        async fn surely_not_have(&self, _prefix_key: Vec<u8>, _table_id: TableId) -> StorageResult<bool> {
+            Ok(false)
         }
     }
 
@@ -742,6 +756,14 @@ pub mod boxed_state_store {
                     read_options: ReadOptions,
                 ) -> Self::IterFuture<'_> {
                     self.deref().iter(key_range, epoch, read_options)
+                }
+
+                fn surely_not_have(
+                    &self,
+                    prefix_key: Vec<u8>,
+                    table_id: TableId,
+                ) -> Self::SurelyNotHaveFuture<'_> {
+                    self.deref().surely_not_have(prefix_key, table_id)
                 }
             }
         };

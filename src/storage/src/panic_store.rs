@@ -57,6 +57,12 @@ impl StateStoreRead for PanicStateStore {
             panic!("should not read from the state store!");
         }
     }
+
+    fn surely_not_have(&self, _prefix_key: Vec<u8>, _table_id: TableId) -> Self::SurelyNotHaveFuture<'_> {
+        async move {
+            Ok(false)
+        }
+    }
 }
 
 impl StateStoreWrite for PanicStateStore {
