@@ -156,19 +156,30 @@ pub struct JoinHashMapMetrics {
     /// Basic information
     actor_id: String,
     side: &'static str,
+    side_surely_not_have: &'static str,
     /// How many times have we hit the cache of join executor
     lookup_miss_count: usize,
     total_lookup_count: usize,
+    surely_not_have_true_count: usize,
+    total_surely_not_have_count: usize,
 }
 
 impl JoinHashMapMetrics {
     pub fn new(metrics: Arc<StreamingMetrics>, actor_id: ActorId, side: &'static str) -> Self {
+        let side_surely_not_have = if side == "left" {
+            "left_snh"
+        } else {
+            "right_snh"
+        };
         Self {
             metrics,
             actor_id: actor_id.to_string(),
             side,
+            side_surely_not_have,
             lookup_miss_count: 0,
             total_lookup_count: 0,
+            surely_not_have_true_count: 0,
+            total_surely_not_have_count: 0,
         }
     }
 
@@ -181,8 +192,18 @@ impl JoinHashMapMetrics {
             .join_total_lookup_count
             .with_label_values(&[&self.actor_id, self.side])
             .inc_by(self.total_lookup_count as u64);
+        self.metrics
+            .join_lookup_miss_count
+            .with_label_values(&[&self.actor_id, self.side_surely_not_have])
+            .inc_by(self.surely_not_have_true_count as u64);
+        self.metrics
+            .join_total_lookup_count
+            .with_label_values(&[&self.actor_id, self.side_surely_not_have])
+            .inc_by(self.total_surely_not_have_count as u64);
         self.total_lookup_count = 0;
         self.lookup_miss_count = 0;
+        self.surely_not_have_true_count = 0;
+        self.total_surely_not_have_count = 0;
     }
 }
 
@@ -334,7 +355,7 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
 
     /// Fetch cache from the state store. Should only be called if the key does not exist in memory.
     /// Will return a empty `JoinEntryState` even when state does not exist in remote.
-    async fn fetch_cached_state(&self, key: &K) -> StreamExecutorResult<JoinEntryState> {
+    async fn fetch_cached_state(&mut self, key: &K) -> StreamExecutorResult<JoinEntryState> {
         let key = key.deserialize(&self.join_key_data_types)?;
 
         let mut entry_state = JoinEntryState::default();
@@ -369,7 +390,10 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
                         JoinRow::new(row, degree_i64.into_int64() as u64).encode(),
                     );
                 }
+            } else {
+                self.metrics.surely_not_have_true_count += 1;
             }
+            self.metrics.total_surely_not_have_count += 1;
         } else {
             if !self.state.table.surely_not_have(&key).await? {
                 let table_iter = self.state.table.iter_with_pk_prefix(&key).await?;
@@ -383,7 +407,10 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
                         .memcmp_serialize(&self.pk_serializer);
                     entry_state.insert(pk, JoinRow::new(row, 0).encode());
                 }
+            } else {
+                self.metrics.surely_not_have_true_count += 1;
             }
+            self.metrics.total_surely_not_have_count += 1;
         };
 
         Ok(entry_state)
