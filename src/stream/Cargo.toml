@@ -82,3 +82,6 @@ workspace-hack = { path = "../workspace-hack" }
 
 [dev-dependencies]
 assert_matches = "1"
+risingwave_meta = { path = "../meta", features = ["test"] }
+risingwave_hummock_test = { path = "../storage/hummock_test" }
+risingwave_tracing = { path = "../tracing" }

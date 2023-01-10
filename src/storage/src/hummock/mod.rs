@@ -221,6 +221,83 @@ impl HummockStorage {
         Ok(instance)
     }
 
+    pub async fn new_with_filter_key_extractor_manager(
+        options: Arc<StorageConfig>,
+        sstable_store: SstableStoreRef,
+        backup_reader: BackupReaderRef,
+        hummock_meta_client: Arc<dyn HummockMetaClient>,
+        notification_client: impl NotificationClient,
+        // TODO: separate `HummockStats` from `StateStoreMetrics`.
+        stats: Arc<StateStoreMetrics>,
+        filter_key_extractor_manager: FilterKeyExtractorManagerRef,
+        tracing: Arc<risingwave_tracing::RwTracingService>,
+    ) -> HummockResult<Self> {
+        let sstable_id_manager = Arc::new(SstableIdManager::new(
+            hummock_meta_client.clone(),
+            options.sstable_id_remote_fetch_number,
+        ));
+
+        let (event_tx, mut event_rx) = unbounded_channel();
+        let observer_manager = ObserverManager::new(
+            notification_client,
+            HummockObserverNode::new(
+                filter_key_extractor_manager.clone(),
+                backup_reader.clone(),
+                event_tx.clone(),
+            ),
+        )
+        .await;
+        observer_manager.start().await;
+
+        let hummock_version = match event_rx.recv().await {
+            Some(HummockEvent::VersionUpdate(pin_version_response::Payload::PinnedVersion(version))) => version,
+            _ => unreachable!("the hummock observer manager is the first one to take the event tx. Should be full hummock version")
+        };
+
+        let (pin_version_tx, pin_version_rx) = unbounded_channel();
+        let pinned_version = PinnedVersion::new(hummock_version, pin_version_tx);
+        tokio::spawn(start_pinned_version_worker(
+            pin_version_rx,
+            hummock_meta_client.clone(),
+        ));
+
+        let compactor_context = Arc::new(Context::new_local_compact_context(
+            options.clone(),
+            sstable_store.clone(),
+            hummock_meta_client.clone(),
+            stats.clone(),
+            sstable_id_manager.clone(),
+            filter_key_extractor_manager.clone(),
+        ));
+
+        let hummock_event_handler = HummockEventHandler::new(
+            event_tx.clone(),
+            event_rx,
+            pinned_version,
+            compactor_context.clone(),
+        );
+
+        let instance = Self {
+            context: compactor_context,
+            buffer_tracker: hummock_event_handler.buffer_tracker().clone(),
+            version_update_notifier_tx: hummock_event_handler.version_update_notifier_tx(),
+            seal_epoch: hummock_event_handler.sealed_epoch(),
+            hummock_event_sender: event_tx.clone(),
+            pinned_version: hummock_event_handler.pinned_version(),
+            hummock_version_reader: HummockVersionReader::new(sstable_store, stats.clone()),
+            _shutdown_guard: Arc::new(HummockStorageShutdownGuard {
+                shutdown_sender: event_tx,
+            }),
+            read_version_mapping: hummock_event_handler.read_version_mapping(),
+            tracing,
+            backup_reader,
+        };
+
+        tokio::spawn(hummock_event_handler.start_hummock_event_handler_worker());
+
+        Ok(instance)
+    }
+
     // TODO: make it self function and remove hummock_event_sender parameter
     async fn new_local_inner(&self, table_id: TableId) -> LocalHummockStorage {
         let (tx, rx) = tokio::sync::oneshot::channel();
