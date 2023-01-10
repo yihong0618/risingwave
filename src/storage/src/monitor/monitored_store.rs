@@ -130,6 +130,14 @@ impl<S: StateStoreRead> StateStoreRead for MonitoredStateStore<S> {
     ) -> Self::IterFuture<'_> {
         self.monitored_iter(self.inner.iter(key_range, epoch, read_options))
     }
+
+    fn surely_not_have(
+        &self,
+        prefix_key: Vec<u8>,
+        table_id: TableId,
+    ) -> Self::SurelyNotHaveFuture<'_> {
+        self.inner.surely_not_have(prefix_key, table_id)
+    }
 }
 
 impl<S: StateStoreWrite> StateStoreWrite for MonitoredStateStore<S> {

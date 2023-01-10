@@ -440,6 +440,14 @@ impl StateStoreRead for HummockStorageV1 {
             .map_ok(|iter| iter.into_stream())
             .in_span(self.tracing.new_tracer("hummock_iter"))
     }
+
+    fn surely_not_have(
+        &self,
+        _prefix_key: Vec<u8>,
+        _table_id: TableId,
+    ) -> Self::SurelyNotHaveFuture<'_> {
+        async move { Ok(false) }
+    }
 }
 
 impl StateStoreWrite for HummockStorageV1 {

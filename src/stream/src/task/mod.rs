@@ -148,15 +148,9 @@ impl SharedContext {
     #[inline]
     pub fn add_channel_pairs(&self, ids: UpDownActorIds) {
         let (tx, rx) = if ids.0 == 2 {
-            permit::channel(
-                2048,
-                512,
-            )
+            permit::channel(2048, 512)
         } else {
-            permit::channel(
-                131072,
-                2048,
-            )
+            permit::channel(131072, 2048)
         };
         // let (tx, rx) = permit::channel(
         //     self.config.developer.stream_exchange_initial_permits,

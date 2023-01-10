@@ -457,7 +457,7 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
     //     // If no cache maintained, only update the state table.
     //     self.state.table.insert(value);
     // }
-    
+
     /// Delete a join row
     pub fn delete(&mut self, key: &K, value: JoinRow<impl Row>) {
         if let Some(entry) = self.inner.get_mut(key) {
