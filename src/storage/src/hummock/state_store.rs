@@ -165,6 +165,16 @@ impl StateStoreRead for HummockStorage {
     ) -> Self::IterFuture<'_> {
         self.iter_inner(map_table_key_range(key_range), epoch, read_options)
     }
+
+    fn surely_not_have(
+        &self,
+        _prefix_key: Vec<u8>,
+        _table_id: TableId,
+    ) -> Self::SurelyNotHaveFuture<'_> {
+        async move {
+            unimplemented!();
+        }
+    }
 }
 
 impl StateStore for HummockStorage {

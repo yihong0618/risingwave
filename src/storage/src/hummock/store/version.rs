@@ -27,7 +27,7 @@ use minitrace::Span;
 use parking_lot::RwLock;
 use risingwave_common::catalog::TableId;
 use risingwave_hummock_sdk::key::{
-    bound_table_key_range, user_key, FullKey, TableKey, TableKeyRange, UserKey,
+    bound_table_key_range, range_of_prefix, user_key, FullKey, TableKey, TableKeyRange, UserKey,
 };
 use risingwave_hummock_sdk::key_range::KeyRangeCommon;
 use risingwave_hummock_sdk::{can_concat, HummockEpoch, LocalSstableInfo};
@@ -424,7 +424,7 @@ impl HummockVersionReader {
         }
 
         // 2. order guarantee: imm -> sst
-        let dist_key_hash = Sstable::hash_for_bloom_filter(table_key.dist_key());
+        let dist_key_hash = Sstable::hash_for_bloom_filter(table_key.dist_key(), read_options.table_id.table_id);
         let full_key = FullKey::new(read_options.table_id, table_key, epoch);
         for local_sst in &uncommitted_ssts {
             table_counts += 1;
@@ -553,7 +553,7 @@ impl HummockVersionReader {
         let bloom_filter_prefix_hash = read_options
             .prefix_hint
             .as_ref()
-            .map(|hint| Sstable::hash_for_bloom_filter(hint));
+            .map(|hint| Sstable::hash_for_bloom_filter(hint, read_options.table_id.table_id));
 
         for sstable_info in &uncommitted_ssts {
             let table_holder = self
@@ -775,5 +775,117 @@ impl HummockVersionReader {
             read_options.table_id,
         )
         .into_stream())
+    }
+
+    // TODO: check range delete tombstone also
+    pub async fn surely_not_have(
+        &self,
+        prefix_key: Vec<u8>,
+        table_id: TableId,
+        read_version_tuple: (Vec<ImmutableMemtable>, Vec<SstableInfo>, CommittedVersion),
+    ) -> StorageResult<bool> {
+        let mut table_counts = 0;
+        let mut local_stats = StoreLocalStatistic::default();
+        let (imms, uncommitted_ssts, committed_version) = read_version_tuple;
+        let prefix_table_key = TableKey(prefix_key.as_slice());
+        let (start, end) = range_of_prefix(prefix_key.as_slice());
+        let range_of_prefix = (start.map(|k| TableKey(k)), end.map(|k| TableKey(k)));
+
+        // 1. check staging data
+        for imm in &imms {
+            if imm.prefix_exists(prefix_table_key) {
+                local_stats.report(self.stats.as_ref());
+                return Ok(false);
+            }
+        }
+
+        // 2. order guarantee: imm -> sst
+        let dist_key_hash = Sstable::hash_for_bloom_filter(prefix_table_key.dist_key(), table_id.table_id);
+        for local_sst in &uncommitted_ssts {
+            table_counts += 1;
+            if hit_sstable_bloom_filter(
+                self.sstable_store
+                    .sstable(local_sst, &mut local_stats)
+                    .await?
+                    .value(),
+                dist_key_hash,
+                &mut local_stats,
+            ) {
+                local_stats.report(self.stats.as_ref());
+                return Ok(false);
+            }
+        }
+
+        // 3. read from committed_version sst file
+        // Because SST meta records encoded key range,
+        // the filter key needs to be encoded as well.
+        let encoded_user_key_range = (
+            range_of_prefix
+                .0
+                .as_ref()
+                .map(|k| UserKey::new(table_id, TableKey(k.0.as_slice())).encode()),
+            range_of_prefix
+                .1
+                .as_ref()
+                .map(|k| UserKey::new(table_id, TableKey(k.0.as_slice())).encode()),
+        );
+        assert!(committed_version.is_valid());
+        for level in committed_version.levels(table_id) {
+            if level.table_infos.is_empty() {
+                continue;
+            }
+            match level.level_type() {
+                LevelType::Overlapping | LevelType::Unspecified => {
+                    let sstable_infos =
+                        prune_ssts(level.table_infos.iter(), table_id, &range_of_prefix);
+                    for sstable_info in sstable_infos {
+                        table_counts += 1;
+                        if hit_sstable_bloom_filter(
+                            self.sstable_store
+                                .sstable(sstable_info, &mut local_stats)
+                                .await?
+                                .value(),
+                            dist_key_hash,
+                            &mut local_stats,
+                        ) {
+                            local_stats.report(self.stats.as_ref());
+                            return Ok(false);
+                        }
+                    }
+                }
+                LevelType::Nonoverlapping => {
+                    let start_table_idx = match encoded_user_key_range.start_bound() {
+                        Included(key) | Excluded(key) => search_sst_idx(&level.table_infos, key),
+                        _ => 0,
+                    };
+                    let end_table_idx = match encoded_user_key_range.end_bound() {
+                        Included(key) | Excluded(key) => search_sst_idx(&level.table_infos, key),
+                        _ => level.table_infos.len().saturating_sub(1),
+                    };
+
+                    for table_info in &level.table_infos[start_table_idx..=end_table_idx] {
+                        table_counts += 1;
+                        if hit_sstable_bloom_filter(
+                            self.sstable_store
+                                .sstable(&table_info, &mut local_stats)
+                                .await?
+                                .value(),
+                            dist_key_hash,
+                            &mut local_stats,
+                        ) {
+                            local_stats.report(self.stats.as_ref());
+                            return Ok(false);
+                        }
+                    }
+                }
+            }
+        }
+
+        self.stats
+            .iter_merge_sstable_counts
+            .with_label_values(&["surely-not-have"])
+            .observe(table_counts as f64);
+        local_stats.report(self.stats.as_ref());
+        Ok(true)
     }
 }

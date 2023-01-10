@@ -1133,6 +1133,52 @@ impl<S: StateStore> StateTable<S> {
     pub fn get_vnodes(&self) -> Arc<Bitmap> {
         self.vnodes.clone()
     }
+
+    /// Returns:
+    /// true: the provided pk prefix is absent in state store.
+    /// false: the provided pk prefix may or may not be present in state store.
+    pub async fn surely_not_have(&self, pk_prefix: impl Row) -> StreamExecutorResult<bool> {
+        let prefix_serializer = self.pk_serde.prefix(pk_prefix.len());
+        let encoded_prefix = serialize_pk(&pk_prefix, &prefix_serializer);
+        let encoded_key_range = range_of_prefix(&encoded_prefix);
+
+        // We assume that all usages of iterating the state table only access a single vnode.
+        // If this assertion fails, then something must be wrong with the operator implementation or
+        // the distribution derivation from the optimizer.
+        let vnode = self.compute_prefix_vnode(&pk_prefix).to_be_bytes();
+        let encoded_key_range_with_vnode = prefixed_range(encoded_key_range, &vnode);
+        if self
+            .mem_table
+            .iter(encoded_key_range_with_vnode)
+            .next()
+            .is_some()
+        {
+            return Ok(false);
+        }
+
+        // Construct prefix hint for prefix bloom filter.
+        if self.prefix_hint_len != 0 {
+            debug_assert_eq!(self.prefix_hint_len, pk_prefix.len());
+        }
+        let prefix_key_with_vnode = {
+            if self.prefix_hint_len == 0 || self.prefix_hint_len > pk_prefix.len() {
+                panic!();
+            } else {
+                let encoded_prefix_len = self
+                    .pk_serde
+                    .deserialize_prefix_len(&encoded_prefix, self.prefix_hint_len)?;
+
+                [&vnode, &encoded_prefix[..encoded_prefix_len]]
+                    .concat()
+                    .to_vec()
+            }
+        };
+
+        self.local_store
+            .surely_not_have(prefix_key_with_vnode, self.table_id)
+            .await
+            .map_err(Into::into)
+    }
 }
 
 pub type RowStream<'a, S: StateStore> = impl Stream<Item = StreamExecutorResult<OwnedRow>> + 'a;

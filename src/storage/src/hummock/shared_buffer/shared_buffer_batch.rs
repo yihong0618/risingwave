@@ -198,6 +198,16 @@ impl SharedBufferBatch {
         SharedBufferBatchIterator::<D>::new(self.inner, self.table_id, self.epoch)
     }
 
+    pub fn prefix_exists(&self, prefix_key: TableKey<&[u8]>) -> bool {
+        match self.inner.binary_search_by(|m| (m.0[..]).cmp(*prefix_key)) {
+            Ok(_) => true,
+            Err(i) => {
+                (i > 0 && self.inner[i - 1].0.starts_with(&prefix_key))
+                    || (i < self.inner.len() && self.inner[i].0.starts_with(&prefix_key))
+            }
+        }
+    }
+
     pub fn into_forward_iter(self) -> SharedBufferBatchIterator<Forward> {
         self.into_directed_iter()
     }

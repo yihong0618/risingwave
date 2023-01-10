@@ -19,7 +19,8 @@ use bytes::Bytes;
 use minitrace::future::FutureExt;
 use parking_lot::RwLock;
 use risingwave_common::catalog::TableId;
-use risingwave_hummock_sdk::key::{map_table_key_range, TableKey, TableKeyRange};
+use risingwave_hummock_sdk::key::{map_table_key_range, range_of_prefix, TableKey, TableKeyRange};
+use risingwave_hummock_sdk::HummockEpoch;
 use tokio::sync::mpsc;
 use tracing::warn;
 
@@ -137,6 +138,26 @@ impl HummockStorageCore {
             .iter(table_key_range, epoch, read_options, read_snapshot)
             .await
     }
+
+    pub async fn surely_not_have(
+        &self,
+        prefix_key: Vec<u8>,
+        table_id: TableId,
+    ) -> StorageResult<bool> {
+        let (start, end) = range_of_prefix(prefix_key.as_slice());
+        let table_key_range = (start.map(|k| TableKey(k)), end.map(|k| TableKey(k)));
+
+        let read_snapshot = read_filter_for_local(
+            HummockEpoch::MAX, // Use MAX epoch to make sure we read from latest
+            table_id,
+            &table_key_range,
+            self.read_version.clone(),
+        )?;
+
+        self.hummock_version_reader
+            .surely_not_have(prefix_key, table_id, read_snapshot)
+            .await
+    }
 }
 
 impl StateStoreRead for LocalHummockStorage {
@@ -162,6 +183,14 @@ impl StateStoreRead for LocalHummockStorage {
         self.core
             .iter_inner(map_table_key_range(key_range), epoch, read_options)
             .in_span(self.tracing.new_tracer("hummock_iter"))
+    }
+
+    fn surely_not_have(
+        &self,
+        prefix_key: Vec<u8>,
+        table_id: TableId,
+    ) -> Self::SurelyNotHaveFuture<'_> {
+        self.core.surely_not_have(prefix_key, table_id)
     }
 }
 

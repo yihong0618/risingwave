@@ -67,6 +67,7 @@ macro_rules! define_state_store_read_associated_type {
     () => {
         type GetFuture<'a> = impl GetFutureTrait<'a>;
         type IterFuture<'a> = impl IterFutureTrait<'a, Self::IterStream>;
+        type SurelyNotHaveFuture<'a> = impl SurelyNotHaveTrait<'a>;
     };
 }
 
@@ -75,6 +76,7 @@ pub type StateStoreIterItem = (FullKey<Bytes>, Bytes);
 pub trait StateStoreIterNextFutureTrait<'a> = NextFutureTrait<'a, StateStoreIterItem>;
 pub trait StateStoreIterItemStream = Stream<Item = StorageResult<StateStoreIterItem>> + Send;
 pub trait StateStoreReadIterStream = StateStoreIterItemStream + 'static;
+pub trait SurelyNotHaveTrait<'a> = Future<Output = StorageResult<bool>> + Send + 'a;
 
 pub trait IterFutureTrait<'a, I: StateStoreReadIterStream> =
     Future<Output = StorageResult<I>> + Send + 'a;
@@ -83,6 +85,7 @@ pub trait StateStoreRead: StaticSendSync {
 
     type GetFuture<'a>: GetFutureTrait<'a>;
     type IterFuture<'a>: IterFutureTrait<'a, Self::IterStream>;
+    type SurelyNotHaveFuture<'a>: SurelyNotHaveTrait<'a>;
 
     /// Point gets a value from the state store.
     /// The result is based on a snapshot corresponding to the given `epoch`.
@@ -104,6 +107,20 @@ pub trait StateStoreRead: StaticSendSync {
         epoch: u64,
         read_options: ReadOptions,
     ) -> Self::IterFuture<'_>;
+
+    /// Returns:
+    /// true:
+    /// The provided prefix key doesn't exist in all immutable memtables and SSTs' bloom
+    /// filters. The prefix is guaranteed to be absent in storage in such case.
+    ///
+    /// false:
+    /// the provided prefix key exists in at least one immutable memtables or SST's bloom
+    /// filter. The prefix may or may not exist in storage in such case.
+    fn surely_not_have(
+        &self,
+        prefix_key: Vec<u8>,
+        table_id: TableId,
+    ) -> Self::SurelyNotHaveFuture<'_>;
 }
 
 pub trait ScanFutureTrait<'a> = Future<Output = StorageResult<Vec<StateStoreIterItem>>> + Send + 'a;

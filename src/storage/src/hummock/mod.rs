@@ -414,7 +414,10 @@ pub async fn get_from_order_sorted_uncommitted_data(
 ) -> StorageResult<(Option<HummockValue<Bytes>>, i32)> {
     let mut table_counts = 0;
     let epoch = full_key.epoch;
-    let dist_key_hash = Sstable::hash_for_bloom_filter(full_key.user_key.table_key.dist_key());
+    let dist_key_hash = Sstable::hash_for_bloom_filter(
+        full_key.user_key.table_key.dist_key(),
+        full_key.user_key.table_id.table_id,
+    );
     for data_list in order_sorted_uncommitted_data {
         for data in data_list {
             match data {

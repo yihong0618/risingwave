@@ -155,19 +155,30 @@ pub struct JoinHashMapMetrics {
     /// Basic information
     actor_id: String,
     side: &'static str,
+    side_surely_not_have: &'static str,
     /// How many times have we hit the cache of join executor
     lookup_miss_count: usize,
     total_lookup_count: usize,
+    surely_not_have_true_count: usize,
+    total_surely_not_have_count: usize,
 }
 
 impl JoinHashMapMetrics {
     pub fn new(metrics: Arc<StreamingMetrics>, actor_id: ActorId, side: &'static str) -> Self {
+        let side_surely_not_have = if side == "left" {
+            "left_snh"
+        } else {
+            "right_snh"
+        };
         Self {
             metrics,
             actor_id: actor_id.to_string(),
             side,
+            side_surely_not_have,
             lookup_miss_count: 0,
             total_lookup_count: 0,
+            surely_not_have_true_count: 0,
+            total_surely_not_have_count: 0,
         }
     }
 
@@ -180,8 +191,18 @@ impl JoinHashMapMetrics {
             .join_total_lookup_count
             .with_label_values(&[&self.actor_id, self.side])
             .inc_by(self.total_lookup_count as u64);
+        self.metrics
+            .join_lookup_miss_count
+            .with_label_values(&[&self.actor_id, self.side_surely_not_have])
+            .inc_by(self.surely_not_have_true_count as u64);
+        self.metrics
+            .join_total_lookup_count
+            .with_label_values(&[&self.actor_id, self.side_surely_not_have])
+            .inc_by(self.total_surely_not_have_count as u64);
         self.total_lookup_count = 0;
         self.lookup_miss_count = 0;
+        self.surely_not_have_true_count = 0;
+        self.total_surely_not_have_count = 0;
     }
 }
 
@@ -333,50 +354,61 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
 
     /// Fetch cache from the state store. Should only be called if the key does not exist in memory.
     /// Will return a empty `JoinEntryState` even when state does not exist in remote.
-    async fn fetch_cached_state(&self, key: &K) -> StreamExecutorResult<JoinEntryState> {
+    async fn fetch_cached_state(&mut self, key: &K) -> StreamExecutorResult<JoinEntryState> {
         let key = key.deserialize(&self.join_key_data_types)?;
 
         let mut entry_state = JoinEntryState::default();
 
         if self.need_degree_table {
-            let table_iter_fut = self.state.table.iter_key_and_val(&key);
-            let degree_table_iter_fut = self.degree_state.table.iter_key_and_val(&key);
+            if !self.state.table.surely_not_have(&key).await?
+                && !self.degree_state.table.surely_not_have(&key).await?
+            {
+                let table_iter_fut = self.state.table.iter_key_and_val(&key);
+                let degree_table_iter_fut = self.degree_state.table.iter_key_and_val(&key);
 
-            let (table_iter, degree_table_iter) =
-                try_join(table_iter_fut, degree_table_iter_fut).await?;
+                let (table_iter, degree_table_iter) =
+                    try_join(table_iter_fut, degree_table_iter_fut).await?;
 
-            #[for_await]
-            for (row, degree) in table_iter.zip(degree_table_iter) {
-                let (pk1, row) = row?;
-                let (pk2, degree) = degree?;
-                debug_assert_eq!(
-                    pk1, pk2,
-                    "mismatched pk in degree table: pk1: {pk1:?}, pk2: {pk2:?}",
-                );
-                let pk = row
-                    .as_ref()
-                    .project(&self.state.pk_indices)
-                    .memcmp_serialize(&self.pk_serializer);
-                let degree_i64 = degree
-                    .datum_at(degree.len() - 1)
-                    .expect("degree should not be NULL");
-                entry_state.insert(
-                    pk,
-                    JoinRow::new(row, degree_i64.into_int64() as u64).encode(),
-                );
+                #[for_await]
+                for (row, degree) in table_iter.zip(degree_table_iter) {
+                    let (pk1, row) = row?;
+                    let (pk2, degree) = degree?;
+                    debug_assert_eq!(
+                        pk1, pk2,
+                        "mismatched pk in degree table: pk1: {pk1:?}, pk2: {pk2:?}",
+                    );
+                    let pk = row
+                        .as_ref()
+                        .project(&self.state.pk_indices)
+                        .memcmp_serialize(&self.pk_serializer);
+                    let degree_i64 = degree
+                        .datum_at(degree.len() - 1)
+                        .expect("degree should not be NULL");
+                    entry_state.insert(
+                        pk,
+                        JoinRow::new(row, degree_i64.into_int64() as u64).encode(),
+                    );
+                }
+            } else {
+                self.metrics.surely_not_have_true_count += 1;
             }
+            self.metrics.total_surely_not_have_count += 1;
         } else {
-            let table_iter = self.state.table.iter_with_pk_prefix(&key).await?;
-
-            #[for_await]
-            for row in table_iter {
-                let row: OwnedRow = row?;
-                let pk = row
-                    .as_ref()
-                    .project(&self.state.pk_indices)
-                    .memcmp_serialize(&self.pk_serializer);
-                entry_state.insert(pk, JoinRow::new(row, 0).encode());
+            if !self.state.table.surely_not_have(&key).await? {
+                let table_iter = self.state.table.iter_with_pk_prefix(&key).await?;
+                #[for_await]
+                for row in table_iter {
+                    let row: OwnedRow = row?;
+                    let pk = row
+                        .as_ref()
+                        .project(&self.state.pk_indices)
+                        .memcmp_serialize(&self.pk_serializer);
+                    entry_state.insert(pk, JoinRow::new(row, 0).encode());
+                }
+            } else {
+                self.metrics.surely_not_have_true_count += 1;
             }
+            self.metrics.total_surely_not_have_count += 1;
         };
 
         Ok(entry_state)
@@ -456,7 +488,7 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
     //     // If no cache maintained, only update the state table.
     //     self.state.table.insert(value);
     // }
-    
+
     /// Delete a join row
     pub fn delete(&mut self, key: &K, value: JoinRow<impl Row>) {
         if let Some(entry) = self.inner.get_mut(key) {
