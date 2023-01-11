@@ -420,7 +420,7 @@ impl HummockVersionReader {
         }
 
         // 2. order guarantee: imm -> sst
-        let dist_key_hash = Sstable::hash_for_bloom_filter(table_key.dist_key());
+        let dist_key_hash = Sstable::hash_for_bloom_filter(table_key.dist_key(), read_options.table_id.table_id);
         let full_key = FullKey::new(read_options.table_id, table_key, epoch);
         for local_sst in &uncommitted_ssts {
             table_counts += 1;
@@ -547,7 +547,7 @@ impl HummockVersionReader {
         let bloom_filter_prefix_hash = read_options
             .prefix_hint
             .as_ref()
-            .map(|hint| Sstable::hash_for_bloom_filter(hint));
+            .map(|hint| Sstable::hash_for_bloom_filter(hint, read_options.table_id.table_id));
 
         for sstable_info in &uncommitted_ssts {
             let table_holder = self
@@ -785,7 +785,7 @@ impl HummockVersionReader {
         }
 
         // 2. order guarantee: imm -> sst
-        let dist_key_hash = Sstable::hash_for_bloom_filter(prefix_table_key.dist_key());
+        let dist_key_hash = Sstable::hash_for_bloom_filter(prefix_table_key.dist_key(), table_id.table_id);
         for local_sst in &uncommitted_ssts {
             table_counts += 1;
             if hit_sstable_bloom_filter(

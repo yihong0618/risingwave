@@ -140,13 +140,13 @@ impl Sstable {
         !self.meta.bloom_filter.is_empty()
     }
 
-    pub fn surely_not_have_dist_key(&self, dist_key: &[u8]) -> bool {
+    pub fn surely_not_have_dist_key(&self, dist_key: &[u8], table_id: u32) -> bool {
         let enable_bloom_filter: fn() -> bool = || {
             fail_point!("disable_bloom_filter", |_| false);
             true
         };
         if enable_bloom_filter() && self.has_bloom_filter() {
-            let hash = xxh32::xxh32(dist_key, 0);
+            let hash = xxh32::xxh32(dist_key, 0) ^ table_id;
             self.surely_not_have_hashvalue(hash)
         } else {
             false
@@ -154,8 +154,8 @@ impl Sstable {
     }
 
     #[inline(always)]
-    pub fn hash_for_bloom_filter(dist_key: &[u8]) -> u32 {
-        xxh32::xxh32(dist_key, 0)
+    pub fn hash_for_bloom_filter(dist_key: &[u8], table_id: u32) -> u32 {
+        xxh32::xxh32(dist_key, 0) ^ table_id
     }
 
     #[inline(always)]

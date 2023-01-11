@@ -122,7 +122,7 @@ impl HummockStorageV1 {
             table_counts += table_count;
         }
 
-        let dist_key_hash = Sstable::hash_for_bloom_filter(table_key.dist_key());
+        let dist_key_hash = Sstable::hash_for_bloom_filter(table_key.dist_key(), table_id.table_id);
         // Because SST meta records encoded key range,
         // the filter key needs to be encoded as well.
         let encoded_user_key = UserKey::new(read_options.table_id, table_key).encode();
@@ -302,7 +302,7 @@ impl HummockStorageV1 {
         let bloom_filter_prefix_hash = read_options
             .prefix_hint
             .as_ref()
-            .map(|hint| Sstable::hash_for_bloom_filter(hint));
+            .map(|hint| Sstable::hash_for_bloom_filter(hint, table_id.table_id));
         for level in pinned_version.levels(table_id) {
             if level.table_infos.is_empty() {
                 continue;

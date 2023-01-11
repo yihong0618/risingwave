@@ -212,7 +212,7 @@ impl<W: SstableWriter> SstableBuilder<W> {
             // 2. extract_key key is not duplicate
             if !extract_key.is_empty() && extract_key != self.last_extract_key.as_slice() {
                 // avoid duplicate add to bloom filter
-                self.user_key_hashes.push(xxh32::xxh32(extract_key, 0));
+                self.user_key_hashes.push(xxh32::xxh32(extract_key, 0) ^ table_id);
                 self.last_extract_key.clear();
                 self.last_extract_key.extend_from_slice(extract_key);
             }
@@ -510,7 +510,7 @@ pub(super) mod tests {
         assert_eq!(table.has_bloom_filter(), with_blooms);
         for i in 0..key_count {
             let full_key = test_key_of(i);
-            assert!(!table.surely_not_have_dist_key(full_key.user_key.encode().as_slice()));
+            assert!(!table.surely_not_have_dist_key(full_key.user_key.encode().as_slice(), 0));
         }
     }
 
