@@ -19,7 +19,7 @@ use bytes::Bytes;
 use minitrace::future::FutureExt;
 use parking_lot::RwLock;
 use risingwave_common::catalog::TableId;
-use risingwave_hummock_sdk::key::{map_table_key_range, TableKey, TableKeyRange};
+use risingwave_hummock_sdk::key::{map_table_key_range, range_of_prefix, TableKey, TableKeyRange};
 use risingwave_hummock_sdk::HummockEpoch;
 use tokio::sync::mpsc;
 use tracing::warn;
@@ -144,10 +144,8 @@ impl HummockStorageCore {
         prefix_key: Vec<u8>,
         table_id: TableId,
     ) -> StorageResult<bool> {
-        let table_key_range = (
-            Bound::Included(TableKey(prefix_key.to_vec())),
-            Bound::Included(TableKey(prefix_key.to_vec())),
-        );
+        let (start, end) = range_of_prefix(prefix_key.as_slice());
+        let table_key_range = (start.map(|k| TableKey(k)), end.map(|k| TableKey(k)));
 
         let read_snapshot = read_filter_for_local(
             HummockEpoch::MAX, // Use MAX epoch to make sure we read from latest
