@@ -103,6 +103,7 @@ impl UploadingTask {
             .buffer_tracker
             .global_upload_task_size()
             .fetch_add(task_size, Relaxed);
+        println!("!!!!!");
         let join_handle = (context.spawn_upload_task)(payload.clone(), task_info.clone());
         Self {
             payload,
@@ -303,6 +304,7 @@ impl SealedData {
     }
 }
 
+#[derive(Debug)]
 struct SyncingData {
     sync_epoch: HummockEpoch,
     // newer epochs come first
@@ -612,6 +614,7 @@ impl HummockUploader {
         // Only poll the oldest epoch if there is any so that the syncing epoch are finished in
         // order
         if let Some(syncing_data) = self.syncing_data.back_mut() {
+            println!("{:?}", syncing_data);
             // The syncing task has finished
             let result = if let Some(all_tasks) = &mut syncing_data.uploading_tasks {
                 ready!(all_tasks.poll_unpin(cx))
@@ -667,6 +670,7 @@ pub(crate) struct NextUploaderEvent<'a> {
     uploader: &'a mut HummockUploader,
 }
 
+#[derive(Debug)]
 pub(crate) enum UploaderEvent {
     // staging sstable info of newer data comes first
     SyncFinish(HummockEpoch, Vec<StagingSstableInfo>),

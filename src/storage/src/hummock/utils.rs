@@ -52,6 +52,8 @@ where
         Unbounded => false,
     };
 
+    println!("{} {}", !too_left, !too_right);
+
     !too_left && !too_right
 }
 

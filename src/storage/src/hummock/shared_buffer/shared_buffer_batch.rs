@@ -195,6 +195,7 @@ impl SharedBufferBatch {
     }
 
     pub fn prefix_exists(&self, prefix_key: TableKey<&[u8]>) -> bool {
+        println!("{:?}", self.inner.payload);
         match self.inner.binary_search_by(|m| (m.0[..]).cmp(*prefix_key)) {
             Ok(_) => true,
             Err(i) => {

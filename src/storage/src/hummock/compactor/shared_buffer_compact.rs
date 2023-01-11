@@ -111,6 +111,7 @@ async fn compact_shared_buffer(
     context: Arc<Context>,
     payload: UploadTaskPayload,
 ) -> HummockResult<Vec<LocalSstableInfo>> {
+    println!("compact shared buffer");
     // Local memory compaction looks at all key ranges.
     let sstable_store = context.sstable_store.clone();
     let mut local_stats = StoreLocalStatistic::default();
@@ -138,6 +139,7 @@ async fn compact_shared_buffer(
             size_and_start_user_keys.push((data_size, data.start_user_key()));
         }
     }
+    println!("1");
     size_and_start_user_keys.sort();
     let mut splits = Vec::with_capacity(size_and_start_user_keys.len());
     splits.push(KeyRange::new(Bytes::new(), Bytes::new()));
@@ -197,11 +199,14 @@ async fn compact_shared_buffer(
         .collect();
 
     assert!(!existing_table_ids.is_empty());
+    println!("2 {:?}", existing_table_ids);
 
     let multi_filter_key_extractor = context
         .filter_key_extractor_manager
         .acquire(existing_table_ids)
         .await;
+        println!("3");
+
     let multi_filter_key_extractor = Arc::new(multi_filter_key_extractor);
     let stats = context.stats.clone();
 
@@ -237,10 +242,11 @@ async fn compact_shared_buffer(
         compaction_futures.push(handle);
     }
     local_stats.report(stats.as_ref());
-
+    println!("wait compact");
     let mut buffered = stream::iter(compaction_futures).buffer_unordered(parallelism);
     let mut err = None;
     while let Some(future_result) = buffered.next().await {
+        println!("compact res");
         match future_result {
             Ok(Ok((split_index, ssts, table_stats_map))) => {
                 output_ssts.push((split_index, ssts, table_stats_map));
@@ -320,6 +326,7 @@ impl SharedBufferCompactRunner {
         filter_key_extractor: Arc<FilterKeyExtractorImpl>,
         del_agg: Arc<RangeTombstonesCollector>,
     ) -> HummockResult<CompactOutput> {
+        println!("run");
         let dummy_compaction_filter = DummyCompactionFilter {};
         let (ssts, table_stats_map) = self
             .compactor

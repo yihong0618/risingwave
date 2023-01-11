@@ -115,6 +115,7 @@ async fn flush_imms(
     task_info: UploadTaskInfo,
     compactor_context: Arc<crate::hummock::compactor::Context>,
 ) -> HummockResult<Vec<LocalSstableInfo>> {
+    println!("flush imm");
     for epoch in &task_info.epochs {
         let _ = compactor_context
             .sstable_id_manager
@@ -124,7 +125,8 @@ async fn flush_imms(
                 error!("unable to set watermark sst id. epoch: {}, {:?}", epoch, e);
             });
     }
-    compact(
+    println!("compact");
+    let res = compact(
         compactor_context,
         payload
             .into_iter()
@@ -132,7 +134,9 @@ async fn flush_imms(
             .collect(),
         task_info.compaction_group_index,
     )
-    .await
+    .await;
+    println!("done");
+    res
 }
 
 impl HummockEventHandler {
@@ -202,8 +206,14 @@ impl HummockEventHandler {
         )
         .await
         {
-            Either::Left((event, _)) => Some(Either::Left(event)),
-            Either::Right((event, _)) => event.map(Either::Right),
+            Either::Left((event, _)) => {
+                println!("{:?}", event);
+                Some(Either::Left(event))
+            }
+            Either::Right((event, _)) => {
+                println!("{:?}", event);
+                event.map(Either::Right)
+            }
         }
     }
 }

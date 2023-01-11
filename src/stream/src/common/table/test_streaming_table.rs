@@ -20,38 +20,26 @@ mod tests {
     use risingwave_common::array::{Op, StreamChunk};
     use risingwave_common::buffer::Bitmap;
     use risingwave_common::catalog::{ColumnDesc, ColumnId, TableId, TableOption};
-    use risingwave_common::config::StorageConfig;
     use risingwave_common::row::{self, OwnedRow};
     use risingwave_common::types::DataType;
     use risingwave_common::util::epoch::EpochPair;
     use risingwave_common::util::sort_util::OrderType;
     use risingwave_hummock_sdk::compaction_group::StaticCompactionGroupId;
     use risingwave_hummock_sdk::filter_key_extractor::{
-        FilterKeyExtractorImpl, FilterKeyExtractorManager, FullKeyFilterKeyExtractor,
+        FilterKeyExtractorImpl, FilterKeyExtractorManager,
     };
     use risingwave_hummock_test::get_test_notification_client;
-    use risingwave_hummock_test::test_utils::{prepare_first_valid_version, register_test_tables};
     use risingwave_meta::hummock::test_utils::setup_compute_env;
-    use risingwave_meta::hummock::{HummockManagerRef, MockHummockMetaClient};
-    use risingwave_meta::manager::MetaSrvEnv;
-    use risingwave_meta::storage::MemStore;
+    use risingwave_meta::hummock::MockHummockMetaClient;
     use risingwave_pb::catalog::Table;
-    use risingwave_pb::common::WorkerNode;
     use risingwave_pb::plan_common::{ColumnCatalog, ColumnOrder};
     use risingwave_storage::hummock::backup_reader::BackupReader;
-    use risingwave_storage::hummock::compactor::Context;
-    use risingwave_storage::hummock::event_handler::{HummockEvent, HummockEventHandler};
     use risingwave_storage::hummock::iterator::test_utils::mock_sstable_store;
-    use risingwave_storage::hummock::store::state_store::LocalHummockStorage;
-    use risingwave_storage::hummock::store::version::HummockVersionReader;
     use risingwave_storage::hummock::test_utils::default_config_for_test;
-    use risingwave_storage::hummock::{
-        HummockStorage, MemoryLimiter, SstableIdManager, SstableStore,
-    };
+    use risingwave_storage::hummock::HummockStorage;
     use risingwave_storage::memory::MemoryStateStore;
     use risingwave_storage::monitor::StateStoreMetrics;
     use risingwave_storage::table::DEFAULT_VNODE;
-    use tokio::sync::mpsc::UnboundedSender;
 
     use crate::common::table::state_table::StateTable;
 
@@ -1556,70 +1544,6 @@ mod tests {
         );
     }
 
-    pub async fn prepare_hummock_event_handler(
-        opt: Arc<StorageConfig>,
-        env: MetaSrvEnv<MemStore>,
-        hummock_manager_ref: HummockManagerRef<MemStore>,
-        worker_node: WorkerNode,
-        sstable_store_ref: Arc<SstableStore>,
-        sstable_id_manager: Arc<SstableIdManager>,
-    ) -> (HummockEventHandler, UnboundedSender<HummockEvent>) {
-        let (pinned_version, event_tx, event_rx) =
-            prepare_first_valid_version(env, hummock_manager_ref.clone(), worker_node.clone())
-                .await;
-
-        let hummock_meta_client = Arc::new(MockHummockMetaClient::new(
-            hummock_manager_ref.clone(),
-            worker_node.id,
-        ));
-
-        let filter_key_extractor_manager = Arc::new(FilterKeyExtractorManager::default());
-        register_test_tables(&filter_key_extractor_manager, &hummock_manager_ref, &[0]).await;
-
-        let compactor_context = Arc::new(Context::new_local_compact_context(
-            opt.clone(),
-            sstable_store_ref,
-            hummock_meta_client,
-            Arc::new(StateStoreMetrics::unused()),
-            sstable_id_manager,
-            filter_key_extractor_manager,
-        ));
-
-        let hummock_event_handler = HummockEventHandler::new(
-            event_tx.clone(),
-            event_rx,
-            pinned_version,
-            compactor_context,
-        );
-
-        (hummock_event_handler, event_tx)
-    }
-
-    async fn get_local_hummock_storage(
-        table_id: TableId,
-        event_tx: UnboundedSender<HummockEvent>,
-        hummock_version_reader: HummockVersionReader,
-    ) -> LocalHummockStorage {
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        event_tx
-            .send(HummockEvent::RegisterReadVersion {
-                table_id,
-                new_read_version_sender: tx,
-            })
-            .unwrap();
-
-        let (basic_read_version, instance_guard) = rx.await.unwrap();
-        LocalHummockStorage::new(
-            instance_guard,
-            basic_read_version,
-            hummock_version_reader,
-            event_tx.clone(),
-            MemoryLimiter::unlimit(),
-            #[cfg(not(madsim))]
-            Arc::new(risingwave_tracing::RwTracingService::disabled()),
-        )
-    }
-
     #[tokio::test]
     async fn test_state_table_surely_not_have() {
         let sstable_store = mock_sstable_store();
@@ -1657,8 +1581,9 @@ mod tests {
                 is_hidden: false,
             })
             .collect();
-
+        let table_id = 10;
         let table = Table {
+            id: table_id,
             columns: prost_columns,
             pk: prost_pk,
             read_prefix_len_hint: 1,
@@ -1666,11 +1591,10 @@ mod tests {
         };
 
         let filter_key_extractor_manager = Arc::new(FilterKeyExtractorManager::default());
-        filter_key_extractor_manager
-            .update(0, Arc::new(FilterKeyExtractorImpl::from_table(&table)));
+
         hummock_manager_ref
             .register_table_ids(&mut [(
-                0,
+                table_id,
                 StaticCompactionGroupId::StateDefault.into(),
                 TableOption::default(),
             )])
@@ -1692,7 +1616,13 @@ mod tests {
         .await
         .unwrap();
 
-        let mut state = StateTable::from_table_catalog_no_sanity_check(&table, storage, None).await;
+        let mut state =
+            StateTable::from_table_catalog_no_sanity_check(&table, storage.clone(), None).await;
+
+        filter_key_extractor_manager.update(
+            table_id,
+            Arc::new(FilterKeyExtractorImpl::from_table(&table)),
+        );
 
         let mut epoch = EpochPair::new_test_epoch(1);
         state.init_epoch(epoch);
@@ -1723,6 +1653,8 @@ mod tests {
         epoch = epoch.inc();
         state.commit_for_test(epoch).await.unwrap();
 
+        storage.seal_and_sync_epoch(epoch.prev).await.unwrap();
+
         // state.insert(OwnedRow::new(vec![
         //     Some(1_i32.into()),
         //     Some(33_i32.into()),
@@ -1741,5 +1673,8 @@ mod tests {
 
         let pk_prefix = OwnedRow::new(vec![Some(1_i32.into())]);
         assert!(!state.surely_not_have(&pk_prefix).await.unwrap());
+
+        let pk_prefix = OwnedRow::new(vec![Some(2_i32.into())]);
+        assert!(state.surely_not_have(&pk_prefix).await.unwrap());
     }
 }

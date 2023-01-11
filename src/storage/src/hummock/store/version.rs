@@ -148,8 +148,6 @@ impl StagingVersion {
         impl Iterator<Item = &ImmutableMemtable> + 'a,
         impl Iterator<Item = &SstableInfo> + 'a,
     ) {
-        println!("imm {:?} table_id {:?}", self.imm, table_id);
-        println!("sst {:?}", self.sst);
         let overlapped_imms = self.imm.iter().filter(move |imm| {
             imm.epoch() <= max_epoch_inclusive
                 && imm.table_id == table_id
@@ -777,13 +775,6 @@ impl HummockVersionReader {
         let prefix_table_key = TableKey(prefix_key.as_slice());
         let (start, end) = range_of_prefix(prefix_key.as_slice());
         let range_of_prefix = (start.map(|k| TableKey(k)), end.map(|k| TableKey(k)));
-        println!("{:?}", Bytes::from(prefix_key.clone()));
-        println!(
-            "{:?}, {:?}, {:?}",
-            imms,
-            uncommitted_ssts,
-            committed_version.version()
-        );
 
         // 1. check staging data
         for imm in &imms {

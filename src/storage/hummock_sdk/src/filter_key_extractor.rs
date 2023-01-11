@@ -149,6 +149,7 @@ impl FilterKeyExtractor for SchemaFilterKeyExtractor {
             .unwrap();
 
         let end_position = TABLE_PREFIX_LEN + VirtualNode::SIZE + bloom_filter_key_len;
+        print!("end pos {:?}", end_position);
         &full_key[TABLE_PREFIX_LEN + VirtualNode::SIZE..end_position]
     }
 }
@@ -235,7 +236,7 @@ impl FilterKeyExtractorManagerInner {
         self.table_id_to_filter_key_extractor
             .write()
             .insert(table_id, filter_key_extractor);
-
+        
         self.notify.notify_waiters();
     }
 
@@ -269,6 +270,7 @@ impl FilterKeyExtractorManagerInner {
 
             {
                 let guard = self.table_id_to_filter_key_extractor.read();
+                println!("filters {:?}", guard.keys());
                 table_id_set.drain_filter(|table_id| match guard.get(table_id) {
                     Some(filter_key_extractor) => {
                         multi_filter_key_extractor
