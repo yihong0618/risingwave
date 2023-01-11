@@ -364,49 +364,49 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
             if !self.state.table.surely_not_have(&key).await?
                 && !self.degree_state.table.surely_not_have(&key).await?
             {
-                let table_iter_fut = self.state.table.iter_key_and_val(&key);
-                let degree_table_iter_fut = self.degree_state.table.iter_key_and_val(&key);
+                // let table_iter_fut = self.state.table.iter_key_and_val(&key);
+                // let degree_table_iter_fut = self.degree_state.table.iter_key_and_val(&key);
 
-                let (table_iter, degree_table_iter) =
-                    try_join(table_iter_fut, degree_table_iter_fut).await?;
+                // let (table_iter, degree_table_iter) =
+                //     try_join(table_iter_fut, degree_table_iter_fut).await?;
 
-                #[for_await]
-                for (row, degree) in table_iter.zip(degree_table_iter) {
-                    let (pk1, row) = row?;
-                    let (pk2, degree) = degree?;
-                    debug_assert_eq!(
-                        pk1, pk2,
-                        "mismatched pk in degree table: pk1: {pk1:?}, pk2: {pk2:?}",
-                    );
-                    let pk = row
-                        .as_ref()
-                        .project(&self.state.pk_indices)
-                        .memcmp_serialize(&self.pk_serializer);
-                    let degree_i64 = degree
-                        .datum_at(degree.len() - 1)
-                        .expect("degree should not be NULL");
-                    entry_state.insert(
-                        pk,
-                        JoinRow::new(row, degree_i64.into_int64() as u64).encode(),
-                    );
-                }
+                // #[for_await]
+                // for (row, degree) in table_iter.zip(degree_table_iter) {
+                //     let (pk1, row) = row?;
+                //     let (pk2, degree) = degree?;
+                //     debug_assert_eq!(
+                //         pk1, pk2,
+                //         "mismatched pk in degree table: pk1: {pk1:?}, pk2: {pk2:?}",
+                //     );
+                //     let pk = row
+                //         .as_ref()
+                //         .project(&self.state.pk_indices)
+                //         .memcmp_serialize(&self.pk_serializer);
+                //     let degree_i64 = degree
+                //         .datum_at(degree.len() - 1)
+                //         .expect("degree should not be NULL");
+                //     entry_state.insert(
+                //         pk,
+                //         JoinRow::new(row, degree_i64.into_int64() as u64).encode(),
+                //     );
+                // }
             } else {
                 self.metrics.surely_not_have_true_count += 1;
             }
             self.metrics.total_surely_not_have_count += 1;
         } else {
             if !self.state.table.surely_not_have(&key).await? {
-                let table_iter = self.state.table.iter_with_pk_prefix(&key).await?;
+                // let table_iter = self.state.table.iter_with_pk_prefix(&key).await?;
 
-                #[for_await]
-                for row in table_iter {
-                    let row: Cow<'_, OwnedRow> = row?;
-                    let pk = row
-                        .as_ref()
-                        .project(&self.state.pk_indices)
-                        .memcmp_serialize(&self.pk_serializer);
-                    entry_state.insert(pk, JoinRow::new(row, 0).encode());
-                }
+                // #[for_await]
+                // for row in table_iter {
+                //     let row: Cow<'_, OwnedRow> = row?;
+                //     let pk = row
+                //         .as_ref()
+                //         .project(&self.state.pk_indices)
+                //         .memcmp_serialize(&self.pk_serializer);
+                //     entry_state.insert(pk, JoinRow::new(row, 0).encode());
+                // }
             } else {
                 self.metrics.surely_not_have_true_count += 1;
             }
