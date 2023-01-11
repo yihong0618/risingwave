@@ -1631,7 +1631,8 @@ mod tests {
         ));
 
         let notification_client = get_test_notification_client(env, hummock_manager_ref.clone(), worker_node.clone());
-        let storage = HummockStorage::new_with_filter_key_extractor_manager(hummock_options, sstable_store, BackupReader::unused(), hummock_meta_client, notification_client)
+        let storage = HummockStorage::new_with_filter_key_extractor_manager(
+            hummock_options, sstable_store, BackupReader::unused(), hummock_meta_client, notification_client);
 
         let (hummock_event_handler, event_tx) = prepare_hummock_event_handler(
             hummock_options.clone(),
