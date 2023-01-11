@@ -26,7 +26,7 @@ use minitrace::Span;
 use parking_lot::RwLock;
 use risingwave_common::catalog::TableId;
 use risingwave_hummock_sdk::key::{
-    bound_table_key_range, user_key, FullKey, TableKey, TableKeyRange, UserKey,
+    bound_table_key_range, range_of_prefix, user_key, FullKey, TableKey, TableKeyRange, UserKey,
 };
 use risingwave_hummock_sdk::key_range::KeyRangeCommon;
 use risingwave_hummock_sdk::{can_concat, HummockEpoch, LocalSstableInfo};
@@ -735,6 +735,8 @@ impl HummockVersionReader {
         let mut local_stats = StoreLocalStatistic::default();
         let (imms, uncommitted_ssts, committed_version) = read_version_tuple;
         let prefix_table_key = TableKey(prefix_key.as_slice());
+        let (start, end) = range_of_prefix(prefix_key.as_slice());
+        let range_of_prefix = (start.map(|k| TableKey(k)), end.map(|k| TableKey(k)));
 
         // 1. check staging data
         for imm in &imms {
@@ -764,7 +766,16 @@ impl HummockVersionReader {
         // 3. read from committed_version sst file
         // Because SST meta records encoded key range,
         // the filter key needs to be encoded as well.
-        let encoded_user_key = UserKey::new(table_id, prefix_table_key).encode();
+        let encoded_user_key_range = (
+            range_of_prefix
+                .0
+                .as_ref()
+                .map(|k| UserKey::new(table_id, TableKey(k.0.as_slice())).encode()),
+            range_of_prefix
+                .1
+                .as_ref()
+                .map(|k| UserKey::new(table_id, TableKey(k.0.as_slice())).encode()),
+        );
         assert!(committed_version.is_valid());
         for level in committed_version.levels(table_id) {
             if level.table_infos.is_empty() {
@@ -772,11 +783,8 @@ impl HummockVersionReader {
             }
             match level.level_type() {
                 LevelType::Overlapping | LevelType::Unspecified => {
-                    let sstable_infos = prune_ssts(
-                        level.table_infos.iter(),
-                        table_id,
-                        &(prefix_table_key..=prefix_table_key),
-                    );
+                    let sstable_infos =
+                        prune_ssts(level.table_infos.iter(), table_id, &range_of_prefix);
                     for sstable_info in sstable_infos {
                         table_counts += 1;
                         if hit_sstable_bloom_filter(
@@ -793,37 +801,28 @@ impl HummockVersionReader {
                     }
                 }
                 LevelType::Nonoverlapping => {
-                    let mut table_info_idx = level.table_infos.partition_point(|table| {
-                        let ord = user_key(&table.key_range.as_ref().unwrap().left)
-                            .cmp(encoded_user_key.as_ref());
-                        ord == Ordering::Less || ord == Ordering::Equal
-                    });
-                    if table_info_idx == 0 {
-                        continue;
-                    }
-                    table_info_idx = table_info_idx.saturating_sub(1);
-                    let ord = level.table_infos[table_info_idx]
-                        .key_range
-                        .as_ref()
-                        .unwrap()
-                        .compare_right_with_user_key(&encoded_user_key);
-                    // the case that the key falls into the gap between two ssts
-                    if ord == Ordering::Less {
-                        sync_point!("HUMMOCK_V2::GET::SKIP_BY_NO_FILE");
-                        continue;
-                    }
+                    let start_table_idx = match encoded_user_key_range.start_bound() {
+                        Included(key) | Excluded(key) => search_sst_idx(&level.table_infos, key),
+                        _ => 0,
+                    };
+                    let end_table_idx = match encoded_user_key_range.end_bound() {
+                        Included(key) | Excluded(key) => search_sst_idx(&level.table_infos, key),
+                        _ => level.table_infos.len().saturating_sub(1),
+                    };
 
-                    table_counts += 1;
-                    if hit_sstable_bloom_filter(
-                        self.sstable_store
-                            .sstable(&level.table_infos[table_info_idx], &mut local_stats)
-                            .await?
-                            .value(),
-                        dist_key_hash,
-                        &mut local_stats,
-                    ) {
-                        local_stats.report(self.stats.as_ref());
-                        return Ok(false);
+                    for table_info in &level.table_infos[start_table_idx..=end_table_idx] {
+                        table_counts += 1;
+                        if hit_sstable_bloom_filter(
+                            self.sstable_store
+                                .sstable(&table_info, &mut local_stats)
+                                .await?
+                                .value(),
+                            dist_key_hash,
+                            &mut local_stats,
+                        ) {
+                            local_stats.report(self.stats.as_ref());
+                            return Ok(false);
+                        }
                     }
                 }
             }
