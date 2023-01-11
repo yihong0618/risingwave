@@ -128,6 +128,10 @@ impl<'a> Bloom<'a> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
+    use bytes::Bytes;
+
     use super::*;
 
     #[test]
@@ -155,5 +159,62 @@ mod tests {
         assert!(!f.surely_not_have_hash(check_hash[1]));
         assert!(f.surely_not_have_hash(check_hash[2]));
         assert!(f.surely_not_have_hash(check_hash[3]));
+    }
+
+    fn fpr_cace(preset_key_count: usize, test_key_count: usize, expected_false_positve_rate: f64) {
+        let mut key_list = vec![];
+        let mut key_set = HashSet::new();
+        let mut dup_count = 0;
+
+        for i in 0..preset_key_count {
+            let k = Bytes::from(format!("{:032}", i));
+            let h = farmhash::fingerprint32(&k);
+            // key_list.push(k);
+            if !key_set.insert(h) {
+                dup_count += 1;
+            } else {
+                key_list.push(h);
+            }
+        }
+
+        let bits_per_key = Bloom::bloom_bits_per_key(key_list.len(), expected_false_positve_rate);
+        let vec = Bloom::build_from_key_hashes(&key_list, bits_per_key);
+        println!(
+            "[WKXLOG] bits_per_key:{}, vec size:{} KB,",
+            bits_per_key,
+            vec.len() / 1024
+        );
+        let filter = Bloom::new(&vec);
+
+        let mut true_count = 0;
+        let mut total_count = 0;
+        for i in preset_key_count..preset_key_count + test_key_count {
+            let k = Bytes::from(format!("{:032}", i));
+            let h = farmhash::fingerprint32(&k);
+            if key_set.insert(h) {
+                if filter.surely_not_have_hash(h) {
+                    true_count += 1;
+                }
+                total_count += 1;
+            }
+        }
+
+        println!(
+            "[WKXLOG] total_count:{}, false_positive_count:{}, rate: {}, expected false_positve_rate: {}, dup_count: {}",
+            total_count,
+            true_count,
+            1_f64 - true_count as f64 / total_count as f64,
+            expected_false_positve_rate,
+            dup_count
+        );
+    }
+
+    #[test]
+    fn test_false_positive_rate() {
+        const KEY_COUNT: usize = 1300000; // about 64MB
+        const TEST_KEY_COUNT: usize = 100000;
+        fpr_cace(KEY_COUNT, TEST_KEY_COUNT, 0.1);
+        fpr_cace(KEY_COUNT, TEST_KEY_COUNT, 0.01);
+        fpr_cace(KEY_COUNT, TEST_KEY_COUNT, 0.001);
     }
 }
