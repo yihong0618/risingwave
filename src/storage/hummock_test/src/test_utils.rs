@@ -186,6 +186,12 @@ impl<L: StateStoreRead, G: StateStoreRead> StateStoreRead for LocalGlobalStateSt
             .into_stream())
         }
     }
+
+    fn surely_not_have(&self, _prefix_key: Vec<u8>, _table_id: TableId) -> Self::SurelyNotHaveFuture<'_> {
+        async move {
+            unimplemented!()
+        }
+    }
 }
 
 impl<L: StateStoreWrite, G: StaticSendSync> StateStoreWrite for LocalGlobalStateStoreHolder<L, G> {

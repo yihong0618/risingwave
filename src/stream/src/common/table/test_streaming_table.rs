@@ -19,35 +19,41 @@ mod tests {
     use futures::{pin_mut, StreamExt};
     use risingwave_common::array::{Op, StreamChunk};
     use risingwave_common::buffer::Bitmap;
-    use risingwave_common::catalog::{ColumnDesc, ColumnId, TableId};
+    use risingwave_common::catalog::{ColumnDesc, ColumnId, TableId, TableOption};
     use risingwave_common::config::StorageConfig;
     use risingwave_common::row::{self, OwnedRow};
     use risingwave_common::types::DataType;
     use risingwave_common::util::epoch::EpochPair;
     use risingwave_common::util::sort_util::OrderType;
-    use risingwave_hummock_sdk::filter_key_extractor::FilterKeyExtractorManager;
+    use risingwave_hummock_sdk::compaction_group::StaticCompactionGroupId;
+    use risingwave_hummock_sdk::filter_key_extractor::{
+        FilterKeyExtractorImpl, FilterKeyExtractorManager, FullKeyFilterKeyExtractor,
+    };
     use risingwave_hummock_test::get_test_notification_client;
     use risingwave_hummock_test::test_utils::{prepare_first_valid_version, register_test_tables};
     use risingwave_meta::hummock::test_utils::setup_compute_env;
     use risingwave_meta::hummock::{HummockManagerRef, MockHummockMetaClient};
     use risingwave_meta::manager::MetaSrvEnv;
     use risingwave_meta::storage::MemStore;
+    use risingwave_pb::catalog::Table;
     use risingwave_pb::common::WorkerNode;
+    use risingwave_pb::plan_common::{ColumnCatalog, ColumnOrder};
     use risingwave_storage::hummock::backup_reader::BackupReader;
     use risingwave_storage::hummock::compactor::Context;
-    use risingwave_storage::hummock::event_handler::{HummockEventHandler, HummockEvent};
+    use risingwave_storage::hummock::event_handler::{HummockEvent, HummockEventHandler};
     use risingwave_storage::hummock::iterator::test_utils::mock_sstable_store;
     use risingwave_storage::hummock::store::state_store::LocalHummockStorage;
     use risingwave_storage::hummock::store::version::HummockVersionReader;
     use risingwave_storage::hummock::test_utils::default_config_for_test;
-    use risingwave_storage::hummock::{SstableIdManager, SstableStore, MemoryLimiter, HummockStorage};
+    use risingwave_storage::hummock::{
+        HummockStorage, MemoryLimiter, SstableIdManager, SstableStore,
+    };
     use risingwave_storage::memory::MemoryStateStore;
     use risingwave_storage::monitor::StateStoreMetrics;
     use risingwave_storage::table::DEFAULT_VNODE;
     use tokio::sync::mpsc::UnboundedSender;
 
     use crate::common::table::state_table::StateTable;
-
 
     // test state table
     #[tokio::test]
@@ -1601,7 +1607,7 @@ mod tests {
                 new_read_version_sender: tx,
             })
             .unwrap();
-    
+
         let (basic_read_version, instance_guard) = rx.await.unwrap();
         LocalHummockStorage::new(
             instance_guard,
@@ -1625,35 +1631,6 @@ mod tests {
             worker_node.id,
         ));
 
-        let sstable_id_manager = Arc::new(SstableIdManager::new(
-            hummock_meta_client.clone(),
-            hummock_options.sstable_id_remote_fetch_number,
-        ));
-
-        let notification_client = get_test_notification_client(env, hummock_manager_ref.clone(), worker_node.clone());
-        let storage = HummockStorage::new_with_filter_key_extractor_manager(
-            hummock_options, sstable_store, BackupReader::unused(), hummock_meta_client, notification_client);
-
-        let (hummock_event_handler, event_tx) = prepare_hummock_event_handler(
-            hummock_options.clone(),
-            env,
-            hummock_manager_ref,
-            worker_node,
-            sstable_store.clone(),
-            sstable_id_manager.clone(),
-        )
-        .await;
-
-        let version_update_notifier_tx = hummock_event_handler.version_update_notifier_tx();
-        tokio::spawn(hummock_event_handler.start_hummock_event_handler_worker());
-
-        let hummock_version_reader =
-            HummockVersionReader::new(sstable_store, Arc::new(StateStoreMetrics::unused()));
-
-        let hummock_storage =
-            get_local_hummock_storage(Default::default(), event_tx.clone(), hummock_version_reader)
-                .await;
-
         // let pk_columns = vec![0, 1]; leave a message to indicate pk columns
         let order_types = vec![OrderType::Ascending, OrderType::Descending];
 
@@ -1664,16 +1641,60 @@ mod tests {
             ColumnDesc::unnamed(column_ids[2], DataType::Int32),
         ];
         let pk_index = vec![0_usize, 1_usize];
-        let mut state = StateTable::new_without_distribution(
-            hummock_storage,
-            TableId::from(0x42),
-            column_descs.clone(),
-            order_types.clone(),
-            pk_index,
-        )
-        .await;
 
-        let epoch = EpochPair::new_test_epoch(1);
+        let prost_pk = pk_index
+            .iter()
+            .zip(order_types.iter())
+            .map(|(idx, order)| ColumnOrder {
+                index: *idx as u32,
+                order_type: order.to_prost() as i32,
+            })
+            .collect();
+        let prost_columns = column_descs
+            .iter()
+            .map(|col| ColumnCatalog {
+                column_desc: Some(col.to_protobuf()),
+                is_hidden: false,
+            })
+            .collect();
+
+        let table = Table {
+            columns: prost_columns,
+            pk: prost_pk,
+            read_prefix_len_hint: 1,
+            ..Default::default()
+        };
+
+        let filter_key_extractor_manager = Arc::new(FilterKeyExtractorManager::default());
+        filter_key_extractor_manager
+            .update(0, Arc::new(FilterKeyExtractorImpl::from_table(&table)));
+        hummock_manager_ref
+            .register_table_ids(&mut [(
+                0,
+                StaticCompactionGroupId::StateDefault.into(),
+                TableOption::default(),
+            )])
+            .await
+            .unwrap();
+        let notification_client =
+            get_test_notification_client(env, hummock_manager_ref.clone(), worker_node.clone());
+        let storage = HummockStorage::new_with_filter_key_extractor_manager(
+            hummock_options,
+            sstable_store,
+            BackupReader::unused(),
+            hummock_meta_client,
+            notification_client,
+            Arc::new(StateStoreMetrics::unused()),
+            filter_key_extractor_manager.clone(),
+            #[cfg(not(madsim))]
+            Arc::new(risingwave_tracing::RwTracingService::disabled()),
+        )
+        .await
+        .unwrap();
+
+        let mut state = StateTable::from_table_catalog_no_sanity_check(&table, storage, None).await;
+
+        let mut epoch = EpochPair::new_test_epoch(1);
         state.init_epoch(epoch);
 
         state.insert(OwnedRow::new(vec![
@@ -1699,73 +1720,26 @@ mod tests {
             Some(555_i32.into()),
         ]));
 
-        epoch.inc();
+        epoch = epoch.inc();
         state.commit_for_test(epoch).await.unwrap();
 
-        state.insert(OwnedRow::new(vec![
-            Some(1_i32.into()),
-            Some(33_i32.into()),
-            Some(333_i32.into()),
-        ]));
-        state.insert(OwnedRow::new(vec![
-            Some(1_i32.into()),
-            Some(55_i32.into()),
-            Some(5555_i32.into()),
-        ]));
-        state.insert(OwnedRow::new(vec![
-            Some(6_i32.into()),
-            Some(66_i32.into()),
-            Some(666_i32.into()),
-        ]));
+        // state.insert(OwnedRow::new(vec![
+        //     Some(1_i32.into()),
+        //     Some(33_i32.into()),
+        //     Some(333_i32.into()),
+        // ]));
+        // state.insert(OwnedRow::new(vec![
+        //     Some(1_i32.into()),
+        //     Some(55_i32.into()),
+        //     Some(5555_i32.into()),
+        // ]));
+        // state.insert(OwnedRow::new(vec![
+        //     Some(6_i32.into()),
+        //     Some(66_i32.into()),
+        //     Some(666_i32.into()),
+        // ]));
 
         let pk_prefix = OwnedRow::new(vec![Some(1_i32.into())]);
-        let iter = state.iter_with_pk_prefix(&pk_prefix).await.unwrap();
-        pin_mut!(iter);
-
-        // this row exists in both mem_table and shared_storage
-        let res = iter.next().await.unwrap().unwrap();
-        assert_eq!(
-            &OwnedRow::new(vec![
-                Some(1_i32.into()),
-                Some(55_i32.into()),
-                Some(5555_i32.into())
-            ]),
-            res.as_ref()
-        );
-
-        // this row exists in mem_table
-        let res = iter.next().await.unwrap().unwrap();
-        assert_eq!(
-            &OwnedRow::new(vec![
-                Some(1_i32.into()),
-                Some(33_i32.into()),
-                Some(333_i32.into())
-            ]),
-            res.as_ref()
-        );
-
-        // this row exists in shared_storage
-        let res = iter.next().await.unwrap().unwrap();
-        assert_eq!(
-            &OwnedRow::new(vec![
-                Some(1_i32.into()),
-                Some(22_i32.into()),
-                Some(222_i32.into())
-            ]),
-            res.as_ref()
-        );
-        // this row exists in shared_storage
-        let res = iter.next().await.unwrap().unwrap();
-        assert_eq!(
-            &OwnedRow::new(vec![
-                Some(1_i32.into()),
-                Some(11_i32.into()),
-                Some(111_i32.into())
-            ]),
-            res.as_ref()
-        );
-        // pk without the prefix the range will not be scan
-        let res = iter.next().await;
-        assert!(res.is_none());
+        assert!(!state.surely_not_have(&pk_prefix).await.unwrap());
     }
 }
