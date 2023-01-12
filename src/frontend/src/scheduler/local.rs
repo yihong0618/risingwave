@@ -15,10 +15,11 @@
 //! Local execution for batch query.
 use std::collections::HashMap;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use futures::Stream;
+use futures::{select_biased, Stream};
 use futures_async_stream::try_stream;
 use itertools::Itertools;
 use pgwire::pg_server::BoxedError;
@@ -35,6 +36,7 @@ use risingwave_pb::batch_plan::{
     ExchangeInfo, ExchangeSource, LocalExecutePlan, PlanFragment, PlanNode as PlanNodeProst,
     TaskId as ProstTaskId, TaskOutputId,
 };
+use tokio::sync::oneshot::Receiver;
 use tracing::debug;
 use uuid::Uuid;
 
@@ -42,10 +44,12 @@ use super::plan_fragmenter::{PartitionInfo, QueryStageRef};
 use crate::optimizer::plan_node::PlanNodeType;
 use crate::scheduler::plan_fragmenter::{ExecutionPlanNode, Query, StageId};
 use crate::scheduler::task_context::FrontendBatchTaskContext;
+use crate::scheduler::SchedulerError::QueryCancelError;
 use crate::scheduler::{PinnedHummockSnapshot, SchedulerResult};
 use crate::session::{AuthContext, FrontendEnv};
 
 pub struct LocalQueryStream {
+    cancel_receiver: Receiver<()>,
     data_stream: BoxedDataChunkStream,
 }
 
@@ -53,14 +57,14 @@ impl Stream for LocalQueryStream {
     type Item = Result<DataChunk, BoxedError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.data_stream.as_mut().poll_next(cx) {
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(chunk) => match chunk {
+        select_biased! {
+            cancel = self.cancel_receiver => Some(Err(Box::new(QueryCancelError))),
+            chunk = self.data_stream.as_mut().poll_next(cx) => match chunk {
                 Some(chunk_result) => match chunk_result {
-                    Ok(chunk) => Poll::Ready(Some(Ok(chunk))),
-                    Err(err) => Poll::Ready(Some(Err(Box::new(err)))),
+                    Ok(chunk) => Some(Ok(chunk)),
+                    Err(err) => Some(Err(Box::new(err))),
                 },
-                None => Poll::Ready(None),
+                None => None,
             },
         }
     }
@@ -73,6 +77,7 @@ pub struct LocalQueryExecution {
     // The snapshot will be released when LocalQueryExecution is dropped.
     snapshot: PinnedHummockSnapshot,
     auth_context: Arc<AuthContext>,
+    cancel_receiver: Receiver<()>,
 }
 
 impl LocalQueryExecution {
@@ -82,6 +87,7 @@ impl LocalQueryExecution {
         sql: S,
         snapshot: PinnedHummockSnapshot,
         auth_context: Arc<AuthContext>,
+        cancel_receiver: Receiver<()>,
     ) -> Self {
         Self {
             sql: sql.into(),
@@ -89,6 +95,7 @@ impl LocalQueryExecution {
             front_env,
             snapshot,
             auth_context,
+            cancel_receiver,
         }
     }
 
@@ -130,6 +137,7 @@ impl LocalQueryExecution {
 
     pub fn stream_rows(self) -> LocalQueryStream {
         LocalQueryStream {
+            cancel_receiver: self.cancel_receiver,
             data_stream: self.run(),
         }
     }

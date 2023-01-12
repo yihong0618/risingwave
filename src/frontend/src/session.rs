@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 // use tokio::sync::Mutex;
 use std::time::Duration;
@@ -45,7 +45,7 @@ use risingwave_rpc_client::{ComputeClientPool, ComputeClientPoolRef, MetaClient}
 use risingwave_source::monitor::SourceMetrics;
 use risingwave_sqlparser::ast::{ObjectName, ShowObject, Statement};
 use risingwave_sqlparser::parser::Parser;
-use tokio::sync::oneshot::Sender;
+use tokio::sync::oneshot::{channel, Receiver, Sender};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
@@ -355,6 +355,12 @@ pub struct SessionImpl {
     /// Stores the value of configurations.
     config_map: RwLock<ConfigMap>,
 
+    /// Query cancel flag.
+    ///
+    /// This flag is set only when current query is executed in local mode, and used to cancel
+    /// local query.
+    current_query_cancel_flag: RwLock<Option<Sender<()>>>,
+
     /// Identified by process_id, secret_key. Corresponds to SessionManager.
     id: (i32, i32),
 }
@@ -372,6 +378,7 @@ impl SessionImpl {
             user_authenticator,
             config_map: Default::default(),
             id,
+            current_query_cancel_flag: RwLock::new(None),
         }
     }
 
@@ -388,6 +395,7 @@ impl SessionImpl {
             config_map: Default::default(),
             // Mock session use non-sense id.
             id: (0, 0),
+            current_query_cancel_flag: RwLock::new(None),
         }
     }
 
@@ -470,6 +478,30 @@ impl SessionImpl {
 
         let db_id = catalog_reader.get_database_by_name(db_name)?.id();
         Ok((db_id, schema.id()))
+    }
+
+    pub fn clear_cancel_query_flag(&self) {
+        let mut flag = self.current_query_cancel_flag.write();
+        *flag = None;
+    }
+
+    pub fn reset_cancel_query_flag(&self) -> Receiver<()> {
+        let mut flag = self.current_query_cancel_flag.write();
+        let (sender, receiver) = channel();
+        *flag = Some(sender);
+        receiver
+    }
+
+    pub fn cancel_current_query(&self) {
+        let flag_guard = self.current_query_cancel_flag.write();
+        if let Some(sender) = &*flag_guard {
+            // Current running query is in local mode
+            if let Err(_) = sender.send(()) {
+                tracing::info!("Failed to cancel query, the query may already finished")
+            }
+        } else {
+            self.env.query_manager().cancel_queries_in_session(self.id)
+        }
     }
 }
 
@@ -575,7 +607,12 @@ impl SessionManager<PgResponseStream> for SessionManagerImpl {
 
     /// Used when cancel request happened, returned corresponding session ref.
     fn cancel_queries_in_session(&self, session_id: SessionId) {
-        self.env.query_manager.cancel_queries_in_session(session_id);
+        let guard = self.env.sessions_map.lock().unwrap();
+        if let Some(session) = guard.get(&session_id) {
+            session.cancel_current_query()
+        } else {
+            tracing::info!("Current session finished, ignoring cancel query request")
+        }
     }
 
     fn end_session(&self, session: &Self::Session) {
