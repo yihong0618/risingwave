@@ -1147,12 +1147,9 @@ impl<S: StateStore> StateTable<S> {
         // the distribution derivation from the optimizer.
         let vnode = self.compute_prefix_vnode(&pk_prefix).to_be_bytes();
         let encoded_key_range_with_vnode = prefixed_range(encoded_key_range, &vnode);
-        if self
-            .mem_table
-            .iter(encoded_key_range_with_vnode)
-            .next()
-            .is_some()
-        {
+        let (l, r) = encoded_key_range_with_vnode.clone();
+        let bytes_key_range = (l.map(Bytes::from), r.map(Bytes::from));
+        if self.mem_table.iter(bytes_key_range).next().is_some() {
             return Ok(false);
         }
 

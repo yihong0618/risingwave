@@ -424,7 +424,8 @@ impl HummockVersionReader {
         }
 
         // 2. order guarantee: imm -> sst
-        let dist_key_hash = Sstable::hash_for_bloom_filter(table_key.dist_key(), read_options.table_id.table_id);
+        let dist_key_hash =
+            Sstable::hash_for_bloom_filter(table_key.dist_key(), read_options.table_id.table_id);
         let full_key = FullKey::new(read_options.table_id, table_key, epoch);
         for local_sst in &uncommitted_ssts {
             table_counts += 1;
@@ -786,6 +787,8 @@ impl HummockVersionReader {
     ) -> StorageResult<bool> {
         let mut table_counts = 0;
         let mut local_stats = StoreLocalStatistic::default();
+        let table_id_str = table_id.to_string();
+        let table_id_label = table_id_str.as_str();
         let (imms, uncommitted_ssts, committed_version) = read_version_tuple;
         let prefix_table_key = TableKey(prefix_key.as_slice());
         let (start, end) = range_of_prefix(prefix_key.as_slice());
@@ -794,13 +797,14 @@ impl HummockVersionReader {
         // 1. check staging data
         for imm in &imms {
             if imm.prefix_exists(prefix_table_key) {
-                local_stats.report(self.stats.as_ref());
+                local_stats.report(self.state_store_metrics.as_ref(), table_id_label);
                 return Ok(false);
             }
         }
 
         // 2. order guarantee: imm -> sst
-        let dist_key_hash = Sstable::hash_for_bloom_filter(prefix_table_key.dist_key(), table_id.table_id);
+        let dist_key_hash =
+            Sstable::hash_for_bloom_filter(prefix_table_key.dist_key(), table_id.table_id);
         for local_sst in &uncommitted_ssts {
             table_counts += 1;
             if hit_sstable_bloom_filter(
@@ -811,7 +815,7 @@ impl HummockVersionReader {
                 dist_key_hash,
                 &mut local_stats,
             ) {
-                local_stats.report(self.stats.as_ref());
+                local_stats.report(self.state_store_metrics.as_ref(), table_id_label);
                 return Ok(false);
             }
         }
@@ -848,7 +852,7 @@ impl HummockVersionReader {
                             dist_key_hash,
                             &mut local_stats,
                         ) {
-                            local_stats.report(self.stats.as_ref());
+                            local_stats.report(self.state_store_metrics.as_ref(), table_id_label);
                             return Ok(false);
                         }
                     }
@@ -873,7 +877,7 @@ impl HummockVersionReader {
                             dist_key_hash,
                             &mut local_stats,
                         ) {
-                            local_stats.report(self.stats.as_ref());
+                            local_stats.report(self.state_store_metrics.as_ref(), table_id_label);
                             return Ok(false);
                         }
                     }
@@ -881,11 +885,11 @@ impl HummockVersionReader {
             }
         }
 
-        self.stats
+        self.state_store_metrics
             .iter_merge_sstable_counts
-            .with_label_values(&["surely-not-have"])
+            .with_label_values(&[table_id_label, "surely-not-have"])
             .observe(table_counts as f64);
-        local_stats.report(self.stats.as_ref());
+        local_stats.report(self.state_store_metrics.as_ref(), table_id_label);
         Ok(true)
     }
 }
