@@ -14,12 +14,10 @@
 
 //! Local execution for batch query.
 use std::collections::HashMap;
-use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::task::{Context, Poll};
 
-use futures::{select_biased, Stream};
+use futures::stream::BoxStream;
+use futures::{stream_select, Stream, StreamExt};
 use futures_async_stream::try_stream;
 use itertools::Itertools;
 use pgwire::pg_server::BoxedError;
@@ -36,7 +34,8 @@ use risingwave_pb::batch_plan::{
     ExchangeInfo, ExchangeSource, LocalExecutePlan, PlanFragment, PlanNode as PlanNodeProst,
     TaskId as ProstTaskId, TaskOutputId,
 };
-use tokio::sync::oneshot::Receiver;
+use tokio::sync::mpsc::Receiver;
+use tokio_stream::wrappers::ReceiverStream;
 use tracing::debug;
 use uuid::Uuid;
 
@@ -48,27 +47,7 @@ use crate::scheduler::SchedulerError::QueryCancelError;
 use crate::scheduler::{PinnedHummockSnapshot, SchedulerResult};
 use crate::session::{AuthContext, FrontendEnv};
 
-pub struct LocalQueryStream {
-    cancel_receiver: Receiver<()>,
-    data_stream: BoxedDataChunkStream,
-}
-
-impl Stream for LocalQueryStream {
-    type Item = Result<DataChunk, BoxedError>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        select_biased! {
-            cancel = self.cancel_receiver => Some(Err(Box::new(QueryCancelError))),
-            chunk = self.data_stream.as_mut().poll_next(cx) => match chunk {
-                Some(chunk_result) => match chunk_result {
-                    Ok(chunk) => Some(Ok(chunk)),
-                    Err(err) => Some(Err(Box::new(err))),
-                },
-                None => None,
-            },
-        }
-    }
-}
+pub type LocalQueryStream = BoxStream<'static, Result<DataChunk, BoxedError>>;
 
 pub struct LocalQueryExecution {
     sql: String,
@@ -77,7 +56,7 @@ pub struct LocalQueryExecution {
     // The snapshot will be released when LocalQueryExecution is dropped.
     snapshot: PinnedHummockSnapshot,
     auth_context: Arc<AuthContext>,
-    cancel_receiver: Receiver<()>,
+    cancel_receiver: Option<Receiver<()>>,
 }
 
 impl LocalQueryExecution {
@@ -95,7 +74,7 @@ impl LocalQueryExecution {
             front_env,
             snapshot,
             auth_context,
-            cancel_receiver,
+            cancel_receiver: Some(cancel_receiver),
         }
     }
 
@@ -135,11 +114,16 @@ impl LocalQueryExecution {
         Box::pin(self.run_inner())
     }
 
-    pub fn stream_rows(self) -> LocalQueryStream {
-        LocalQueryStream {
-            cancel_receiver: self.cancel_receiver,
-            data_stream: self.run(),
-        }
+    pub fn stream_rows(mut self) -> LocalQueryStream {
+        let cancel_receiver = ReceiverStream::new(self.cancel_receiver.take().unwrap()).map(|_| {
+            tracing::info!("Received cancel request!");
+            Err(Box::new(QueryCancelError) as BoxedError)
+        });
+        let data_stream = self.run().map(|r| r.map_err(|e| Box::new(e) as BoxedError));
+        let stream = stream_select!(cancel_receiver, data_stream);
+        let x = Box::new(stream)
+            as Box<dyn Stream<Item = Result<DataChunk, BoxedError>> + Send + 'static>;
+        Box::into_pin(x)
     }
 
     /// Convert query to plan fragment.

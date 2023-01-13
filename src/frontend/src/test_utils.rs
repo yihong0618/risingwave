@@ -59,6 +59,7 @@ pub struct LocalFrontend {
     env: FrontendEnv,
 }
 
+#[async_trait::async_trait]
 impl SessionManager<PgResponseStream> for LocalFrontend {
     type Session = SessionImpl;
 

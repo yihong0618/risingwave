@@ -334,6 +334,8 @@ where
         let worker_threads = worker_threads.parse().unwrap();
         tracing::info!("setting tokio worker threads to {}", worker_threads);
         builder.worker_threads(worker_threads);
+    } else {
+        builder.worker_threads(4);
     }
 
     if let Ok(enable_deadlock_detection) = std::env::var("RW_DEADLOCK_DETECTION") {

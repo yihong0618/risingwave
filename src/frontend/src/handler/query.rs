@@ -143,7 +143,7 @@ pub async fn handle_query(
         };
         match query_mode {
             QueryMode::Local => PgResponseStream::LocalQuery(DataChunkToRowSetAdapter::new(
-                local_execute(session.clone(), query, query_snapshot).await?,
+                local_execute(session.clone(), query, query_snapshot)?,
                 column_types,
                 format,
             )),
@@ -241,8 +241,7 @@ pub async fn distribute_execute(
         .map_err(|err| err.into())
 }
 
-#[expect(clippy::unused_async)]
-pub async fn local_execute(
+pub fn local_execute(
     session: Arc<SessionImpl>,
     query: Query,
     pinned_snapshot: PinnedHummockSnapshot,

@@ -335,6 +335,7 @@ where
             let mut rows_cnt = 0;
 
             while let Some(row_set) = res.values_stream().next().await {
+                tracing::info!("Received result, is ok {:?}", row_set.is_ok());
                 let row_set = row_set.map_err(|err| PsqlError::QueryError(err))?;
                 for row in row_set {
                     self.stream.write_no_flush(&BeMessage::DataRow(&row))?;
