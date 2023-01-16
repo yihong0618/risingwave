@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use risingwave_batch::executor::BatchTaskMetricsWithTaskLabels;
@@ -31,11 +32,20 @@ use crate::session::{AuthContext, FrontendEnv};
 pub struct FrontendBatchTaskContext {
     env: FrontendEnv,
     auth_context: Arc<AuthContext>,
+    cancel_flag: Arc<AtomicBool>,
 }
 
 impl FrontendBatchTaskContext {
-    pub fn new(env: FrontendEnv, auth_context: Arc<AuthContext>) -> Self {
-        Self { env, auth_context }
+    pub fn new(
+        env: FrontendEnv,
+        auth_context: Arc<AuthContext>,
+        cancel_flag: Arc<AtomicBool>,
+    ) -> Self {
+        Self {
+            env,
+            auth_context,
+            cancel_flag,
+        }
     }
 }
 
@@ -88,5 +98,9 @@ impl BatchTaskContext for FrontendBatchTaskContext {
 
     fn get_mem_usage(&self) -> usize {
         todo!()
+    }
+
+    fn cancel_flag(&self) -> Arc<AtomicBool> {
+        self.cancel_flag.clone()
     }
 }

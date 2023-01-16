@@ -40,6 +40,9 @@ pub enum BatchError {
 
     #[error("Prometheus error: {0}")]
     Prometheus(#[from] prometheus::Error),
+
+    #[error("Query cancelled")]
+    QueryCancelError,
 }
 
 impl From<BatchError> for RwError {

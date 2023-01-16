@@ -63,10 +63,10 @@ tokio = { version = "0.2", package = "madsim-tokio", features = [
     "signal",
     "fs",
 ] }
-tokio-stream = "0.1"
 tonic = { version = "0.2", package = "madsim-tonic" }
 tracing = "0.1"
 uuid = "1"
+stream-cancel = "0.8"
 
 [target.'cfg(not(madsim))'.dependencies]
 workspace-hack = { path = "../workspace-hack" }

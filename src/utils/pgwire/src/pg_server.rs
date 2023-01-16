@@ -17,9 +17,11 @@ use std::io;
 use std::result::Result;
 use std::sync::Arc;
 
+use futures::executor::block_on;
 use futures::Stream;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
+use tokio::task::spawn_blocking;
 use tracing::debug;
 
 use crate::pg_field_descriptor::PgFieldDescriptor;
@@ -114,10 +116,12 @@ where
                 stream.set_nodelay(true)?;
                 let ssl_config = ssl_config.clone();
                 let fut = handle_connection(stream, session_mgr, ssl_config);
-                tokio::spawn(async {
-                    if let Err(e) = fut.await {
-                        debug!("error handling connection : {}", e);
-                    }
+                spawn_blocking(|| {
+                    block_on(async {
+                        if let Err(e) = fut.await {
+                            debug!("Error handling connection : {}", e);
+                        }
+                    })
                 });
             }
 

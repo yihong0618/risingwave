@@ -330,13 +330,15 @@ where
 
     let mut builder = tokio::runtime::Builder::new_multi_thread();
 
-    if let Ok(worker_threads) = std::env::var("RW_WORKER_THREADS") {
-        let worker_threads = worker_threads.parse().unwrap();
-        tracing::info!("setting tokio worker threads to {}", worker_threads);
-        builder.worker_threads(worker_threads);
-    } else {
-        builder.worker_threads(4);
-    }
+    // if let Ok(worker_threads) = std::env::var("RW_WORKER_THREADS") {
+    //     let worker_threads = worker_threads.parse().unwrap();
+    //     tracing::info!("setting tokio worker threads to {}", worker_threads);
+    //     builder.worker_threads(worker_threads);
+    // } else {
+    //     builder.worker_threads(4);
+    // }
+
+    builder.worker_threads(4);
 
     if let Ok(enable_deadlock_detection) = std::env::var("RW_DEADLOCK_DETECTION") {
         let enable_deadlock_detection = enable_deadlock_detection
@@ -356,10 +358,11 @@ where
         spawn_prof_thread(profile_path);
     }
 
-    builder
+    let rt = builder
         .thread_name("risingwave-main")
         .enable_all()
         .build()
-        .unwrap()
-        .block_on(f)
+        .unwrap();
+    tracing::debug!("Number of worker threads: {}", rt.metrics().num_workers());
+    rt.block_on(f)
 }

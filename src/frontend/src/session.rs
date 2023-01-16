@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -44,6 +44,7 @@ use risingwave_rpc_client::{ComputeClientPool, ComputeClientPoolRef, MetaClient}
 use risingwave_source::monitor::SourceMetrics;
 use risingwave_sqlparser::ast::{ObjectName, ShowObject, Statement};
 use risingwave_sqlparser::parser::Parser;
+use stream_cancel::{Trigger, Tripwire};
 use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::oneshot::Sender;
 use tokio::sync::{mpsc, watch};
@@ -359,7 +360,7 @@ pub struct SessionImpl {
     ///
     /// This flag is set only when current query is executed in local mode, and used to cancel
     /// local query.
-    current_query_cancel_flag: RwLock<Option<mpsc::Sender<()>>>,
+    current_query_cancel_flag: RwLock<Option<Arc<AtomicBool>>>,
 
     /// Identified by process_id, secret_key. Corresponds to SessionManager.
     id: (i32, i32),
@@ -485,21 +486,19 @@ impl SessionImpl {
         *flag = None;
     }
 
-    pub fn reset_cancel_query_flag(&self) -> Receiver<()> {
+    pub fn reset_cancel_query_flag(&self) -> Arc<AtomicBool> {
         let mut flag = self.current_query_cancel_flag.write();
-        let (sender, receiver) = channel(10);
-        *flag = Some(sender);
-        receiver
+        let f = Arc::new(AtomicBool::new(false));
+        *flag = Some(f.clone());
+        f
     }
 
     pub fn cancel_current_query(&self) {
         let mut flag_guard = self.current_query_cancel_flag.write();
-        if let Some(sender) = flag_guard.take() {
+        if let Some(flag) = flag_guard.take() {
             tracing::info!("Trying to cancel query in local mode.");
             // Current running query is in local mode
-            if let Err(_) = sender.blocking_send(()) {
-                tracing::info!("Failed to cancel query, the query may already finished")
-            }
+            flag.store(true, Ordering::SeqCst);
             tracing::info!("Cancel query request sent.");
         } else {
             tracing::info!("Trying to cancel query in distributed mode.");

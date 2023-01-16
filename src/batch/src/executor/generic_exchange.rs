@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 use futures::StreamExt;
 use futures_async_stream::try_stream;
 use itertools::Itertools;
@@ -24,6 +27,7 @@ use risingwave_pb::batch_plan::ExchangeSource as ProstExchangeSource;
 use risingwave_pb::plan_common::Field as NodeField;
 use risingwave_rpc_client::ComputeClientPoolRef;
 
+use crate::error::BatchError::QueryCancelError;
 use crate::exchange_source::ExchangeSourceImpl;
 use crate::execution::grpc_exchange::GrpcExchangeSource;
 use crate::execution::local_exchange::LocalExchangeSource;
@@ -47,6 +51,8 @@ pub struct GenericExchangeExecutor<CS, C> {
     /// Batch metrics.
     /// None: Local mode don't record mertics.
     metrics: Option<BatchTaskMetricsWithTaskLabels>,
+
+    cancel_flag: Arc<AtomicBool>,
 }
 
 /// `CreateSource` determines the right type of `ExchangeSource` to create.
@@ -140,6 +146,7 @@ impl BoxedExecutorBuilder for GenericExchangeExecutorBuilder {
             task_id: source.task_id.clone(),
             identity: source.plan_node().get_identity().clone(),
             metrics: source.context().task_metrics(),
+            cancel_flag: source.context().cancel_flag(),
         }))
     }
 }
@@ -163,6 +170,7 @@ impl<CS: 'static + Send + CreateSource, C: BatchTaskContext> Executor
 impl<CS: 'static + Send + CreateSource, C: BatchTaskContext> GenericExchangeExecutor<CS, C> {
     #[try_stream(boxed, ok = DataChunk, error = RwError)]
     async fn do_execute(self: Box<Self>) {
+        let cancel_flag = self.cancel_flag;
         let mut stream = select_all(
             self.proto_sources
                 .into_iter()
@@ -181,6 +189,9 @@ impl<CS: 'static + Send + CreateSource, C: BatchTaskContext> GenericExchangeExec
         .boxed();
 
         while let Some(data_chunk) = stream.next().await {
+            if cancel_flag.load(Ordering::SeqCst) {
+                return Err(QueryCancelError.into());
+            }
             let data_chunk = data_chunk?;
             yield data_chunk
         }

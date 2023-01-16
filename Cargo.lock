@@ -5808,9 +5808,9 @@ dependencies = [
  "serde_json",
  "sha2",
  "smallvec",
+ "stream-cancel",
  "tempfile",
  "thiserror",
- "tokio-stream",
  "tracing",
  "uuid",
  "workspace-hack",
@@ -6994,6 +6994,17 @@ name = "str_stack"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9091b6114800a5f2141aee1d1b9d6ca3592ac062dc5decb3764ec5895a47b4eb"
+
+[[package]]
+name = "stream-cancel"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b0a9eb2715209fb8cc0d942fcdff45674bfc9f0090a0d897e85a22955ad159b"
+dependencies = [
+ "futures-core",
+ "pin-project",
+ "tokio",
+]
 
 [[package]]
 name = "stringprep"

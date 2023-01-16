@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use risingwave_common::catalog::SysCatalogReaderRef;
@@ -63,6 +63,8 @@ pub trait BatchTaskContext: Clone + Send + Sync + 'static {
     fn store_mem_usage(&self, val: usize);
 
     fn get_mem_usage(&self) -> usize;
+
+    fn cancel_flag(&self) -> Arc<AtomicBool>;
 }
 
 /// Batch task context on compute node.
@@ -77,6 +79,9 @@ pub struct ComputeNodeContext {
     // How many memory bytes have been used in this task for the latest report value. Will be moved
     // to `last_mem_val` if new value comes in.
     cur_mem_val: Arc<AtomicUsize>,
+
+    // Flag to indicate whether this query should stop execution.
+    cancel_flag: Arc<AtomicBool>,
 }
 
 impl BatchTaskContext for ComputeNodeContext {
@@ -133,6 +138,10 @@ impl BatchTaskContext for ComputeNodeContext {
     fn get_mem_usage(&self) -> usize {
         self.cur_mem_val.load(Ordering::Relaxed)
     }
+
+    fn cancel_flag(&self) -> Arc<AtomicBool> {
+        self.cancel_flag.clone()
+    }
 }
 
 impl ComputeNodeContext {
@@ -143,6 +152,7 @@ impl ComputeNodeContext {
             task_metrics: None,
             cur_mem_val: Arc::new(0.into()),
             last_mem_val: Arc::new(0.into()),
+            cancel_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -153,6 +163,7 @@ impl ComputeNodeContext {
             task_metrics: Some(task_metrics),
             cur_mem_val: Arc::new(0.into()),
             last_mem_val: Arc::new(0.into()),
+            cancel_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -162,6 +173,7 @@ impl ComputeNodeContext {
             task_metrics: None,
             cur_mem_val: Arc::new(0.into()),
             last_mem_val: Arc::new(0.into()),
+            cancel_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 

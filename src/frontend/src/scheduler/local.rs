@@ -14,6 +14,7 @@
 
 //! Local execution for batch query.
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use futures::stream::BoxStream;
@@ -34,8 +35,7 @@ use risingwave_pb::batch_plan::{
     ExchangeInfo, ExchangeSource, LocalExecutePlan, PlanFragment, PlanNode as PlanNodeProst,
     TaskId as ProstTaskId, TaskOutputId,
 };
-use tokio::sync::mpsc::Receiver;
-use tokio_stream::wrappers::ReceiverStream;
+use stream_cancel::{StreamExt as StreamCancelStreamExt, Trigger, Tripwire};
 use tracing::debug;
 use uuid::Uuid;
 
@@ -43,7 +43,6 @@ use super::plan_fragmenter::{PartitionInfo, QueryStageRef};
 use crate::optimizer::plan_node::PlanNodeType;
 use crate::scheduler::plan_fragmenter::{ExecutionPlanNode, Query, StageId};
 use crate::scheduler::task_context::FrontendBatchTaskContext;
-use crate::scheduler::SchedulerError::QueryCancelError;
 use crate::scheduler::{PinnedHummockSnapshot, SchedulerResult};
 use crate::session::{AuthContext, FrontendEnv};
 
@@ -56,7 +55,7 @@ pub struct LocalQueryExecution {
     // The snapshot will be released when LocalQueryExecution is dropped.
     snapshot: PinnedHummockSnapshot,
     auth_context: Arc<AuthContext>,
-    cancel_receiver: Option<Receiver<()>>,
+    cancel_flag: Arc<AtomicBool>,
 }
 
 impl LocalQueryExecution {
@@ -66,7 +65,7 @@ impl LocalQueryExecution {
         sql: S,
         snapshot: PinnedHummockSnapshot,
         auth_context: Arc<AuthContext>,
-        cancel_receiver: Receiver<()>,
+        cancel_flag: Arc<AtomicBool>,
     ) -> Self {
         Self {
             sql: sql.into(),
@@ -74,7 +73,7 @@ impl LocalQueryExecution {
             front_env,
             snapshot,
             auth_context,
-            cancel_receiver: Some(cancel_receiver),
+            cancel_flag,
         }
     }
 
@@ -85,8 +84,11 @@ impl LocalQueryExecution {
             self.query.query_id, self.sql
         );
 
-        let context =
-            FrontendBatchTaskContext::new(self.front_env.clone(), self.auth_context.clone());
+        let context = FrontendBatchTaskContext::new(
+            self.front_env.clone(),
+            self.auth_context.clone(),
+            self.cancel_flag.clone(),
+        );
 
         let task_id = TaskId {
             query_id: self.query.query_id.id.clone(),
@@ -115,13 +117,10 @@ impl LocalQueryExecution {
     }
 
     pub fn stream_rows(mut self) -> LocalQueryStream {
-        let cancel_receiver = ReceiverStream::new(self.cancel_receiver.take().unwrap()).map(|_| {
-            tracing::info!("Received cancel request!");
-            Err(Box::new(QueryCancelError) as BoxedError)
-        });
         let data_stream = self.run().map(|r| r.map_err(|e| Box::new(e) as BoxedError));
-        let stream = stream_select!(cancel_receiver, data_stream);
-        let x = Box::new(stream)
+
+        // let stream = stream_select!(cancel_receiver, data_stream);
+        let x = Box::new(data_stream)
             as Box<dyn Stream<Item = Result<DataChunk, BoxedError>> + Send + 'static>;
         Box::into_pin(x)
     }

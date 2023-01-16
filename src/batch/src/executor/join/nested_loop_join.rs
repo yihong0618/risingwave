@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 use futures::TryStreamExt;
 use futures_async_stream::try_stream;
 use itertools::Itertools;
@@ -28,6 +31,7 @@ use risingwave_expr::expr::{
 };
 use risingwave_pb::batch_plan::plan_node::NodeBody;
 
+use crate::error::BatchError::QueryCancelError;
 use crate::executor::join::{concatenate, convert_row_to_chunk, JoinType};
 use crate::executor::{
     BoxedDataChunkStream, BoxedExecutor, BoxedExecutorBuilder, Executor, ExecutorBuilder,
@@ -61,6 +65,8 @@ pub struct NestedLoopJoinExecutor {
     identity: String,
     /// The maximum size of the chunk produced by executor at a time.
     chunk_size: usize,
+    /// Cancel flag
+    cancel_flag: Arc<AtomicBool>,
 }
 
 impl Executor for NestedLoopJoinExecutor {
@@ -107,6 +113,7 @@ impl NestedLoopJoinExecutor {
             self.join_expr,
             left,
             self.right_child,
+            self.cancel_flag,
         ) {
             yield chunk?.reorder_columns(&self.output_indices)
         }
@@ -164,6 +171,7 @@ impl BoxedExecutorBuilder for NestedLoopJoinExecutor {
             right_child,
             source.plan_node().get_identity().clone(),
             source.context.get_config().developer.batch_chunk_size,
+            source.context.cancel_flag(),
         )))
     }
 }
@@ -177,6 +185,7 @@ impl NestedLoopJoinExecutor {
         right_child: BoxedExecutor,
         identity: String,
         chunk_size: usize,
+        cancel_flag: Arc<AtomicBool>,
     ) -> Self {
         // TODO(Bowen): Merge this with derive schema in Logical Join (#790).
         let original_schema = match join_type {
@@ -206,6 +215,7 @@ impl NestedLoopJoinExecutor {
             right_child,
             identity,
             chunk_size,
+            cancel_flag,
         }
     }
 }
@@ -218,6 +228,7 @@ impl NestedLoopJoinExecutor {
         join_expr: BoxedExpression,
         left: Vec<DataChunk>,
         right: BoxedExecutor,
+        cancel_flag: Arc<AtomicBool>,
     ) {
         // 1. Iterate over the right table by chunks.
         #[for_await]
@@ -225,6 +236,10 @@ impl NestedLoopJoinExecutor {
             let right_chunk = right_chunk?;
             // 2. Iterator over the left table by rows.
             for left_row in left.iter().flat_map(|chunk| chunk.rows()) {
+                if cancel_flag.load(Ordering::SeqCst) {
+                    info!("Query cancelled.");
+                    return Err(QueryCancelError.into());
+                }
                 // 3. Concatenate the left row and right chunk into a single chunk and evaluate the
                 // expression on it.
                 let chunk = Self::concatenate_and_eval(
@@ -250,6 +265,7 @@ impl NestedLoopJoinExecutor {
         join_expr: BoxedExpression,
         left: Vec<DataChunk>,
         right: BoxedExecutor,
+        cancel_flag: Arc<AtomicBool>,
     ) {
         let mut matched = BitmapBuilder::zeroed(left.iter().map(|chunk| chunk.capacity()).sum());
         let right_data_types = right.schema().data_types();
@@ -294,6 +310,7 @@ impl NestedLoopJoinExecutor {
         join_expr: BoxedExpression,
         left: Vec<DataChunk>,
         right: BoxedExecutor,
+        cancel_flag: Arc<AtomicBool>,
     ) {
         let mut matched = BitmapBuilder::zeroed(left.iter().map(|chunk| chunk.capacity()).sum());
         #[for_await]
@@ -333,6 +350,7 @@ impl NestedLoopJoinExecutor {
         join_expr: BoxedExpression,
         left: Vec<DataChunk>,
         right: BoxedExecutor,
+        cancel_flag: Arc<AtomicBool>,
     ) {
         #[for_await]
         for right_chunk in right.execute() {
@@ -374,6 +392,7 @@ impl NestedLoopJoinExecutor {
         join_expr: BoxedExpression,
         left: Vec<DataChunk>,
         right: BoxedExecutor,
+        cancel_flag: Arc<AtomicBool>,
     ) {
         #[for_await]
         for right_chunk in right.execute() {
@@ -410,6 +429,7 @@ impl NestedLoopJoinExecutor {
         join_expr: BoxedExpression,
         left: Vec<DataChunk>,
         right: BoxedExecutor,
+        cancel_flag: Arc<AtomicBool>,
     ) {
         let mut left_matched =
             BitmapBuilder::zeroed(left.iter().map(|chunk| chunk.capacity()).sum());
