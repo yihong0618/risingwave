@@ -147,21 +147,21 @@ impl SharedContext {
 
     #[inline]
     pub fn add_channel_pairs(&self, ids: UpDownActorIds) {
-        let (tx, rx) = if ids.0 == 2 {
-            permit::channel(
-                2048,
-                512,
-            )
-        } else {
-            permit::channel(
-                131072,
-                2048,
-            )
-        };
-        // let (tx, rx) = permit::channel(
-        //     self.config.developer.stream_exchange_initial_permits,
-        //     self.config.developer.stream_exchange_batched_permits,
-        // );
+        // let (tx, rx) = if ids.0 == 2 {
+        //     permit::channel(
+        //         2048,
+        //         512,
+        //     )
+        // } else {
+        //     permit::channel(
+        //         131072,
+        //         2048,
+        //     )
+        // };
+        let (tx, rx) = permit::channel(
+            self.config.developer.stream_exchange_initial_permits,
+            self.config.developer.stream_exchange_batched_permits,
+        );
         assert!(
             self.lock_channel_map()
                 .insert(ids, (Some(tx), Some(rx)))
