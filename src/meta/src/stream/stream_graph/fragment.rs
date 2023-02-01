@@ -419,7 +419,8 @@ impl CompleteStreamFragmentGraph {
         }
     }
 
-    /// Create a new [`CompleteStreamFragmentGraph`] for MV-on-MV.
+    /// Create a new [`CompleteStreamFragmentGraph`] for MV-on-MV. Returns an error if the upstream
+    /// `Materialize` is failed to resolve.
     pub fn new(
         graph: StreamFragmentGraph,
         upstream_mview_fragments: HashMap<TableId, Fragment>,

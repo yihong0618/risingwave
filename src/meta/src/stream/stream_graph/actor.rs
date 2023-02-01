@@ -24,7 +24,8 @@ use risingwave_pb::meta::table_fragments::Fragment;
 use risingwave_pb::stream_plan::stream_fragment_graph::StreamFragmentEdge;
 use risingwave_pb::stream_plan::stream_node::NodeBody;
 use risingwave_pb::stream_plan::{
-    DispatchStrategy, Dispatcher, DispatcherType, MergeNode, StreamActor, StreamNode,
+    ColocatedActorId, DispatchStrategy, Dispatcher, DispatcherType, MergeNode, StreamActor,
+    StreamNode,
 };
 
 use crate::error::MetaResult;
@@ -60,6 +61,7 @@ struct StreamActorDownstream {
     same_worker_node: bool,
 }
 
+#[derive(Debug)]
 struct StreamActorUpstream {
     /// Upstream actors
     actors: OrderedActorLink,
@@ -169,8 +171,40 @@ impl StreamActorBuilder {
                 .flat_map(|(_, StreamActorUpstream { actors, .. })| actors.0.iter().copied())
                 .map(|x| x.as_global_id())
                 .collect(), // TODO: store each upstream separately
-            same_worker_node_as_upstream: self.chain_same_worker_node
-                || self.upstreams.values().any(|u| u.same_worker_node),
+            colocated_upstream_actor_id: if self.chain_same_worker_node {
+                if self.upstreams.is_empty() {
+                    None
+                } else {
+                    Some(ColocatedActorId {
+                        id: self
+                            .upstreams
+                            .values()
+                            .exactly_one()
+                            .unwrap()
+                            .actors
+                            .as_global_ids()
+                            .into_iter()
+                            .exactly_one()
+                            .unwrap(),
+                    })
+                }
+            } else if self.upstreams.values().any(|u| u.same_worker_node) {
+                Some(ColocatedActorId {
+                    id: self
+                        .upstreams
+                        .values()
+                        .filter(|x| x.same_worker_node)
+                        .exactly_one()
+                        .unwrap()
+                        .actors
+                        .as_global_ids()
+                        .into_iter()
+                        .exactly_one()
+                        .unwrap(),
+                })
+            } else {
+                None
+            },
             vnode_bitmap: None,
             // To be filled by `StreamGraphBuilder::build`
             mview_definition: "".to_owned(),
@@ -489,27 +523,29 @@ pub struct ActorGraphBuilder {
 }
 
 impl ActorGraphBuilder {
-    /// Create a new actor graph builder with the given "complete" graph.
-    pub fn new(complete_graph: CompleteStreamFragmentGraph, default_parallelism: u32) -> Self {
+    /// Create a new actor graph builder with the given "complete" graph. Returns an error if the
+    /// graph is failed to be scheduled.
+    pub fn new(
+        complete_graph: CompleteStreamFragmentGraph,
+        default_parallelism: u32,
+    ) -> MetaResult<Self> {
         // TODO: use the real parallel units to generate real distribution.
         let fake_parallel_units = (0..default_parallelism).map(|id| ParallelUnit {
             id,
             worker_node_id: 0,
         });
         let distributions =
-            schedule::Scheduler::new(fake_parallel_units, default_parallelism as usize)
-                .unwrap()
-                .schedule(&complete_graph)
-                .unwrap();
+            schedule::Scheduler::new(fake_parallel_units, default_parallelism as usize)?
+                .schedule(&complete_graph)?;
 
         // TODO: directly use the complete graph when building so that we can generalize the
         // processing logic for `Chain`s.
         let fragment_graph = complete_graph.into_inner();
 
-        Self {
+        Ok(Self {
             distributions,
             fragment_graph,
-        }
+        })
     }
 
     /// Build a stream graph by duplicating each fragment as parallel actors.
@@ -544,7 +580,7 @@ impl ActorGraphBuilder {
         Ok(stream_graph)
     }
 
-    /// Build actor graph from fragment graph using topological sort. Setup dispatcher in actor and
+    /// Build actor graph from fragment graph using topological order. Setup dispatcher in actor and
     /// generate actors by their parallelism.
     fn build_actor_graph(
         &self,
@@ -575,6 +611,7 @@ impl ActorGraphBuilder {
             .unwrap()
             .clone();
 
+        // TODO: remove this after scheduler refactoring.
         let upstream_table_id = current_fragment
             .upstream_table_ids
             .iter()

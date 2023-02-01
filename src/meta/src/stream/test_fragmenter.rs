@@ -419,7 +419,7 @@ async fn test_graph_builder() -> MetaResult<()> {
     let actor_graph_builder = ActorGraphBuilder::new(
         CompleteStreamFragmentGraph::for_test(fragment_graph),
         parallel_degree,
-    );
+    )?;
 
     let graph = actor_graph_builder
         .generate_graph(env.id_gen_manager_ref(), &mut ctx)
@@ -469,6 +469,7 @@ async fn test_graph_builder() -> MetaResult<()> {
     expected_upstream.insert(9, vec![]);
 
     for actor in actors {
+        println!("actor_id = {}", actor.get_actor_id());
         assert_eq!(
             expected_downstream.get(&actor.get_actor_id()).unwrap(),
             actor
