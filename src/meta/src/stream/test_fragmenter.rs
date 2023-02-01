@@ -35,8 +35,9 @@ use risingwave_pb::stream_plan::{
 
 use crate::manager::{MetaSrvEnv, StreamingJob};
 use crate::model::TableFragments;
-use crate::stream::stream_graph::ActorGraphBuilder;
-use crate::stream::{CompleteStreamFragmentGraph, CreateStreamingJobContext, StreamFragmentGraph};
+use crate::stream::{
+    ActorGraphBuilder, CompleteStreamFragmentGraph, CreateStreamingJobContext, StreamFragmentGraph,
+};
 use crate::MetaResult;
 
 fn make_inputref(idx: i32) -> ExprNode {

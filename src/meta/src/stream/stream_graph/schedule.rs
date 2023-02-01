@@ -23,7 +23,8 @@ use risingwave_common::hash::ParallelUnitMapping;
 use risingwave_pb::common::ParallelUnit;
 use risingwave_pb::stream_plan::DispatcherType::{self, *};
 
-use super::{CompleteStreamFragmentGraph, GlobalFragmentId as Id};
+use crate::stream::stream_graph::fragment::CompleteStreamFragmentGraph;
+use crate::stream::stream_graph::id::GlobalFragmentId as Id;
 use crate::MetaResult;
 
 type HashMappingId = usize;
@@ -196,7 +197,7 @@ impl Scheduler {
             hash_mapping_id[&self.default_hash_mapping],
         )));
         // Internal
-        for (&id, fragment) in &graph.graph.fragments {
+        for (&id, fragment) in graph.building_fragments() {
             if fragment.is_singleton {
                 facts.push(Fact::InternalReq {
                     id,
@@ -224,7 +225,7 @@ impl Scheduler {
         if !failed.is_empty() {
             bail!("Failed to schedule: {:?}", failed);
         }
-        assert_eq!(success.len(), graph.graph.fragments.len());
+        assert_eq!(success.len(), graph.building_fragments().len());
 
         // Extract the results.
         let distributions = success
