@@ -30,13 +30,13 @@ use risingwave_pb::stream_plan::{
     DispatcherType, StreamActor, StreamFragmentGraph as StreamFragmentGraphProto,
 };
 
+use super::{visit_fragment, visit_internal_tables};
 use crate::manager::{IdGeneratorManagerRef, StreamingJob};
 use crate::model::FragmentId;
 use crate::storage::MetaStore;
-use crate::stream::stream_graph;
 use crate::stream::stream_graph::id::{GlobalFragmentId, GlobalFragmentIdGen, GlobalTableIdGen};
 use crate::stream::stream_graph::schedule::Distribution;
-use crate::{stream, MetaResult};
+use crate::MetaResult;
 
 /// The fragment in the building phase, including the [`StreamFragment`] from the frontend and
 /// several additional helper fields.
@@ -84,7 +84,7 @@ impl BuildingFragment {
         let fragment_id = fragment.fragment_id;
         let mut internal_tables = Vec::new();
 
-        stream_graph::visit_internal_tables(fragment, |table, table_type_name| {
+        visit_internal_tables(fragment, |table, table_type_name| {
             table.id = table_id_gen.to_global_id(table.id).as_global_id();
             table.schema_id = job.schema_id();
             table.database_id = job.database_id();
@@ -109,7 +109,7 @@ impl BuildingFragment {
         let fragment_id = fragment.fragment_id;
         let mut has_table = false;
 
-        stream::visit_fragment(fragment, |node_body| match node_body {
+        visit_fragment(fragment, |node_body| match node_body {
             NodeBody::Materialize(materialize_node) => {
                 materialize_node.table_id = table_id;
 
