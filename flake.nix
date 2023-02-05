@@ -22,9 +22,9 @@
         pkgs = nixpkgs.legacyPackages.${system};
         toolchain = fenix.packages.${system}.fromToolchainFile {
           file = ./rust-toolchain;
-          sha256 = "sha256-twStjIoEFC9YTbJN49x81IxSeOXrxKm8xEoae9Z1pmM=";
+          sha256 = "sha256-/cB0OCZxUcZIydt9OU9TrQxIq9UmcW1ffP9wUaMMGEE=";
         };
-        craneLib = crane.lib.${system}.overrideToolchain toolchain;
+        craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
         packageDef = with pkgs; {
           src = craneLib.cleanCargoSource ./.;
           nativeBuildInputs = [ lld pkg-config autoPatchelfHook perl cmake ];
