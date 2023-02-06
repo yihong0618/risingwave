@@ -60,6 +60,22 @@ createdb -h db -U postgres test
 psql -h db -U postgres -d test -c "CREATE TABLE t4 (v1 int, v2 int);"
 psql -h db -U postgres -d test -c "CREATE TABLE t_remote (id serial PRIMARY KEY, name VARCHAR (50) NOT NULL);"
 
+
+# set up Cassandra sink destination
+echo "--- preparing cassandra"
+sh -c 'echo "deb http://www.apache.org/dist/cassandra/debian 40x main" > /etc/apt/sources.list.d/cassandra.list'
+wget -q -O - https://www.apache.org/dist/cassandra/KEYS | apt-key add -
+apt-get -y install Cassandra
+# setup user and password for cassandra
+cqlsh -e "CREATE ROLE IF NOT EXISTS test WITH PASSWORD = 'connector' AND LOGIN = true;"
+# setup keyspace
+cqlsh -e "CREATE KEYSPACE IF NOT EXISTS test WITH REPLICATION = {'class' : 'SimpleStrategy', 'replication_factor' : 1};"
+# grant access to `test` for ci test user
+cqlsh -e "GRANT ALL PERMISSIONS ON KEYSPACE test TO test;"
+# setup table
+cqlsh -e "CREATE TABLE IF NOT EXISTS test.t_remote (id int PRIMARY KEY, name text);"
+
+
 echo "--- starting risingwave cluster with connector node"
 cargo make ci-start ci-1cn-1fe
 java -jar ./connector-service.jar --port 60061 > .risingwave/log/connector-source.log 2>&1 &
@@ -88,6 +104,22 @@ else
   echo "The output is not as expected."
   exit 1
 fi
+
+# chck sink destination cassandra using shell
+if cqlsh -e "SELECT * FROM test.t_remote;" | awk '{
+if ($1 == 1 && $2 == "Alex") c1++;
+ if ($1 == 3 && $2 == "Carl") c2++;
+  if ($1 == 4 && $2 == "Doris") c3++;
+   if ($1 == 5 && $2 == "Eve") c4++;
+    if ($1 == 6 && $2 == "Frank") c5++; }
+     END { exit !(c1 == 1 && c2 == 1 && c3 == 1 && c4 == 1 && c5 == 1); }'; then
+  echo "cassandra sink check passed"
+else
+  echo "The output is not as expected. Actual output: "
+  cqlsh -e "SELECT * FROM test.t_remote;"
+  exit 1
+fi
+
 
 echo "--- Kill cluster"
 pkill -f connector-service.jar

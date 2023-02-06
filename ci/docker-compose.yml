@@ -29,6 +29,21 @@ services:
       timeout: 5s
       retries: 5
 
+  cassandra:
+    image: cassandra:3.11
+    ports:
+      - 9042
+    environment:
+      - CASSANDRA_CLUSTER_NAME=Test Cluster
+      - CASSANDRA_DC=datacenter1
+      - CASSANDRA_RACK=rack1
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+    healthcheck:
+      test: [ "CMD-SHELL", "nodetool status" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   source-test-env:
     image: public.ecr.aws/x5u3w5h6/rw-build-env:v20230116
     depends_on:
@@ -42,6 +57,7 @@ services:
     depends_on:
       - mysql
       - db
+      - cassandra
     volumes:
       - ..:/risingwave
 

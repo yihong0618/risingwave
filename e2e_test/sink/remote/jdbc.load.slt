@@ -19,6 +19,14 @@ CREATE SINK s_mysql FROM mv_remote WITH (
 );
 
 statement ok
+CREATE SINK s_cassandra FROM mv_remote WITH (
+    connector='cassandra',
+    cassandra.endpoint='cassandra:9042',
+    cassandra.keyspace='test',
+    cassandra.table='t_remote'
+);
+
+statement ok
 INSERT INTO t_remote VALUES (1, 'Alice'), (2, 'Bob'), (3, 'Carl');
 
 statement ok
