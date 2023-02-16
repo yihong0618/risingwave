@@ -181,6 +181,16 @@ impl KeyPrefix {
         self.offset + self.len()..self.offset + self.len() + self.diff
     }
 
+    /// Gets diff key range.
+    pub fn diff_key_range_data(&mut self, data: &[u8]) -> Range<usize> {
+        let mut idx = self.offset + self.len() + self.diff;
+        while data[idx] != 0 as u8 && data[idx] != (1 << 0 as u8) {
+            idx += 1;
+        }
+        self.diff = idx - (self.offset + self.len());
+        self.offset + self.len()..self.offset + self.len() + self.diff
+    }
+
     /// Gets value range.
     pub fn value_range(&self) -> Range<usize> {
         self.offset + self.len() + self.diff..self.offset + self.len() + self.diff + self.value

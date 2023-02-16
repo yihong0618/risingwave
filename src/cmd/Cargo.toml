@@ -42,21 +42,21 @@ workspace-hack = { path = "../workspace-hack" }
 [target.'cfg(target_os = "linux")'.dependencies]
 tikv-jemallocator = { version = "0.5", features = ["profiling", "stats"] }
 
-[[bin]]
-name = "frontend"
-path = "src/bin/frontend_node.rs"
+# [[bin]]
+# name = "frontend"
+# path = "src/bin/frontend_node.rs"
 
-[[bin]]
-name = "meta-node"
-path = "src/bin/meta_node.rs"
+# [[bin]]
+# name = "meta-node"
+# path = "src/bin/meta_node.rs"
 
-[[bin]]
-name = "compute-node"
-path = "src/bin/compute_node.rs"
+# [[bin]]
+# name = "compute-node"
+# path = "src/bin/compute_node.rs"
 
-[[bin]]
-name = "compactor"
-path = "src/bin/compactor.rs"
+# [[bin]]
+# name = "compactor"
+# path = "src/bin/compactor.rs"
 
 [[bin]]
 name = "risectl"

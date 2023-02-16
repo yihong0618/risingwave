@@ -524,9 +524,9 @@ impl S3ObjectStore {
             .load()
             .await;
         let client = Client::new(&sdk_config);
-        Self::configure_bucket_lifecycle(&client, &bucket)
-            .await
-            .unwrap();
+        // Self::configure_bucket_lifecycle(&client, &bucket)
+        //     .await
+        //     .unwrap();
 
         Self {
             client,

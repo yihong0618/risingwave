@@ -985,6 +985,7 @@ impl ElectionMemberManagement {
     }
 
     async fn refresh_members(&mut self) -> Result<()> {
+        return Ok(());
         let leader_addr = match self.members.as_mut() {
             Either::Left(client) => {
                 let resp = client.to_owned().members(MembersRequest {}).await?;

@@ -34,7 +34,7 @@ use crate::CtlContext;
 
 type TableData = HashMap<u32, TableCatalog>;
 
-pub async fn sst_dump(context: &CtlContext) -> anyhow::Result<()> {
+pub async fn sst_dump(context: &CtlContext, sst_id_opt: Option<u64>, block_id_opt: Option<u64>) -> anyhow::Result<()> {
     // Retrieves the Sstable store so we can access the SstableMeta
     let meta_client = context.meta_client().await?;
     let hummock = context.hummock_store().await?;
@@ -45,6 +45,11 @@ pub async fn sst_dump(context: &CtlContext) -> anyhow::Result<()> {
     for level in version.get_combined_levels() {
         for sstable_info in &level.table_infos {
             let id = sstable_info.id;
+            if let Some(sst_id) = sst_id_opt {
+                if id != sst_id {
+                    continue;
+                }
+            }
 
             let sstable_cache = sstable_store
                 .sstable(sstable_info, &mut StoreLocalStatistic::default())
@@ -72,7 +77,11 @@ pub async fn sst_dump(context: &CtlContext) -> anyhow::Result<()> {
             println!("Key Count: {}", sstable_meta.key_count);
             println!("Version: {}", sstable_meta.version);
 
-            print_blocks(id, &table_data, sstable_store, sstable_meta).await?;
+            print_blocks(id, block_id_opt, &table_data, sstable_store, sstable_meta).await?;
+
+            if sst_id_opt.is_some() {
+                return Ok(());
+            }
         }
     }
     Ok(())
@@ -94,6 +103,7 @@ async fn load_table_schemas(meta_client: &MetaClient) -> anyhow::Result<TableDat
 /// Prints all blocks of a given SST including all contained KV-pairs.
 async fn print_blocks(
     id: HummockSstableId,
+    block_id_opt: Option<u64>,
     table_data: &TableData,
     sstable_store: &SstableStore,
     sstable_meta: &SstableMeta,
@@ -102,6 +112,11 @@ async fn print_blocks(
 
     println!("Blocks:");
     for (i, block_meta) in sstable_meta.block_metas.iter().enumerate() {
+        if let Some(block_id) = block_id_opt {
+            if block_id != i as u64 {
+                continue;
+            }
+        }
         println!("\tBlock {}", i);
         println!("\t-----------");
 
@@ -128,6 +143,10 @@ async fn print_blocks(
             table_data,
             block_meta.uncompressed_size as usize,
         )?;
+
+        if block_id_opt.is_some() {
+            return Ok(());
+        }
     }
 
     Ok(())
@@ -152,20 +171,20 @@ fn print_kv_pairs(
         let raw_user_key = full_key.user_key.encode();
 
         let full_val = block_iter.value();
-        let humm_val = HummockValue::from_slice(block_iter.value())?;
-        let (is_put, user_val) = match humm_val {
+        let humm_val = HummockValue::from_slice(block_iter.value());
+        let epoch = full_key.epoch;
+
+        println!("\t\t  full key: {} full value: {} user key: {}", raw_full_key.len(), full_val.len(),  raw_user_key.len());
+
+
+        let (is_put, user_val) = match humm_val? {
             HummockValue::Put(uval) => (true, uval),
             HummockValue::Delete => (false, &[] as &[u8]),
         };
+        println!("\t\tuser value: {} epoch: {} type: {}", user_val.len(), epoch, if is_put { "Put" } else { "Delete" });
 
-        let epoch = full_key.epoch;
 
-        println!("\t\t  full key: {:02x?}", raw_full_key);
-        println!("\t\tfull value: {:02x?}", full_val);
-        println!("\t\t  user key: {:02x?}", raw_user_key);
-        println!("\t\tuser value: {:02x?}", user_val);
-        println!("\t\t     epoch: {}", epoch);
-        println!("\t\t      type: {}", if is_put { "Put" } else { "Delete" });
+
 
         print_table_column(full_key, user_val, table_data, is_put)?;
 

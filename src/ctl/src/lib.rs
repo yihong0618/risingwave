@@ -95,7 +95,13 @@ enum HummockCommands {
         #[clap(short, long = "table-id")]
         table_id: u32,
     },
-    SstDump,
+    SstDump {
+        #[clap(short, long = "sst-id")]
+        sst_id: Option<u64>,
+        #[clap(short, long = "block-id")]
+        block_id: Option<u64>,
+
+    },
     /// trigger a targeted compaction through compaction_group_id
     TriggerManualCompaction {
         #[clap(short, long = "compaction-group-id", default_value_t = 2)]
@@ -222,8 +228,8 @@ pub async fn start_impl(opts: CliOpts, context: &CtlContext) -> Result<()> {
         Commands::Hummock(HummockCommands::ListKv { epoch, table_id }) => {
             cmd_impl::hummock::list_kv(context, epoch, table_id).await?;
         }
-        Commands::Hummock(HummockCommands::SstDump) => {
-            cmd_impl::hummock::sst_dump(context).await.unwrap()
+        Commands::Hummock(HummockCommands::SstDump{ sst_id, block_id }) => {
+            cmd_impl::hummock::sst_dump(context, sst_id, block_id).await.unwrap()
         }
         Commands::Hummock(HummockCommands::TriggerManualCompaction {
             compaction_group_id,

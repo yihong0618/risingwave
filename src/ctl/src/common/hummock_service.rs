@@ -31,6 +31,7 @@ use tokio::task::JoinHandle;
 
 pub struct HummockServiceOpts {
     pub hummock_url: String,
+    pub hummock_dir: String,
 
     heartbeat_handle: Option<JoinHandle<()>>,
     heartbeat_shutdown_sender: Option<Sender<()>>,
@@ -72,8 +73,30 @@ For `./risedev apply-compose-deploy` users,
                 bail!(MESSAGE);
             }
         };
+        let hummock_dir = match env::var("RW_HUMMOCK_DIR") {
+            Ok(url) => {
+                tracing::info!("using Hummock data directory from `RW_HUMMOCK_DIR`: {}", url);
+                url
+            }
+            Err(_) => {
+                const MESSAGE: &str = "env variable `RW_HUMMOCK_DIR` not found. Default value hummock_001 will be used!!
+
+For `./risedev d` use cases, please do the following.
+* start the cluster with shared storage:
+  - consider adding `use: minio` in the risedev config,
+  - or directly use `./risedev d for-ctl` to start the cluster.
+* use `./risedev ctl` to use risectl.
+
+For `./risedev apply-compose-deploy` users,
+* `RW_HUMMOCK_DIR` will be printed out when deploying. Please copy the bash exports to your console.
+";
+                println!("{}", MESSAGE);
+                "hummock_001".to_string()
+            }
+        };
         Ok(Self {
             hummock_url,
+            hummock_dir,
             heartbeat_handle: None,
             heartbeat_shutdown_sender: None,
         })
@@ -95,6 +118,7 @@ For `./risedev apply-compose-deploy` users,
         // FIXME: allow specify custom config
         let config = StorageConfig {
             share_buffer_compaction_worker_threads_number: 0,
+            data_directory: self.hummock_dir.clone(),
             ..Default::default()
         };
         let rw_config = RwConfig {

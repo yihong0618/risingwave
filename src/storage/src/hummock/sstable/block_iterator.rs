@@ -136,10 +136,11 @@ impl BlockIterator {
         if offset >= self.block.len() {
             return false;
         }
-        let prefix = self.decode_prefix_at(offset);
+        let mut prefix = self.decode_prefix_at(offset);
         self.key.truncate(prefix.overlap_len());
         self.key
-            .extend_from_slice(&self.block.data()[prefix.diff_key_range()]);
+            .extend_from_slice(&self.block.data()[prefix.diff_key_range_data(self.block.data())]);
+        println!("prefix: {:?}", prefix);
         self.value_range = prefix.value_range();
         self.offset = offset;
         self.entry_len = prefix.entry_len();
