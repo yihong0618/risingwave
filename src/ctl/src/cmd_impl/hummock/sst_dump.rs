@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::collections::HashMap;
+use std::os::unix::prelude::FileExt;
 
 use bytes::{Buf, Bytes};
 use itertools::Itertools;
@@ -29,12 +30,17 @@ use risingwave_storage::hummock::{
     Block, BlockHolder, BlockIterator, CompressionAlgorithm, SstableMeta, SstableStore,
 };
 use risingwave_storage::monitor::StoreLocalStatistic;
+use tokio::fs::OpenOptions;
 
 use crate::CtlContext;
 
 type TableData = HashMap<u32, TableCatalog>;
 
-pub async fn sst_dump(context: &CtlContext, sst_id_opt: Option<u64>, block_id_opt: Option<u64>) -> anyhow::Result<()> {
+pub async fn sst_dump(
+    context: &CtlContext,
+    sst_id_opt: Option<u64>,
+    block_id_opt: Option<u64>,
+) -> anyhow::Result<()> {
     // Retrieves the Sstable store so we can access the SstableMeta
     let meta_client = context.meta_client().await?;
     let hummock = context.hummock_store().await?;
@@ -152,6 +158,31 @@ async fn print_blocks(
     Ok(())
 }
 
+pub async fn block_dump(path: &str, offset: u64, len: u64) -> anyhow::Result<()> {
+    let mut buf = vec![0; len as usize];
+    let f = OpenOptions::new()
+        .read(true)
+        .open(path)
+        .await
+        .unwrap()
+        .into_std()
+        .await;
+    f.read_exact_at(&mut buf, offset).unwrap();
+    let block_data = Bytes::from(buf);
+    // Retrieve checksum and compression algorithm used from the encoded block data
+    let len = block_data.len();
+    let checksum = (&block_data[len - 8..]).get_u64_le();
+    let compression = CompressionAlgorithm::decode(&mut &block_data[len - 9..len - 8])?;
+
+    println!(
+        "\tOffset: {}, Size: {}, Checksum: {}, Compression Algorithm: {:?}",
+        offset, len, checksum, compression
+    );
+
+    let dummy = HashMap::<u32, TableCatalog>::default();
+    print_kv_pairs(block_data, &dummy, len as usize)
+}
+
 /// Prints the data of KV-Pairs of a given block out to the terminal.
 fn print_kv_pairs(
     block_data: Bytes,
@@ -174,17 +205,23 @@ fn print_kv_pairs(
         let humm_val = HummockValue::from_slice(block_iter.value());
         let epoch = full_key.epoch;
 
-        println!("\t\t  full key: {} full value: {} user key: {}", raw_full_key.len(), full_val.len(),  raw_user_key.len());
-
+        println!(
+            "\t\t  full key: {} full value: {} user key: {}",
+            raw_full_key.len(),
+            full_val.len(),
+            raw_user_key.len()
+        );
 
         let (is_put, user_val) = match humm_val? {
             HummockValue::Put(uval) => (true, uval),
             HummockValue::Delete => (false, &[] as &[u8]),
         };
-        println!("\t\tuser value: {} epoch: {} type: {}", user_val.len(), epoch, if is_put { "Put" } else { "Delete" });
-
-
-
+        println!(
+            "\t\tuser value: {} epoch: {} type: {}",
+            user_val.len(),
+            epoch,
+            if is_put { "Put" } else { "Delete" }
+        );
 
         print_table_column(full_key, user_val, table_data, is_put)?;
 

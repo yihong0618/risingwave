@@ -137,6 +137,7 @@ impl BlockIterator {
             return false;
         }
         let mut prefix = self.decode_prefix_at(offset);
+        println!("prefix: {:?}", prefix);
         self.key.truncate(prefix.overlap_len());
         self.key
             .extend_from_slice(&self.block.data()[prefix.diff_key_range_data(self.block.data())]);

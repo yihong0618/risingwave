@@ -146,6 +146,14 @@ enum HummockCommands {
         #[clap(long)]
         max_sub_compaction: Option<u32>,
     },
+    BlockDump {
+        #[clap(short, long = "path")]
+        path: String,
+        #[clap(short, long = "offset")]
+        offset: u64,
+        #[clap(short, long = "len")]
+        len: u64
+    },
 }
 
 #[derive(Subcommand)]
@@ -230,6 +238,9 @@ pub async fn start_impl(opts: CliOpts, context: &CtlContext) -> Result<()> {
         }
         Commands::Hummock(HummockCommands::SstDump{ sst_id, block_id }) => {
             cmd_impl::hummock::sst_dump(context, sst_id, block_id).await.unwrap()
+        }
+        Commands::Hummock(HummockCommands::BlockDump{ path, offset, len }) => {
+            cmd_impl::hummock::block_dump(&path, offset, len).await.unwrap()
         }
         Commands::Hummock(HummockCommands::TriggerManualCompaction {
             compaction_group_id,
