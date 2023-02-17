@@ -34,7 +34,7 @@ struct TableDmlHandleCore {
     ///
     /// When a `StreamReader` is created, a channel will be created and the sender will be
     /// saved here. The insert statement will take one channel randomly.
-    changes_txs: Vec<mpsc::Sender<(StreamChunk, oneshot::Sender<usize>)>>,
+    changes_txs: Vec<mpsc::UnboundedSender<(StreamChunk, oneshot::Sender<usize>)>>,
 }
 
 /// [`TableDmlHandle`] is a special internal source to handle table updates from user,
@@ -66,7 +66,7 @@ impl TableDmlHandle {
 
     pub fn stream_reader(&self) -> TableStreamReader {
         let mut core = self.core.write();
-        let (tx, rx) = mpsc::channel(1);
+        let (tx, rx) = mpsc::unbounded_channel();
         core.changes_txs.push(tx);
 
         TableStreamReader { rx }
@@ -103,7 +103,7 @@ impl TableDmlHandle {
 
             let (notifier_tx, notifier_rx) = oneshot::channel();
 
-            match block_on(tx.send((chunk, notifier_tx))) {
+            match tx.send((chunk, notifier_tx)) {
                 Ok(_) => return Ok(notifier_rx),
 
                 // It's possible that the source executor is scaled in or migrated, so the channel
@@ -129,7 +129,7 @@ impl TableDmlHandle {
 #[derive(Debug)]
 pub struct TableStreamReader {
     /// The receiver of the changes channel.
-    rx: mpsc::Receiver<(StreamChunk, oneshot::Sender<usize>)>,
+    rx: mpsc::UnboundedReceiver<(StreamChunk, oneshot::Sender<usize>)>,
 }
 
 impl TableStreamReader {
