@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashSet};
+use std::hash::Hasher;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -56,6 +58,7 @@ pub type JoinTypePrimitive = u8;
 
 /// Evict the cache every n rows.
 const EVICT_EVERY_N_ROWS: u32 = 16;
+const SAMPLE_NUM_IN_TEN_K: u64 = 200;
 
 #[allow(non_snake_case, non_upper_case_globals)]
 pub mod JoinType {
@@ -262,6 +265,9 @@ pub struct HashJoinExecutor<K: HashKey, S: StateStore, const T: JoinTypePrimitiv
     metrics: Arc<StreamingMetrics>,
     /// The maximum size of the chunk produced by executor at a time
     chunk_size: usize,
+    /// Count the messages received, clear to 0 when counted to `EVICT_EVERY_N_MESSAGES`
+    cnt_rows_received: u32,
+
     /// Count the messages received, clear to 0 when counted to `EVICT_EVERY_N_MESSAGES`
     cnt_rows_received: u32,
 
@@ -615,6 +621,8 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
         let inequality_watermarks = vec![None; inequality_pairs.len()];
         let watermark_buffers = BTreeMap::new();
 
+        let table_id_l = state_table_l.table_id();
+        let table_id_r = state_table_r.table_id();
         Self {
             ctx: ctx.clone(),
             input_l: Some(input_l),
@@ -636,6 +644,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     pk_contained_in_jk_l,
                     metrics.clone(),
                     ctx.id,
+                    table_id_l,
                     "left",
                 ),
                 join_key_indices: join_key_indices_l,
@@ -663,6 +672,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     pk_contained_in_jk_r,
                     metrics.clone(),
                     ctx.id,
+                    table_id_r,
                     "right",
                 ),
                 join_key_indices: join_key_indices_r,
@@ -709,6 +719,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
         yield Message::Barrier(barrier);
         let actor_id_str = self.ctx.id.to_string();
         let mut start_time = Instant::now();
+        let mut epoch_start_time = Instant::now();
 
         while let Some(msg) = aligned_stream
             .next()
@@ -808,7 +819,22 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     self.side_r.ht.update_epoch(barrier.epoch.curr);
 
                     // Report metrics of cached join rows/entries
-                    for (side, ht) in [("left", &self.side_l.ht), ("right", &self.side_r.ht)] {
+                    for (side, side_bucket, side_ghost_bucket, side_ghost_start, ht) in [
+                        (
+                            "left",
+                            "left_bucket",
+                            "left_ghost_bucket",
+                            "left_ghost_start",
+                            &mut self.side_l.ht,
+                        ),
+                        (
+                            "right",
+                            "right_bucket",
+                            "right_ghost_bucket",
+                            "right_ghost_start",
+                            &mut self.side_r.ht,
+                        ),
+                    ] {
                         // TODO(yuhao): Those two metric calculation cost too much time (>250ms).
                         // Those will result in that barrier is always ready
                         // in source. Since select barrier is preferred,
@@ -817,16 +843,39 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                         //     .join_cached_rows
                         //     .with_label_values(&[&actor_id_str, side])
                         //     .set(ht.cached_rows() as i64);
+                        let cache_entry_count = ht.entry_count();
                         self.metrics
                             .join_cached_entries
                             .with_label_values(&[&actor_id_str, side])
-                            .set(ht.entry_count() as i64);
+                            .set(cache_entry_count as i64);
+                        self.metrics
+                            .join_cached_entries
+                            .with_label_values(&[&actor_id_str, side_bucket])
+                            .set(ht.bucket_count() as i64);
+                        self.metrics
+                            .join_cached_entries
+                            .with_label_values(&[&actor_id_str, side_ghost_bucket])
+                            .set(ht.ghost_bucket_count() as i64);
+                        self.metrics
+                            .join_cached_entries
+                            .with_label_values(&[&actor_id_str, side_ghost_start])
+                            .set(ht.statistic_ghost_start() as i64);
+                        ht.update_bucket_size(cache_entry_count);
+                        // self.metrics
+                        //     .join_cached_estimated_size
+                        //     .with_label_values(&[&actor_id_str, side])
+                        //     .set(ht.estimated_size() as i64);
                     }
 
                     self.metrics
                         .join_match_duration_ns
                         .with_label_values(&[&actor_id_str, "barrier"])
                         .inc_by(barrier_start_time.elapsed().as_nanos() as u64);
+                    self.metrics
+                        .join_epoch_interval
+                        .with_label_values(&[&actor_id_str])
+                        .set(epoch_start_time.elapsed().as_millis() as i64);
+                    epoch_start_time = Instant::now();
                     yield Message::Barrier(barrier);
                 }
             }
@@ -1013,6 +1062,11 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
         for ((op, row), key) in chunk.rows().zip_eq_debug(keys.iter()) {
             Self::evict_cache(side_update, side_match, cnt_rows_received);
 
+            // let sampled = hasher.hash_one(&key);
+            let mut hasher = DefaultHasher::new();
+            key.hash(&mut hasher);
+            let sampled = hasher.finish() % 10000 < SAMPLE_NUM_IN_TEN_K;
+
             let matched_rows: Option<HashValueType> = if side_update
                 .non_null_fields
                 .iter()
@@ -1022,6 +1076,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
             } else {
                 None
             };
+
             match op {
                 Op::Insert | Op::UpdateInsert => {
                     let mut degree = 0;
@@ -1106,7 +1161,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                             yield chunk;
                         }
                         // Insert back the state taken from ht.
-                        side_match.ht.update_state(key, matched_rows);
+                        side_match.ht.update_state(key, matched_rows,  true, sampled);
                         for matched_row in matched_rows_to_clean {
                             if side_match.need_degree_table {
                                 side_match.ht.delete(key, matched_row);
@@ -1207,7 +1262,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                             yield chunk;
                         }
                         // Insert back the state taken from ht.
-                        side_match.ht.update_state(key, matched_rows);
+                        side_match.ht.update_state(key, matched_rows, true, sampled);
                         for matched_row in matched_rows_to_clean {
                             if side_match.need_degree_table {
                                 side_match.ht.delete(key, matched_row);

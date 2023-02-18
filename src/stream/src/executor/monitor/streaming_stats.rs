@@ -49,6 +49,7 @@ pub struct StreamingMetrics {
 
     // Streaming Join
     pub join_lookup_miss_count: GenericCounterVec<AtomicU64>,
+    pub join_lookup_real_miss_count: GenericCounterVec<AtomicU64>,
     pub join_total_lookup_count: GenericCounterVec<AtomicU64>,
     pub join_insert_cache_miss_count: GenericCounterVec<AtomicU64>,
     pub join_actor_input_waiting_duration_ns: GenericCounterVec<AtomicU64>,
@@ -57,6 +58,8 @@ pub struct StreamingMetrics {
     pub join_cached_entries: GenericGaugeVec<AtomicI64>,
     pub join_cached_rows: GenericGaugeVec<AtomicI64>,
     pub join_cached_estimated_size: GenericGaugeVec<AtomicI64>,
+    pub join_cached_seq_gap: HistogramVec,
+    pub join_epoch_interval: GenericGaugeVec<AtomicI64>,
 
     // Streaming Aggregation
     pub agg_lookup_miss_count: GenericCounterVec<AtomicU64>,
@@ -89,6 +92,9 @@ pub struct StreamingMetrics {
     // Backfill
     pub backfill_snapshot_read_row_count: GenericCounterVec<AtomicU64>,
     pub backfill_upstream_output_row_count: GenericCounterVec<AtomicU64>,
+
+    pub cache_real_resue_distance_bucket_count: GenericCounterVec<AtomicU64>,
+    pub cache_ghost_resue_distance_bucket_count: GenericCounterVec<AtomicU64>,
 
     /// The duration from receipt of barrier to all actors collection.
     /// And the max of all node `barrier_inflight_latency` is the latency for a barrier
@@ -297,6 +303,14 @@ impl StreamingMetrics {
         )
         .unwrap();
 
+        let join_lookup_real_miss_count = register_int_counter_vec_with_registry!(
+            "stream_join_lookup_real_miss_count",
+            "Join executor lookup real miss count",
+            &["actor_id", "side"],
+            registry
+        )
+        .unwrap();
+
         let join_total_lookup_count = register_int_counter_vec_with_registry!(
             "stream_join_lookup_total_count",
             "Join executor lookup total operation",
@@ -358,6 +372,26 @@ impl StreamingMetrics {
             "stream_join_cached_estimated_size",
             "Estimated size of all cached entries in streaming join operators",
             &["actor_id", "side"],
+            registry
+        )
+        .unwrap();
+
+        let opts = histogram_opts!(
+            "stream_join_cached_seq_gap",
+            "Sequence gap of join cache",
+            exponential_buckets(10.0, 1.5, 25).unwrap()
+        );
+        let join_cached_seq_gap = register_histogram_vec_with_registry!(
+            opts,
+            &["actor_id", "side", "operation"],
+            registry
+        )
+        .unwrap();
+
+        let join_epoch_interval = register_int_gauge_vec_with_registry!(
+            "stream_join_epoch_interval",
+            "Number of cached rows in streaming join operators",
+            &["actor_id"],
             registry
         )
         .unwrap();
@@ -539,6 +573,22 @@ impl StreamingMetrics {
         )
         .unwrap();
 
+        let cache_real_resue_distance_bucket_count = register_int_counter_vec_with_registry!(
+            "stream_cache_real_resue_distance_bucket_count",
+            "Executor Cache real resue distance count in each bucket",
+            &["actor_id", "table_id", "side", "bucket_id"],
+            registry
+        )
+        .unwrap();
+
+        let cache_ghost_resue_distance_bucket_count = register_int_counter_vec_with_registry!(
+            "stream_cache_ghost_resue_distance_bucket_count",
+            "Executor Cache ghost resue distance count in each bucket",
+            &["actor_id", "table_id", "side", "bucket_id"],
+            registry
+        )
+        .unwrap();
+
         let opts = histogram_opts!(
             "stream_barrier_inflight_duration_seconds",
             "barrier_inflight_latency",
@@ -658,6 +708,7 @@ impl StreamingMetrics {
             source_row_per_barrier,
             exchange_frag_recv_size,
             join_lookup_miss_count,
+            join_lookup_real_miss_count,
             join_total_lookup_count,
             join_insert_cache_miss_count,
             join_actor_input_waiting_duration_ns,
@@ -666,6 +717,8 @@ impl StreamingMetrics {
             join_cached_entries,
             join_cached_rows,
             join_cached_estimated_size,
+            join_cached_seq_gap,
+            join_epoch_interval,
             agg_lookup_miss_count,
             agg_total_lookup_count,
             agg_cached_keys,
@@ -688,6 +741,8 @@ impl StreamingMetrics {
             temporal_join_cached_entry_count,
             backfill_snapshot_read_row_count,
             backfill_upstream_output_row_count,
+            cache_real_resue_distance_bucket_count,
+            cache_ghost_resue_distance_bucket_count,
             barrier_inflight_latency,
             barrier_sync_latency,
             sink_commit_duration,

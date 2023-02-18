@@ -645,6 +645,20 @@ def section_streaming(panels):
                 )
             ],
         ),
+        panels.timeseries_percentage(
+            "Partition Input Blocking Time Ratio",
+            "",
+            [
+                panels.target(
+                    f"rate({metric('partition_input_waiting_duration_ns')}[$__rate_interval]) / 1000000000",
+                    "actor={{actor_id}} source={{source_id}} partition={{partition}}",
+                ),
+                panels.target(
+                    f"rate({metric('partition_output_waiting_duration_ns')}[$__rate_interval]) / 1000000000",
+                    "actor={{actor_id}} source={{source_id}} partition={{partition}}",
+                ),
+            ],
+        ),
         panels.timeseries_bytesps(
             "Source Throughput(MB/s) Per Partition",
             "Each query is executed in parallel with a user-defined parallelism. This figure shows the throughput of "
@@ -932,12 +946,20 @@ def section_streaming_actors(outer_panels):
                             "cache miss - {{side}} side, join_table_id {{join_table_id}} degree_table_id {{degree_table_id}} actor {{actor_id}} ",
                         ),
                         panels.target(
+                            f"rate({metric('stream_join_lookup_real_miss_count')}[$__rate_interval])",
+                            "cache real miss {{actor_id}} {{side}}",
+                        ),
+                        panels.target(
                             f"rate({metric('stream_join_lookup_total_count')}[$__rate_interval])",
                             "total lookups {{side}} side, join_table_id {{join_table_id}} degree_table_id {{degree_table_id}} actor {{actor_id}}",
                         ),
                         panels.target(
                             f"rate({metric('stream_join_insert_cache_miss_count')}[$__rate_interval])",
                             "cache miss when insert {{side}} side, join_table_id {{join_table_id}} degree_table_id {{degree_table_id}} actor {{actor_id}}",
+                        ),
+                        panels.target(
+                            f"rate({metric('stream_join_may_exist_true_count')}[$__rate_interval])",
+                            "may_exist true when insert {{actor_id}} {{side}}",
                         ),
                     ],
                 ),
@@ -1009,7 +1031,14 @@ def section_streaming_actors(outer_panels):
                             f"1 - (sum(rate({metric('stream_materialize_cache_hit_count')}[$__rate_interval])) by (table_id, actor_id) ) / (sum(rate({metric('stream_materialize_cache_total_count')}[$__rate_interval])) by (table_id, actor_id))",
                             "materialize executor cache miss ratio - table {{table_id}} actor {{actor_id}}  {{instance}}",
                         ),
-
+                        panels.target(
+                            f"rate({metric('stream_join_lookup_real_miss_count')}[$__rate_interval]) / rate({metric('stream_join_lookup_total_count')}[$__rate_interval])",
+                            "lookup real miss rate {{actor_id}} {{side}}",
+                        ),
+                        panels.target(
+                            f"rate({metric('stream_join_may_exist_true_count')}[$__rate_interval]) / rate({metric('stream_join_insert_cache_miss_count')}[$__rate_interval])",
+                            "may exist rate {{actor_id}} {{side}}",
+                        ),
                     ],
                 ),
                 panels.timeseries_actor_latency(
@@ -1074,6 +1103,14 @@ def section_streaming_actors(outer_panels):
                     [
                         panels.target(f"{metric('stream_join_cached_estimated_size')}",
                                       "{{actor_id}} {{side}}"),
+                    ],
+                ),
+                panels.timeseries_count(
+                    "Join Epoch Interval",
+                    "",
+                    [
+                        panels.target(f"{metric('stream_join_epoch_interval')}",
+                                      "{{actor_id}}"),
                     ],
                 ),
                 panels.timeseries_actor_ops(
@@ -1543,6 +1580,7 @@ def section_hummock(panels):
     meta_total_filter = "type='meta_total'"
     data_miss_filter = "type='data_miss'"
     data_total_filter = "type='data_total'"
+    touch_filter = "type='touch'"
     file_cache_get_filter = "op='get'"
     return [
         panels.row("Hummock"),
@@ -1771,6 +1809,16 @@ def section_hummock(panels):
                 panels.target(
                     f"sum(rate({table_metric('state_store_iter_scan_key_counts')}[$__rate_interval])) by (instance, type, table_id)",
                     "iter keys flow - {{table_id}} @ {{type}} @ {{instance}} ",
+                ),
+            ],
+        ),
+        panels.timeseries_count(
+            "Cache Touch Count - Iter",
+            "",
+            [
+                panels.target(
+                    f"sum(rate({metric('state_store_sst_store_block_request_counts', touch_filter)}[$__rate_interval])) by (job,instance,table_id)",
+                    "cache touch count - {{table_id}} @ {{job}} @ {{instance}}",
                 ),
             ],
         ),

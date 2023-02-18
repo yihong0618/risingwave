@@ -327,6 +327,12 @@ pub struct StreamingConfig {
 /// The section `[storage]` in `risingwave.toml`.
 #[derive(Clone, Debug, Serialize, Deserialize, DefaultFromSerde)]
 pub struct StorageConfig {
+    #[serde(default = "default::storage::wkx_operator_cache_capacity_mb")]
+    pub wkx_operator_cache_capacity_mb: usize,
+
+    #[serde(default = "default::storage::wkx_max_memory_manager_step")]
+    pub wkx_max_memory_manager_step: usize,
+
     /// parallelism while syncing share buffers into L0 SST. Should NOT be 0.
     #[serde(default = "default::storage::share_buffers_sync_parallelism")]
     pub share_buffers_sync_parallelism: u32,
@@ -659,6 +665,13 @@ mod default {
     }
 
     pub mod storage {
+        pub fn wkx_operator_cache_capacity_mb() -> usize {
+            1536
+        }
+
+        pub fn wkx_max_memory_manager_step() -> usize {
+            2
+        }
 
         pub fn share_buffers_sync_parallelism() -> u32 {
             1

@@ -73,6 +73,8 @@ pub struct StorageOpts {
     pub backup_storage_directory: String,
     /// max time which wait for preload. 0 represent do not do any preload.
     pub max_preload_wait_time_mill: u64,
+    pub wkx_operator_cache_capacity_mb: usize,
+    pub wkx_max_memory_manager_step: usize,
 }
 
 impl Default for StorageOpts {
@@ -118,6 +120,8 @@ impl From<(&RwConfig, &SystemParamsReader, &StorageMemoryConfig)> for StorageOpt
             max_preload_wait_time_mill: c.storage.max_preload_wait_time_mill,
             backup_storage_url: p.backup_storage_url().to_string(),
             backup_storage_directory: p.backup_storage_directory().to_string(),
+            wkx_operator_cache_capacity_mb: c.storage.wkx_operator_cache_capacity_mb,
+            wkx_max_memory_manager_step: c.storage.wkx_max_memory_manager_step,
         }
     }
 }

@@ -36,10 +36,17 @@ impl JemallocMemoryControl {
     const THRESHOLD_GRACEFUL: f64 = 0.8;
     const THRESHOLD_STABLE: f64 = 0.7;
 
-    pub fn new(total_memory: usize) -> Self {
-        let threshold_stable = (total_memory as f64 * Self::THRESHOLD_STABLE) as usize;
-        let threshold_graceful = (total_memory as f64 * Self::THRESHOLD_GRACEFUL) as usize;
-        let threshold_aggressive = (total_memory as f64 * Self::THRESHOLD_AGGRESSIVE) as usize;
+    pub fn new(total_memory: usize, wkx_operator_cache_capacity_mb: usize) -> Self {
+        let hack_total_compute_memory_bytes = wkx_operator_cache_capacity_mb << 20;
+        tracing::info!(
+            "WKXLOG hack_total_compute_memory_bytes/wkx_operator_cache_capacity_mb: {}, total_memory: {}",
+            memory_control_policy.describe(hack_total_compute_memory_bytes),
+            memory_control_policy.describe(total_memory)
+        );
+
+        let threshold_stable = (hack_total_compute_memory_bytes as f64 * Self::THRESHOLD_STABLE) as usize;
+        let threshold_graceful = (hack_total_compute_memory_bytes as f64 * Self::THRESHOLD_GRACEFUL) as usize;
+        let threshold_aggressive = (hack_total_compute_memory_bytes as f64 * Self::THRESHOLD_AGGRESSIVE) as usize;
         Self {
             threshold_stable,
             threshold_graceful,
@@ -56,6 +63,7 @@ impl MemoryControl for JemallocMemoryControl {
         _batch_manager: Arc<BatchManager>,
         _stream_manager: Arc<LocalStreamManager>,
         watermark_epoch: Arc<AtomicU64>,
+        wkx_max_memory_manager_step: usize,
     ) -> MemoryControlStats {
         let (jemalloc_allocated_mib, jemalloc_active_mib) = advance_jemalloc_epoch(
             prev_memory_stats.jemalloc_allocated_mib,
@@ -67,6 +75,7 @@ impl MemoryControl for JemallocMemoryControl {
         // We calculate the watermark of the LRU cache, which provides hints for streaming executors
         // on cache eviction. Here we do the calculation based on jemalloc statistics.
 
+        let streaming_memory_usage = stream_manager.total_mem_usage();
         let (lru_watermark_step, lru_watermark_time_ms, lru_physical_now) = calculate_lru_watermark(
             jemalloc_allocated_mib,
             self.threshold_stable,
@@ -74,6 +83,7 @@ impl MemoryControl for JemallocMemoryControl {
             self.threshold_aggressive,
             interval_ms,
             prev_memory_stats,
+            wkx_max_memory_manager_step,
         );
 
         set_lru_watermark_time_ms(watermark_epoch, lru_watermark_time_ms);
@@ -120,6 +130,7 @@ fn calculate_lru_watermark(
     threshold_aggressive: usize,
     interval_ms: u32,
     prev_memory_stats: MemoryControlStats,
+    wkx_max_memory_manager_step: usize,
 ) -> (u64, u64, u64) {
     let mut watermark_time_ms = prev_memory_stats.lru_watermark_time_ms;
     let last_step = prev_memory_stats.lru_watermark_step;
@@ -151,7 +162,7 @@ fn calculate_lru_watermark(
         if last_used_memory_bytes > cur_used_memory_bytes {
             1
         } else {
-            last_step + 1
+            std::cmp::min(last_step + 1, wkx_max_memory_manager_step as u64)
         }
     } else if last_used_memory_bytes < cur_used_memory_bytes {
         // Aggressively evict

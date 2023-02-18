@@ -21,7 +21,7 @@ use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use lru::{DefaultHasher, KeyRef, LruCache};
+use lru::{DefaultHasher, KeyRef, IndexedLruCache, LruCache};
 use prometheus::IntGauge;
 use risingwave_common::estimate_size::EstimateSize;
 
@@ -380,3 +380,4 @@ impl<V: EstimateSize> UnsafeMutGuard<V> {
         }
     }
 }
+

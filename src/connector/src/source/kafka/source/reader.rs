@@ -22,6 +22,7 @@ use futures_async_stream::try_stream;
 use rdkafka::config::RDKafkaLogLevel;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::{ClientConfig, Message, Offset, TopicPartitionList};
+use tokio::time::Instant;
 
 use crate::impl_common_split_reader_logic;
 use crate::parser::ParserConfig;
@@ -165,8 +166,20 @@ impl KafkaSplitReader {
         let mut bytes_current_second = 0;
         let mut num_messages = 0;
         let mut res = Vec::with_capacity(MAX_CHUNK_SIZE);
+
+        let actor_id = self.source_ctx.source_info.actor_id.to_string();
+        let source_id = self.source_ctx.source_info.source_id.to_string();
+        let split_id = self.split_id.clone();
+        let metrics = self.source_ctx.metrics.clone();
+        let mut start_time = Instant::now();
+
         #[for_await]
         'for_outer_loop: for msgs in self.consumer.stream().ready_chunks(MAX_CHUNK_SIZE) {
+            let kafka_reader_waiting_duration_ns = start_time.elapsed().as_nanos() as u64;
+            metrics
+                .partition_input_waiting_duration_ns
+                .with_label_values(&[&actor_id, &source_id, &split_id])
+                .inc_by(kafka_reader_waiting_duration_ns);
             for msg in msgs {
                 let msg = msg?;
                 let cur_offset = msg.offset();
@@ -213,6 +226,7 @@ impl KafkaSplitReader {
             // don't clear `bytes_current_second` here as it is only related to `.tick()`.
             // yield in the outer loop so that we can always guarantee that some messages are read
             // every `MAX_CHUNK_SIZE`.
+            start_time = Instant::now();
         }
     }
 }

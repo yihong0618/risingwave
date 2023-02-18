@@ -87,6 +87,7 @@ pub async fn compute_node_serve(
     let config = load_config(&opts.config_path, Some(opts.override_config.clone()));
 
     info!("Starting compute node",);
+    info!("WKX path :{}", opts.config_path);
     info!("> config: {:?}", config);
     info!(
         "> debug assertions: {}",
@@ -149,14 +150,18 @@ pub async fn compute_node_serve(
     // - https://github.com/risingwavelabs/risingwave/issues/8696
     // - https://github.com/risingwavelabs/risingwave/issues/8822
     let total_memory_bytes = compute_memory_bytes + storage_memory_bytes;
-    let memory_control_policy = build_memory_control_policy(total_memory_bytes).unwrap();
+
+    let wkx_operator_cache_capacity_mb = config.storage.wkx_operator_cache_capacity_mb;
+    let wkx_max_memory_manager_step = config.storage.wkx_max_memory_manager_step;
+    tracing::info!("WKXLOG compute_memory_bytes: {}, wkx_operator_cache_capacity_mb: {}, wkx_max_memory_manager_step: {}", compute_memory_bytes, wkx_operator_cache_capacity_mb, wkx_max_memory_manager_step);
+
+    let memory_control_policy = build_memory_control_policy(total_memory_bytes, wkx_operator_cache_capacity_mb).unwrap();
 
     let storage_opts = Arc::new(StorageOpts::from((
         &config,
         &system_params,
         &storage_memory_config,
     )));
-
     let worker_id = meta_client.worker_id();
     info!("Assigned worker node id {}", worker_id);
 
@@ -281,6 +286,7 @@ pub async fn compute_node_serve(
         system_params.barrier_interval_ms(),
         streaming_metrics.clone(),
         memory_control_policy,
+        wkx_max_memory_manager_step,
     );
     // Run a background memory monitor
     tokio::spawn(memory_mgr.clone().run(batch_mgr_clone, stream_mgr_clone));
@@ -463,6 +469,7 @@ fn total_storage_memory_limit_bytes(storage_memory_config: &StorageMemoryConfig)
         + storage_memory_config.shared_buffer_capacity_mb
         + storage_memory_config.file_cache_total_buffer_capacity_mb
         + storage_memory_config.compactor_memory_limit_mb;
+    tracing::info!("WKXLOG total_storage_memory_limit_bytes: {}", total_memory);
     total_storage_memory_mb << 20
 }
 

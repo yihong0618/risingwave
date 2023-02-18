@@ -191,6 +191,12 @@ macro_rules! impl_common_split_reader_logic {
                 let source_id = self.source_ctx.source_info.source_id.to_string();
                 let split_id = self.split_id.clone();
                 let metrics = self.source_ctx.metrics.clone();
+
+                let actor_id_clone = self.source_ctx.source_info.actor_id.to_string();
+                let source_id_clone = self.source_ctx.source_info.source_id.to_string();
+                let split_id_clone = self.split_id.clone();
+                let metrics_clone = self.source_ctx.metrics.clone();
+
                 let source_ctx = self.source_ctx.clone();
 
                 let data_stream = self.into_data_stream();
@@ -214,11 +220,18 @@ macro_rules! impl_common_split_reader_logic {
                             .inc_by(sum_bytes);
                     })
                     .boxed();
+                // WKXCOMMENT: here we parse the data read
+
                 let parser =
                     $crate::parser::ByteStreamSourceParserImpl::create(parser_config, source_ctx)?;
                 #[for_await]
                 for msg_batch in parser.into_stream(data_stream) {
+                    let start_time = minstant::Instant::now();
                     yield msg_batch?;
+                    metrics_clone
+                        .partition_output_waiting_duration_ns
+                        .with_label_values(&[&actor_id_clone, &source_id_clone, &split_id_clone])
+                        .inc_by(start_time.elapsed().as_nanos() as u64);
                 }
             }
         }

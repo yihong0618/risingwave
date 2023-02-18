@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::alloc::{Allocator, Global};
+use std::hash::{BuildHasher, Hash};
+use std::ops::{Deref, DerefMut};
+
 mod managed_lru;
+use lru::{DefaultHasher, IndexedLruCache, LruCache};
 pub use managed_lru::*;
 use risingwave_common::buffer::Bitmap;
 use risingwave_common::util::iter_util::ZipEqFast;
@@ -52,6 +57,42 @@ pub(super) fn cache_may_stale(
 
     !current_is_subset
 }
+
+pub struct ExecutorIndexedCache<K, V, S = DefaultHasher, A: Clone + Allocator = Global> {
+    /// An managed cache. Eviction depends on the node memory usage.
+    cache: ManagedIndexedLruCache<K, V, S, A>,
+}
+
+impl<K: Hash + Eq, V, S: BuildHasher, A: Clone + Allocator> ExecutorIndexedCache<K, V, S, A> {
+    pub fn new(cache: ManagedIndexedLruCache<K, V, S, A>) -> Self {
+        Self { cache }
+    }
+
+    /// Evict epochs lower than the watermark
+    pub fn evict(&mut self) {
+        self.cache.evict()
+    }
+
+    /// Update the current epoch for cache. Only effective when using [`ManagedIndexedLruCache`]
+    pub fn update_epoch(&mut self, epoch: u64) {
+        self.cache.update_epoch(epoch)
+    }
+}
+
+impl<K, V, S, A: Clone + Allocator> Deref for ExecutorIndexedCache<K, V, S, A> {
+    type Target = IndexedLruCache<K, V, S, A>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.cache.inner
+    }
+}
+
+impl<K, V, S, A: Clone + Allocator> DerefMut for ExecutorIndexedCache<K, V, S, A> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.cache.inner
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
