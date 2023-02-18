@@ -231,6 +231,7 @@ pub struct JoinHashMap<K: HashKey, S: StateStore> {
     pk_contained_in_jk: bool,
     /// Metrics of the hash map
     metrics: JoinHashMapMetrics,
+    current_seq_id: u64,
 }
 
 struct TableInner<S: StateStore> {
@@ -303,6 +304,7 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
             need_degree_table,
             pk_contained_in_jk,
             metrics: JoinHashMapMetrics::new(metrics, actor_id, side),
+            current_seq_id: 0,
         }
     }
 
@@ -349,10 +351,28 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
         let state = self.inner.peek_mut(key);
         self.metrics.total_lookup_count += 1;
         Ok(match state {
-            Some(state) => state.take(),
+            Some(state) => {
+                let res = state.take();
+                let old_seq_id = res.get_seq_id();
+                let seq_gap = self.current_seq_id - old_seq_id;
+                // tracing::info!(
+                //     "insert_row seq_gap: {}, current_seq_id: {}, current_seq_id: {}",
+                //     seq_gap,
+                //     self.current_seq_id,
+                //     old_seq_id
+                // );
+                self.metrics
+                    .metrics
+                    .join_cached_seq_gap
+                    .with_label_values(&[&self.metrics.actor_id, self.metrics.side, "read"])
+                    .observe(seq_gap as f64);
+                res
+            }
             None => {
                 self.metrics.lookup_miss_count += 1;
-                self.fetch_cached_state(key).await?.into()
+                let res = self.fetch_cached_state(key).await?;
+                self.current_seq_id += 1;
+                res.into()
             }
         })
     }
@@ -362,7 +382,7 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
     async fn fetch_cached_state(&self, key: &K) -> StreamExecutorResult<JoinEntryState> {
         let key = key.deserialize(&self.join_key_data_types)?;
 
-        let mut entry_state = JoinEntryState::default();
+        let mut entry_state = JoinEntryState::new(self.current_seq_id);
 
         if self.need_degree_table {
             let table_iter_fut = self
@@ -434,20 +454,36 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
         if let Some(entry) = self.inner.get_mut(key) {
             // Update cache
             entry.insert(pk, value.encode());
+            let old_seq_id = entry.get_seq_id();
+            let seq_gap = self.current_seq_id - old_seq_id;
+            tracing::info!(
+                "insert seq_gap: {}, current_seq_id: {}, current_seq_id: {}",
+                seq_gap,
+                self.current_seq_id,
+                old_seq_id
+            );
+            self.metrics
+                .metrics
+                .join_cached_seq_gap
+                .with_label_values(&[&self.metrics.actor_id, self.metrics.side, "write"])
+                .observe(seq_gap as f64);
+            entry.set_seq_id(self.current_seq_id);
         } else if self.pk_contained_in_jk {
             // Refill cache when the join key contains primary key.
             self.metrics.insert_cache_miss_count += 1;
-            let mut state = JoinEntryState::default();
+            let mut state = JoinEntryState::new(self.current_seq_id);
             state.insert(pk, value.encode());
             self.update_state(key, state.into());
+            self.current_seq_id += 1;
         } else {
             let prefix = key.deserialize(&self.join_key_data_types)?;
             self.metrics.insert_cache_miss_count += 1;
             // Refill cache when the join key exists in neither cache or storage.
             if !self.state.table.may_exist(&prefix).await? {
-                let mut state = JoinEntryState::default();
+                let mut state = JoinEntryState::new(self.current_seq_id);
                 state.insert(pk, value.encode());
                 self.update_state(key, state.into());
+                self.current_seq_id += 1;
             } else {
                 self.metrics.may_exist_true_count += 1;
             }
@@ -470,10 +506,24 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
         if let Some(entry) = self.inner.get_mut(key) {
             // Update cache
             entry.insert(pk, join_row.encode());
+            let old_seq_id = entry.get_seq_id();
+            let seq_gap = self.current_seq_id - old_seq_id;
+            // tracing::info!(
+            //     "insert_row seq_gap: {}, current_seq_id: {}, current_seq_id: {}",
+            //     seq_gap,
+            //     self.current_seq_id,
+            //     old_seq_id
+            // );
+            self.metrics
+                .metrics
+                .join_cached_seq_gap
+                .with_label_values(&[&self.metrics.actor_id, self.metrics.side, "write"])
+                .observe(seq_gap as f64);
+            entry.set_seq_id(self.current_seq_id);
         } else if self.pk_contained_in_jk {
             // Refill cache when the join key contains primary key.
             self.metrics.insert_cache_miss_count += 1;
-            let mut state = JoinEntryState::default();
+            let mut state = JoinEntryState::new(self.current_seq_id);
             state.insert(pk, join_row.encode());
             self.update_state(key, state.into());
         } else {
@@ -481,9 +531,10 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
             self.metrics.insert_cache_miss_count += 1;
             // Refill cache when the join key exists in neither cache or storage.
             if !self.state.table.may_exist(&prefix).await? {
-                let mut state = JoinEntryState::default();
+                let mut state = JoinEntryState::new(self.current_seq_id);
                 state.insert(pk, join_row.encode());
                 self.update_state(key, state.into());
+                self.current_seq_id += 1;
             } else {
                 self.metrics.may_exist_true_count += 1;
             }
@@ -524,7 +575,8 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
     }
 
     /// Update a [`JoinEntryState`] into the hash table.
-    pub fn update_state(&mut self, key: &K, state: HashValueType) {
+    pub fn update_state(&mut self, key: &K, mut state: HashValueType) {
+        state.set_seq_id(self.current_seq_id);
         self.inner.put(key.clone(), HashValueWrapper(Some(state)));
     }
 

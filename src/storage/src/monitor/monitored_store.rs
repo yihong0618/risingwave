@@ -346,6 +346,7 @@ impl<S: StateStoreIterItemStream> MonitoredStateStoreIter<S> {
 
         let mut stats = self.stats;
         futures::pin_mut!(inner);
+        let mut stats = self.stats;
         while let Some((key, value)) = inner
             .try_next()
             .await

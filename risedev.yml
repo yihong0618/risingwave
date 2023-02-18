@@ -20,7 +20,7 @@ profile:
     # config-path: src/config/example.toml
     steps:
       # If you want to use the local s3 storage, enable the following line
-      # - use: minio
+      - use: minio
 
       # If you want to use aws-s3, configure AK and SK in env var and enable the following lines:
       # - use: aws-s3
@@ -36,14 +36,15 @@ profile:
       #   unsafe-no-fsync: true
       - use: meta-node
       - use: compute-node
+        total-memory-bytes: 3047483648
       - use: frontend
 
       # If you want to enable compactor, uncomment the following line, and enable either minio or aws-s3 as well.
-      # - use: compactor
+      - use: compactor
 
       # If you want to enable metrics, uncomment those two lines.
-      # - use: prometheus
-      # - use: grafana
+      - use: prometheus
+      - use: grafana
 
       # If you want to enable tracing, uncomment the following line.
       # - use: jaeger
@@ -357,6 +358,7 @@ profile:
         address: ${dns-host:rw-compute-0}
         async-stack-trace: verbose
         enable-tiered-cache: true
+        total-memory-bytes: 3047483648
 
       - use: compute-node
         id: compute-node-1
