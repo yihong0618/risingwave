@@ -153,11 +153,6 @@ impl KeyPrefix {
     pub fn encode(&self, buf: &mut impl BufMut) {
         buf.put_u16(self.overlap as u16);
         if self.diff >= MAX_KEY_LEN {
-            tracing::warn!(
-                "A large storage key (overlap len={} diff len={}) is encoded",
-                self.overlap,
-                self.diff
-            );
             buf.put_u16(MAX_KEY_LEN as u16);
             buf.put_u32(self.diff as u32);
         } else {
@@ -183,7 +178,7 @@ impl KeyPrefix {
 
     /// Encoded length.
     fn len(&self) -> usize {
-        if self.diff >= MAX_KEY_LEN as usize {
+        if self.diff >= MAX_KEY_LEN {
             12 // 2 + 2 + 4 + 4
         } else {
             8 // 2 + 2 + 4

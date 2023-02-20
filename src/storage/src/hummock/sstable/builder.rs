@@ -119,6 +119,8 @@ pub struct SstableBuilder<W: SstableWriter> {
     last_table_stats: TableStats,
 }
 
+const LARGE_KEY_LEN: usize = (u16::MAX >> 1) as usize;
+
 impl<W: SstableWriter> SstableBuilder<W> {
     pub fn for_test(sstable_id: u64, writer: W, options: SstableBuilderOptions) -> Self {
         Self::new(
@@ -191,6 +193,17 @@ impl<W: SstableWriter> SstableBuilder<W> {
                 smallest_key: full_key.encode(),
                 uncompressed_size: 0,
             })
+        }
+
+        let table_key_len = full_key.user_key.table_key.as_ref().len();
+        if table_key_len >= LARGE_KEY_LEN {
+            let table_id = full_key.user_key.table_id.table_id();
+            tracing::warn!(
+                "A large key (table_id={}, len={}, epoch={}) is added to block",
+                table_id,
+                table_key_len,
+                full_key.epoch
+            );
         }
 
         // TODO: refine me
