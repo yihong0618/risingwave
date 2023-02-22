@@ -1060,6 +1060,8 @@ impl LogicalJoin {
 
         // Convert to Hash Join for equal joins
         // For inner joins, pull non-equal conditions to a filter operator on top of it
+        // We do so as the filter operator can apply the non-equal condition batch-wise (vectorized)
+        // as opposed to the HashJoin, which applies the condition row-wise.
         let pull_filter = self.join_type() == JoinType::Inner && predicate.has_non_eq();
         if pull_filter {
             let default_indices = (0..self.internal_column_num()).collect::<Vec<_>>();
@@ -1191,6 +1193,8 @@ impl LogicalJoin {
         assert!(predicate.has_eq());
         // Convert to Hash Join for equal joins
         // For inner joins, pull non-equal conditions to a filter operator on top of it
+        // We do so as the filter operator can apply the non-equal condition batch-wise (vectorized)
+        // as opposed to the HashJoin, which applies the condition row-wise.
         let pull_filter = self.join_type() == JoinType::Inner && predicate.has_non_eq();
         if pull_filter {
             let new_output_indices = logical_join.output_indices().clone();
