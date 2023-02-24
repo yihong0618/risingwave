@@ -13,6 +13,7 @@ steps:
       - seek-oss/docker-ecr-cache#v2.0.0:
           dockerfile: docker/Dockerfile
           target: risingwave
+          context: '.'
       - seek-oss/aws-sm#v2.3.1:
           env:
             GHCR_USERNAME: ghcr-username
@@ -28,6 +29,7 @@ steps:
       - seek-oss/docker-ecr-cache#v2.0.0:
           dockerfile: docker/Dockerfile
           target: risingwave
+          context: '.'
       - seek-oss/aws-sm#v2.3.1:
           env:
             GHCR_USERNAME: ghcr-username
