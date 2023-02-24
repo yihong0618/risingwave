@@ -12,9 +12,7 @@ steps:
     plugins:
       - seek-oss/docker-ecr-cache#v2.0.0:
           dockerfile: docker/Dockerfile
-      - docker#v5.4.0:
-          volumes:
-            - ..:/risingwave
+          target: risingwave
       - seek-oss/aws-sm#v2.3.1:
           env:
             GHCR_USERNAME: ghcr-username
@@ -29,9 +27,7 @@ steps:
     plugins:
       - seek-oss/docker-ecr-cache#v2.0.0:
           dockerfile: docker/Dockerfile
-      - docker#v5.4.0:
-          volumes:
-            - ..:/risingwave
+          target: risingwave
       - seek-oss/aws-sm#v2.3.1:
           env:
             GHCR_USERNAME: ghcr-username
