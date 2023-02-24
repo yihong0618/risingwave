@@ -37,8 +37,8 @@ RUN for component in "risingwave" "compute-node" "meta-node" "frontend" "compact
   objcopy --compress-debug-sections=zlib-gnu /risingwave/bin/${component}; \
   done
 
-RUN cd risingwave-connector-node && mvn -B package -Dmaven.test.skip=true
-RUN tar -zxvf /risingwave/risingwave-connector-node/assembly/target/risingwave-connector-1.0.0.tar.gz -C /risingwave/bin/connector-node
+#RUN cd risingwave-connector-node && mvn -B package -Dmaven.test.skip=true
+#RUN tar -zxvf /risingwave/risingwave-connector-node/assembly/target/risingwave-connector-1.0.0.tar.gz -C /risingwave/bin/connector-node
 
 FROM ubuntu:22.04 as image-base
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y install ca-certificates openjdk-11-jdk && rm -rf /var/lib/{apt,dpkg,cache,log}/
@@ -47,7 +47,7 @@ FROM image-base as risingwave
 LABEL org.opencontainers.image.source https://github.com/risingwavelabs/risingwave
 RUN mkdir -p /risingwave/bin/connector-node
 COPY --from=builder /risingwave/bin/risingwave /risingwave/bin/risingwave
-COPY --from=builder /risingwave/bin/connector-node /risingwave/bin/connector-node
+#COPY --from=builder /risingwave/bin/connector-node /risingwave/bin/connector-node
 # Set default playground mode to docker-playground profile
 ENV PLAYGROUND_PROFILE docker-playground
 ENTRYPOINT [ "/risingwave/bin/risingwave" ]
