@@ -10,6 +10,7 @@ steps:
     command: "ci/scripts/docker.sh"
     key: "build-amd64"
     plugins:
+      - seek-oss/docker-ecr-cache#v2.0.0
       - seek-oss/aws-sm#v2.3.1:
           env:
             GHCR_USERNAME: ghcr-username
@@ -22,6 +23,7 @@ steps:
     command: "ci/scripts/docker.sh"
     key: "build-aarch64"
     plugins:
+      - seek-oss/docker-ecr-cache#v2.0.0
       - seek-oss/aws-sm#v2.3.1:
           env:
             GHCR_USERNAME: ghcr-username
