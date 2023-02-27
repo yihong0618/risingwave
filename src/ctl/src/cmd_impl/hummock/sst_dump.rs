@@ -24,7 +24,9 @@ use risingwave_hummock_sdk::compaction_group::hummock_version_ext::HummockVersio
 use risingwave_hummock_sdk::key::FullKey;
 use risingwave_hummock_sdk::HummockSstableId;
 use risingwave_object_store::object::BlockLocation;
+use risingwave_pb::hummock::SstableInfo;
 use risingwave_rpc_client::MetaClient;
+use risingwave_storage::hummock::sstable_store::SstableStoreRef;
 use risingwave_storage::hummock::value::HummockValue;
 use risingwave_storage::hummock::{
     Block, BlockHolder, BlockIterator, CompressionAlgorithm, SstableMeta, SstableStore,
@@ -77,6 +79,42 @@ pub async fn sst_dump(context: &CtlContext) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+pub async fn sst_dump_via_sstable_store(
+    sstbale_store: SstableStoreRef,
+    sst_id: u64,
+) -> anyhow::Result<()> {
+    let sstable_info = SstableInfo {
+
+    };
+    let sstable_cache = sstable_store
+        .sstable(sstable_info, &mut StoreLocalStatistic::default())
+        .await?;
+    let sstable = sstable_cache.value().as_ref();
+    let sstable_meta = &sstable.meta;
+
+    println!("SST id: {}", id);
+    println!("-------------------------------------");
+    println!("Level: {}", level.level_type);
+    println!("File Size: {}", sstable_info.file_size);
+
+    if let Some(key_range) = sstable_info.key_range.as_ref() {
+        println!("Key Range:");
+        println!(
+            "\tleft:\t{:?}\n\tright:\t{:?}\n\t",
+            key_range.left, key_range.right,
+        );
+    } else {
+        println!("Key Range: None");
+    }
+
+    println!("Estimated Table Size: {}", sstable_meta.estimated_size);
+    println!("Bloom Filter Size: {}", sstable_meta.bloom_filter.len());
+    println!("Key Count: {}", sstable_meta.key_count);
+    println!("Version: {}", sstable_meta.version);
+
+    print_blocks(id, &table_data, sstable_store, sstable_meta).await?;
 }
 
 /// Determine all database tables and adds their information into a hash table with the table-ID as
