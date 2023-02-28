@@ -16,6 +16,10 @@ COPY ./ /risingwave
 
 ENV PATH /root/.cargo/bin/:$PATH
 
+ENV RUSTC_WRAPPER=sccache
+ENV SCCACHE_BUCKET=ci-sccache-bucket
+ENV SCCACHE_IDLE_TIMEOUT=0
+
 ENV IN_CONTAINER=1
 
 ARG GIT_SHA
@@ -26,6 +30,8 @@ RUN rustup self update \
   && rustup set profile minimal \
   && rustup default $(cat "/risingwave/rust-toolchain") \
   && rustup component add rustfmt
+
+RUN cargo install sccache --locked
 
 RUN cargo fetch
 RUN mkdir -p /risingwave/bin/connector-node
