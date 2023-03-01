@@ -82,7 +82,7 @@ pub async fn sst_dump(context: &CtlContext) -> anyhow::Result<()> {
 }
 
 pub async fn sst_dump_via_sstable_store(
-    sstbale_store: SstableStoreRef,
+    sstable_store: SstableStoreRef,
     sst_id: u64,
 ) -> anyhow::Result<()> {
     let sstable_info = SstableInfo {
@@ -115,6 +115,7 @@ pub async fn sst_dump_via_sstable_store(
     println!("Version: {}", sstable_meta.version);
 
     print_blocks(id, &table_data, sstable_store, sstable_meta).await?;
+    Ok(())
 }
 
 /// Determine all database tables and adds their information into a hash table with the table-ID as
