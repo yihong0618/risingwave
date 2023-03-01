@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::collections::HashMap;
+use std::default::default;
 
 use bytes::{Buf, Bytes};
 use itertools::Itertools;
@@ -26,7 +27,6 @@ use risingwave_hummock_sdk::HummockSstableId;
 use risingwave_object_store::object::BlockLocation;
 use risingwave_pb::hummock::SstableInfo;
 use risingwave_rpc_client::MetaClient;
-use risingwave_storage::hummock::sstable_store::SstableStoreRef;
 use risingwave_storage::hummock::value::HummockValue;
 use risingwave_storage::hummock::{
     Block, BlockHolder, BlockIterator, CompressionAlgorithm, SstableMeta, SstableStore,
@@ -47,74 +47,56 @@ pub async fn sst_dump(context: &CtlContext) -> anyhow::Result<()> {
     let sstable_store = &*hummock.sstable_store();
     for level in version.get_combined_levels() {
         for sstable_info in &level.table_infos {
-            let id = sstable_info.id;
-
-            let sstable_cache = sstable_store
-                .sstable(sstable_info, &mut StoreLocalStatistic::default())
-                .await?;
-            let sstable = sstable_cache.value().as_ref();
-            let sstable_meta = &sstable.meta;
-
-            println!("SST id: {}", id);
-            println!("-------------------------------------");
-            println!("Level: {}", level.level_type);
-            println!("File Size: {}", sstable_info.file_size);
-
-            if let Some(key_range) = sstable_info.key_range.as_ref() {
-                println!("Key Range:");
-                println!(
-                    "\tleft:\t{:?}\n\tright:\t{:?}\n\t",
-                    key_range.left, key_range.right,
-                );
-            } else {
-                println!("Key Range: None");
+            println!("Level Type: {}", level.level_type);
+            println!("Level Idx: {}", level.level_idx);
+            if level.level_idx == 0 {
+                println!("L0 Sub-Level Idx: {}", level.sub_level_id);
             }
 
-            println!("Estimated Table Size: {}", sstable_meta.estimated_size);
-            println!("Bloom Filter Size: {}", sstable_meta.bloom_filter.len());
-            println!("Key Count: {}", sstable_meta.key_count);
-            println!("Version: {}", sstable_meta.version);
-
-            print_blocks(id, &table_data, sstable_store, sstable_meta).await?;
+            sst_dump_via_sstable_store(
+                sstable_store,
+                sstable_info.id,
+                sstable_info.meta_offset,
+                &table_data,
+            );
         }
     }
     Ok(())
 }
 
 pub async fn sst_dump_via_sstable_store(
-    sstable_store: SstableStoreRef,
+    sstable_store: &SstableStore,
     sst_id: u64,
+    meta_offset: u64,
+    table_data: &TableData,
 ) -> anyhow::Result<()> {
     let sstable_info = SstableInfo {
-
+        id: sst_id,
+        meta_offset,
+        ..Default::default()
     };
     let sstable_cache = sstable_store
-        .sstable(sstable_info, &mut StoreLocalStatistic::default())
+        .sstable(&sstable_info, &mut StoreLocalStatistic::default())
         .await?;
     let sstable = sstable_cache.value().as_ref();
     let sstable_meta = &sstable.meta;
 
-    println!("SST id: {}", id);
+    println!("SST id: {}", sst_id);
     println!("-------------------------------------");
-    println!("Level: {}", level.level_type);
-    println!("File Size: {}", sstable_info.file_size);
+    println!("File Size: {}", sstable.estimate_size());
 
-    if let Some(key_range) = sstable_info.key_range.as_ref() {
-        println!("Key Range:");
-        println!(
-            "\tleft:\t{:?}\n\tright:\t{:?}\n\t",
-            key_range.left, key_range.right,
-        );
-    } else {
-        println!("Key Range: None");
-    }
+    println!("Key Range:");
+    println!(
+        "\tleft:\t{:?}\n\tright:\t{:?}\n\t",
+        sstable_meta.smallest_key, sstable_meta.largest_key,
+    );
 
     println!("Estimated Table Size: {}", sstable_meta.estimated_size);
     println!("Bloom Filter Size: {}", sstable_meta.bloom_filter.len());
     println!("Key Count: {}", sstable_meta.key_count);
     println!("Version: {}", sstable_meta.version);
 
-    print_blocks(id, &table_data, sstable_store, sstable_meta).await?;
+    print_blocks(sst_id, &table_data, sstable_store, sstable_meta).await?;
     Ok(())
 }
 
