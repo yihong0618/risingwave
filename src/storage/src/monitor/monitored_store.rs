@@ -358,6 +358,7 @@ impl<S: StateStoreIterItemStream> MonitoredStateStoreIter<S> {
         {
             self.stats.total_items += 1;
             self.stats.total_size += key.encoded_len() + value.len();
+            tracing::info!("update table: {}, total_items: {}, total_size: {}", self.stats.table_id, self.stats.total_items, self.stats.total_size);
             yield (key, value);
         }
     }
@@ -370,6 +371,7 @@ impl<S: StateStoreIterItemStream> MonitoredStateStoreIter<S> {
 impl Drop for MonitoredStateStoreIterStats {
     fn drop(&mut self) {
         let table_id_label = self.table_id.to_string();
+        tracing::info!("report table: {}, total_items: {}, total_size: {}", self.table_id, self.total_items, self.total_size);
 
         self.storage_metrics
             .iter_scan_duration
