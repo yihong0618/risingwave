@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::default::default;
 
 use bytes::{Buf, Bytes};
+use clap::Args;
 use itertools::Itertools;
 use risingwave_common::row::{Row, RowDeserializer};
 use risingwave_common::types::to_text::ToText;
@@ -29,7 +30,7 @@ use risingwave_pb::hummock::SstableInfo;
 use risingwave_rpc_client::MetaClient;
 use risingwave_storage::hummock::value::HummockValue;
 use risingwave_storage::hummock::{
-    Block, BlockHolder, BlockIterator, CompressionAlgorithm, SstableMeta, SstableStore,
+    Block, BlockHolder, BlockIterator, CompressionAlgorithm, Sstable, SstableMeta, SstableStore,
 };
 use risingwave_storage::monitor::StoreLocalStatistic;
 
@@ -37,7 +38,19 @@ use crate::CtlContext;
 
 type TableData = HashMap<u32, TableCatalog>;
 
-pub async fn sst_dump(context: &CtlContext) -> anyhow::Result<()> {
+#[derive(Args)]
+pub struct SstDumpArgs {
+    #[clap(short, long = "sst-id")]
+    sst_id: Option<u64>,
+    #[clap(short, long = "block-id")]
+    block_id: Option<u64>,
+    #[clap(short = 'p', long = "print-entries", default_value_t = false)]
+    print_entries: bool,
+    #[clap(short = 'l', long = "print-level", default_value_t = false)]
+    print_level: bool,
+}
+
+pub async fn sst_dump(context: &CtlContext, args: SstDumpArgs) -> anyhow::Result<()> {
     // Retrieves the Sstable store so we can access the SstableMeta
     let meta_client = context.meta_client().await?;
     let hummock = context.hummock_store().await?;
@@ -58,6 +71,7 @@ pub async fn sst_dump(context: &CtlContext) -> anyhow::Result<()> {
                 sstable_info.id,
                 sstable_info.meta_offset,
                 &table_data,
+                &args
             );
         }
     }
@@ -69,6 +83,7 @@ pub async fn sst_dump_via_sstable_store(
     sst_id: u64,
     meta_offset: u64,
     table_data: &TableData,
+    args: &SstDumpArgs
 ) -> anyhow::Result<()> {
     let sstable_info = SstableInfo {
         id: sst_id,
@@ -96,7 +111,10 @@ pub async fn sst_dump_via_sstable_store(
     println!("Key Count: {}", sstable_meta.key_count);
     println!("Version: {}", sstable_meta.version);
 
-    print_blocks(sst_id, &table_data, sstable_store, sstable_meta).await?;
+    println!("Blocks:");
+    for i in 0..sstable.block_count() {
+        print_block(i, table_data, sstable_store, sstable, print_entries).await?;
+    }
     Ok(())
 }
 
@@ -113,38 +131,39 @@ async fn load_table_schemas(meta_client: &MetaClient) -> anyhow::Result<TableDat
     Ok(tables)
 }
 
-/// Prints all blocks of a given SST including all contained KV-pairs.
-async fn print_blocks(
-    id: HummockSstableId,
+/// Prints a block of a given SST including all contained KV-pairs.
+async fn print_block(
+    block_idx: usize,
     table_data: &TableData,
     sstable_store: &SstableStore,
-    sstable_meta: &SstableMeta,
+    sst: &Sstable,
+    print_entries: bool,
 ) -> anyhow::Result<()> {
-    let data_path = sstable_store.get_sst_data_path(id);
+    println!("\tBlock {}", block_idx);
+    println!("\t-----------");
 
-    println!("Blocks:");
-    for (i, block_meta) in sstable_meta.block_metas.iter().enumerate() {
-        println!("\tBlock {}", i);
-        println!("\t-----------");
+    let block_meta = &sst.meta.block_metas[block_idx];
+    let data_path = sstable_store.get_sst_data_path(sst.id);
 
-        // Retrieve encoded block data in bytes
-        let store = sstable_store.store();
-        let block_loc = BlockLocation {
-            offset: block_meta.offset as usize,
-            size: block_meta.len as usize,
-        };
-        let block_data = store.read(&data_path, Some(block_loc)).await?;
+    // Retrieve encoded block data in bytes
+    let store = sstable_store.store();
+    let block_loc = BlockLocation {
+        offset: block_meta.offset as usize,
+        size: block_meta.len as usize,
+    };
+    let block_data = store.read(&data_path, Some(block_loc)).await?;
 
-        // Retrieve checksum and compression algorithm used from the encoded block data
-        let len = block_data.len();
-        let checksum = (&block_data[len - 8..]).get_u64_le();
-        let compression = CompressionAlgorithm::decode(&mut &block_data[len - 9..len - 8])?;
+    // Retrieve checksum and compression algorithm used from the encoded block data
+    let len = block_data.len();
+    let checksum = (&block_data[len - 8..]).get_u64_le();
+    let compression = CompressionAlgorithm::decode(&mut &block_data[len - 9..len - 8])?;
 
-        println!(
-            "\tOffset: {}, Size: {}, Checksum: {}, Compression Algorithm: {:?}",
-            block_meta.offset, block_meta.len, checksum, compression
-        );
+    println!(
+        "\tOffset: {}, Size: {}, Checksum: {}, Compression Algorithm: {:?}",
+        block_meta.offset, block_meta.len, checksum, compression
+    );
 
+    if print_entries {
         print_kv_pairs(
             block_data,
             table_data,
