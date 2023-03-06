@@ -35,6 +35,7 @@ pub struct GlobalMemoryManager {
     watermark_epoch: Arc<AtomicU64>,
     /// Total memory can be allocated by the process.
     total_memory_available_bytes: usize,
+    block_cache_size: usize,
     /// Barrier interval.
     barrier_interval_ms: u32,
     metrics: Arc<StreamingMetrics>,
@@ -50,16 +51,26 @@ impl GlobalMemoryManager {
 
     pub fn new(
         total_memory_available_bytes: usize,
+        block_cache_size: usize,
         barrier_interval_ms: u32,
         metrics: Arc<StreamingMetrics>,
     ) -> Arc<Self> {
         // Arbitrarily set a minimal barrier interval in case it is too small,
         // especially when it's 0.
         let barrier_interval_ms = std::cmp::max(barrier_interval_ms, 10);
+        let hack_total_memory_available_bytes = 3276 << 20;
+
+        tracing::info!(
+            "WKXLOG hack_total_memory_available_bytes: {}, total_memory_available_bytes: {}, block_cache_size: {}",
+            hack_total_memory_available_bytes,
+            total_memory_available_bytes,
+            block_cache_size
+        );
 
         Arc::new(Self {
             watermark_epoch: Arc::new(0.into()),
-            total_memory_available_bytes,
+            total_memory_available_bytes: hack_total_memory_available_bytes,
+            block_cache_size: block_cache_size << 20, 
             barrier_interval_ms,
             metrics,
         })
@@ -98,8 +109,8 @@ impl GlobalMemoryManager {
 
         use tikv_jemalloc_ctl::{epoch as jemalloc_epoch, stats as jemalloc_stats};
         let mem_threshold_graceful =
-            (self.total_memory_available_bytes as f64 * Self::EVICTION_THRESHOLD_GRACEFUL) as usize;
-        let mem_threshold_aggressive = (self.total_memory_available_bytes as f64
+            ((self.total_memory_available_bytes - self.block_cache_size) as f64 * Self::EVICTION_THRESHOLD_GRACEFUL) as usize;
+        let mem_threshold_aggressive = ((self.total_memory_available_bytes - self.block_cache_size) as f64
             * Self::EVICTION_THRESHOLD_AGGRESSIVE) as usize;
 
         let mut watermark_time_ms = Epoch::physical_now();
@@ -123,8 +134,13 @@ impl GlobalMemoryManager {
             let cur_total_bytes_used = jemalloc_allocated_mib.read().unwrap_or_else(|e| {
                 tracing::warn!("Jemalloc read allocated failed! {:?}", e);
                 last_total_bytes_used
-            });
+            }) - self.block_cache_size;
 
+            tracing::info!(
+                "WKXLOG cur_total_bytes_used: {}",
+                cur_total_bytes_used
+            );
+    
             // The strategy works as follow:
             //
             // 1. When the memory usage is below the graceful threshold, we do not evict any caches

@@ -99,7 +99,7 @@ pub async fn compute_node_serve(
     .await
     .unwrap();
     let storage_opts = Arc::new(StorageOpts::from((&config, &system_params)));
-
+    let block_cache_size_mb = storage_opts.block_cache_capacity_mb;
     let state_store_url = {
         let from_local = opts.state_store.unwrap_or("hummock+memory".to_string());
         system_params.state_store(from_local)
@@ -235,6 +235,7 @@ pub async fn compute_node_serve(
     let stream_mgr_clone = stream_mgr.clone();
     let mgr = GlobalMemoryManager::new(
         opts.total_memory_bytes,
+        block_cache_size_mb,
         system_params.barrier_interval_ms(),
         streaming_metrics.clone(),
     );
