@@ -48,6 +48,7 @@ pub trait MemoryControl: Send + Sync {
         batch_manager: Arc<BatchManager>,
         stream_manager: Arc<LocalStreamManager>,
         watermark_epoch: Arc<AtomicU64>,
+        wkx_max_memory_manager_step: usize,
     ) -> MemoryControlStats;
 
     fn describe(&self, total_compute_memory_bytes: usize) -> String;
@@ -100,6 +101,7 @@ impl MemoryControl for DummyPolicy {
         _batch_manager: Arc<BatchManager>,
         _stream_manager: Arc<LocalStreamManager>,
         _watermark_epoch: Arc<AtomicU64>,
+        _wkx_max_memory_manager_step: usize,
     ) -> MemoryControlStats {
         MemoryControlStats::default()
     }

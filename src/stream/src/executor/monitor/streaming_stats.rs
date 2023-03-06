@@ -61,6 +61,7 @@ pub struct StreamingMetrics {
     pub join_cached_rows: GenericGaugeVec<AtomicI64>,
     pub join_cached_estimated_size: GenericGaugeVec<AtomicI64>,
     pub join_cached_seq_gap: HistogramVec,
+    pub join_epoch_interval: GenericGaugeVec<AtomicI64>,
 
     // Streaming Aggregation
     pub agg_lookup_miss_count: GenericCounterVec<AtomicU64>,
@@ -367,6 +368,14 @@ impl StreamingMetrics {
         )
         .unwrap();
 
+        let join_epoch_interval = register_int_gauge_vec_with_registry!(
+            "stream_join_epoch_interval",
+            "Number of cached rows in streaming join operators",
+            &["actor_id"],
+            registry
+        )
+        .unwrap();
+
         let agg_lookup_miss_count = register_int_counter_vec_with_registry!(
             "stream_agg_lookup_miss_count",
             "Aggregation executor lookup miss duration",
@@ -507,6 +516,7 @@ impl StreamingMetrics {
             join_cached_rows,
             join_cached_estimated_size,
             join_cached_seq_gap,
+            join_epoch_interval,
             agg_lookup_miss_count,
             agg_total_lookup_count,
             agg_cached_keys,

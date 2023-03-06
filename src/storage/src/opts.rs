@@ -67,6 +67,8 @@ pub struct StorageOpts {
     pub backup_storage_url: String,
     /// The storage directory for storing backups.
     pub backup_storage_directory: String,
+    pub wkx_operator_cache_capacity_mb: usize,
+    pub wkx_max_memory_manager_step: usize,
 }
 
 impl Default for StorageOpts {
@@ -109,6 +111,8 @@ impl From<(&RwConfig, &SystemParamsReader)> for StorageOpts {
             file_cache_file_max_write_size_mb: c.storage.file_cache.cache_file_max_write_size_mb,
             backup_storage_url: p.backup_storage_url().to_string(),
             backup_storage_directory: p.backup_storage_directory().to_string(),
+            wkx_operator_cache_capacity_mb:  c.storage.wkx_operator_cache_capacity_mb,
+            wkx_max_memory_manager_step: c.storage.wkx_max_memory_manager_step,
         }
     }
 }

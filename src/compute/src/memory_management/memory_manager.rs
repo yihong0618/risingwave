@@ -43,6 +43,7 @@ pub struct GlobalMemoryManager {
     metrics: Arc<StreamingMetrics>,
     /// The memory control policy for computing tasks.
     memory_control_policy: MemoryControlPolicy,
+    wkx_max_memory_manager_step: usize,
 }
 
 pub type GlobalMemoryManagerRef = Arc<GlobalMemoryManager>;
@@ -53,6 +54,8 @@ impl GlobalMemoryManager {
         barrier_interval_ms: u32,
         metrics: Arc<StreamingMetrics>,
         memory_control_policy: MemoryControlPolicy,
+        wkx_operator_cache_capacity_mb: usize,
+        wkx_max_memory_manager_step: usize,
     ) -> Arc<Self> {
         // Arbitrarily set a minimal barrier interval in case it is too small,
         // especially when it's 0.
@@ -63,12 +66,20 @@ impl GlobalMemoryManager {
             memory_control_policy.describe(total_compute_memory_bytes)
         );
 
+        let hack_total_compute_memory_bytes = wkx_operator_cache_capacity_mb << 20;
+        tracing::info!(
+            "WKXLOG hack_total_compute_memory_bytes/wkx_operator_cache_capacity_mb: {}, total_compute_memory_bytes: {}",
+            memory_control_policy.describe(hack_total_compute_memory_bytes),
+            memory_control_policy.describe(total_compute_memory_bytes)
+        );
+
         Arc::new(Self {
             watermark_epoch: Arc::new(0.into()),
-            total_compute_memory_bytes,
+            total_compute_memory_bytes: hack_total_compute_memory_bytes,
             barrier_interval_ms,
             metrics,
             memory_control_policy,
+            wkx_max_memory_manager_step,
         })
     }
 
@@ -105,7 +116,15 @@ impl GlobalMemoryManager {
                 batch_manager.clone(),
                 stream_manager.clone(),
                 self.watermark_epoch.clone(),
+                self.wkx_max_memory_manager_step,
             );
+
+            // tracing::info!(
+            //     "WKXLOG jemalloc_allocated_mib: {}, streaming_memory_usage: {},
+            // lru_watermark_step: {}",     memory_control_stats.jemalloc_allocated_mib,
+            //     memory_control_stats.streaming_memory_usage,
+            //     memory_control_stats.lru_watermark_step
+            // );
 
             self.metrics
                 .lru_current_watermark_time_ms

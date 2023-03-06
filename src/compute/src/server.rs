@@ -83,6 +83,7 @@ pub async fn compute_node_serve(
     let config = load_config(&opts.config_path, Some(opts.override_config.clone()));
 
     info!("Starting compute node",);
+    info!("WKX path :{}", opts.config_path);
     info!("> config: {:?}", config);
     info!(
         "> debug assertions: {}",
@@ -121,6 +122,9 @@ pub async fn compute_node_serve(
         validate_compute_node_memory_config(opts.total_memory_bytes, storage_memory_bytes);
     let memory_control_policy = memory_control_policy_from_config(&opts).unwrap();
 
+    let wkx_operator_cache_capacity_mb = config.storage.wkx_operator_cache_capacity_mb;
+    let wkx_max_memory_manager_step = config.storage.wkx_max_memory_manager_step;
+    tracing::info!("WKXLOG compute_memory_bytes: {}, wkx_operator_cache_capacity_mb: {}, wkx_max_memory_manager_step: {}", compute_memory_bytes, wkx_operator_cache_capacity_mb, wkx_max_memory_manager_step);
     let worker_id = meta_client.worker_id();
     info!("Assigned worker node id {}", worker_id);
 
@@ -259,6 +263,8 @@ pub async fn compute_node_serve(
         system_params.barrier_interval_ms(),
         streaming_metrics.clone(),
         memory_control_policy,
+        wkx_operator_cache_capacity_mb,
+        wkx_max_memory_manager_step,
     );
     // Run a background memory monitor
     tokio::spawn(memory_mgr.clone().run(batch_mgr_clone, stream_mgr_clone));
@@ -419,6 +425,7 @@ fn total_storage_memory_limit_bytes(
         + storage_config.meta_cache_capacity_mb
         + storage_config.shared_buffer_capacity_mb
         + storage_config.file_cache.total_buffer_capacity_mb;
+    tracing::info!("WKXLOG total_storage_memory_limit_bytes: {}", total_memory);
     if embedded_compactor_enabled {
         (total_memory + storage_config.compactor_memory_limit_mb) << 20
     } else {

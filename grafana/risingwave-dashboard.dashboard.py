@@ -1448,6 +1448,14 @@ def section_streaming_actors(outer_panels):
                         ),
                     ],
                 ),
+                panels.timeseries_count(
+                    "Join Epoch Interval",
+                    "",
+                    [
+                        panels.target(f"{metric('stream_join_epoch_interval')}",
+                                      "{{actor_id}}"),
+                    ],
+                ),
                 panels.timeseries_actor_ops(
                     "Aggregation Executor Cache Statistics For Each Key/State",
                     "",
