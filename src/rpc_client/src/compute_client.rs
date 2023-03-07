@@ -57,6 +57,7 @@ impl ComputeClient {
             .initial_stream_window_size(STREAM_WINDOW_SIZE)
             .tcp_nodelay(true)
             .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(10))
             .connect()
             .await?;
         Ok(Self::with_channel(addr, channel))
