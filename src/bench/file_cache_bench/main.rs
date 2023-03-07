@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #![feature(let_chains)]
+#![feature(allocator_api)]
 
 use clap::Parser;
 
@@ -152,6 +153,42 @@ async fn main() {
         panic!("only support linux")
     }
 
+    // TODO: REMOVE ME. For page table memory usage only.
     #[cfg(target_os = "linux")]
-    main_okk().await;
+    {
+        use risingwave_storage::hummock::file_cache::file::{CacheFile, CacheFileOptions};
+        use risingwave_storage::hummock::file_cache::DIO_BUFFER_ALLOCATOR;
+
+        let opt = CacheFileOptions {
+            block_size: 4 * 1024,
+            fallocate_unit: 64 * 1024 * 1024,
+        };
+        let cf = CacheFile::open("/data/sf", opt).await.unwrap();
+
+        static P: [u8; 16 * 1024 * 1024] = [b'x'; 16 * 1024 * 1024];
+
+        for i in 0..2048 {
+            for j in 0..1024 {
+                for _ in 0..64 {
+                    let mut wbuf = Vec::with_capacity_in(16 * 1024 * 1024, &DIO_BUFFER_ALLOCATOR);
+                    unsafe {
+                        wbuf.set_len(16 * 1024 * 1024);
+                    }
+                    wbuf.copy_from_slice(&P);
+
+                    let offset = cf.append(wbuf).await.unwrap();
+                    let rbuf = cf.read(offset, 16 * 1024 * 1024).await.unwrap();
+                    assert_eq!(&P, &rbuf[..]);
+
+                    cf.punch_hole(offset, 16 * 1024 * 1024).unwrap();
+                }
+                println!("written {} GiB", i * 1024 + j);
+            }
+        }
+    }
+    // TODO: REMOVE ME. For page table memory usage only.
+    tokio::signal::ctrl_c().await.unwrap();
+
+    // #[cfg(target_os = "linux")]
+    // main_okk().await;
 }
