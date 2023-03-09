@@ -148,25 +148,70 @@ pub struct KeyPrefix {
     offset: usize,
 }
 
+#[inline]
+fn encode_32(value: usize, buf: &mut impl BufMut) {
+    if value < u8::MAX as usize {
+        buf.put_u8(value as u8);
+    } else if value < u16::MAX as usize {
+        buf.put_u8(u8::MAX);
+        buf.put_u16(value as u16);
+    } else {
+        buf.put_u8(u8::MAX);
+        buf.put_u16(u16::MAX);
+        buf.put_u32(u32::MAX);
+    }
+}
+
+#[inline]
+fn type_len(value: usize) -> usize {
+    if value < u8::MAX as usize {
+        1
+    } else if value < u16::MAX as usize {
+        3
+    } else {
+        7
+    }
+}
+
+#[inline]
+fn decode_32(buf: &mut impl Buf) -> usize {
+    let mut value = buf.get_u8() as usize;
+    if value == u8::MAX as usize {
+        value = buf.get_u16() as usize;
+        if value == u16::MAX as usize {
+            value = buf.get_u32() as usize;
+        }
+    }
+    value
+}
+
 impl KeyPrefix {
     pub fn encode(&self, buf: &mut impl BufMut) {
-        buf.put_u16(self.overlap as u16);
-        if self.diff >= MAX_KEY_LEN {
-            buf.put_u16(MAX_KEY_LEN as u16);
-            buf.put_u32(self.diff as u32);
-        } else {
-            buf.put_u16(self.diff as u16);
-        }
-        buf.put_u32(self.value as u32);
+        encode_32(self.overlap, buf);
+        encode_32(self.diff, buf);
+        encode_32(self.value, buf);
+
+        // buf.put_u16(self.overlap as u16);
+        // if self.diff >= MAX_KEY_LEN {
+        //     buf.put_u16(MAX_KEY_LEN as u16);
+        //     buf.put_u32(self.diff as u32);
+        // } else {
+        //     buf.put_u16(self.diff as u16);
+        // }
+        // buf.put_u32(self.value as u32);
     }
 
     pub fn decode(buf: &mut impl Buf, offset: usize) -> Self {
-        let overlap = buf.get_u16() as usize;
-        let mut diff = buf.get_u16() as usize;
-        if diff == MAX_KEY_LEN {
-            diff = buf.get_u32() as usize;
-        }
-        let value = buf.get_u32() as usize;
+        let overlap = decode_32(buf);
+        let diff = decode_32(buf);
+        let value = decode_32(buf);
+
+        // let overlap = buf.get_u16() as usize;
+        // let mut diff = buf.get_u16() as usize;
+        // if diff == MAX_KEY_LEN {
+        //     diff = buf.get_u32() as usize;
+        // }
+        // let value = buf.get_u32() as usize;
         Self {
             overlap,
             diff,
@@ -177,11 +222,12 @@ impl KeyPrefix {
 
     /// Encoded length.
     fn len(&self) -> usize {
-        if self.diff >= MAX_KEY_LEN {
-            12 // 2 + 2 + 4 + 4
-        } else {
-            8 // 2 + 2 + 4
-        }
+        type_len(self.overlap) + type_len(self.diff) + type_len(self.value)
+        // if self.diff >= MAX_KEY_LEN {
+        //     12 // 2 + 2 + 4 + 4
+        // } else {
+        //     8 // 2 + 2 + 4
+        // }
     }
 
     /// Gets overlap len.
