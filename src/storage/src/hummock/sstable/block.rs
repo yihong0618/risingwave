@@ -18,6 +18,7 @@ use std::mem::size_of;
 use std::ops::Range;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use paste::paste;
 use risingwave_hummock_sdk::KeyComparator;
 use {lz4, zstd};
 
@@ -29,38 +30,142 @@ pub const DEFAULT_BLOCK_SIZE: usize = 4 * 1024;
 pub const DEFAULT_RESTART_INTERVAL: usize = 16;
 pub const DEFAULT_ENTRY_SIZE: usize = 24; // table_id(u64) + primary_key(u64) + epoch(u64)
 
+#[allow(non_camel_case_types)]
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum LenType {
-    U8U8 = 1,
-    U8U16 = 2,
-    U8U32 = 3,
-    U16U8 = 4,
-    U16U16 = 5,
-    U16U32 = 6,
-    U32U8 = 7,
-    U32U16 = 8,
-    U32U32 = 9,
+    u8 = 1,
+    u16 = 2,
+    u32 = 3,
+}
+
+#[macro_export]
+macro_rules! for_all_type {
+    ($function:ident) => {{
+        $function!{u8, u8}
+        $function!(u8, u16)
+        $function!(u8, u32)
+        $function!(u16, u8)
+        $function!(u16, u16)
+        $function!(u16, u32)
+        $function!(u32, u8)
+        $function!(u32, u16)
+        $function!(u32, u32)
+
+    }};
+}
+
+#[macro_export]
+macro_rules! for_all_type2 {
+    ($macro:ident) => {
+        $macro! {
+            {u8, u8},
+            {u8, u16},
+            {u8, u32},
+            {u16, u8},
+            {u16, u16},
+            {u16, u32},
+            {u32, u8},
+            {u32, u16},
+            {u32, u32}
+
+        }
+    };
+}
+
+macro_rules! impl_put_fn {
+    ($( { $key_len_type:ident, $value_len_type:ident, $key_prefix:ident, $buf:ident}),*) => {
+            paste! {
+                $((LenType::$key_len_type, LenType::$value_len_type) => {
+                    $buf.[<put_ $key_len_type>]($key_prefix.overlap as $key_len_type);
+                    $buf.[<put_ $key_len_type>]($key_prefix.diff as $key_len_type);
+                    $buf.[<put_ $value_len_type>]($key_prefix.value as $value_len_type);
+                }
+            )*}
+    }
+}
+
+#[macro_export]
+macro_rules! get_fn_body {
+    ($key_len_type:ident, $value_len_type:ident) => {
+            (LenType::$key_len_type, LenType::$value_len_type) => {
+                (
+                    buf.[<get_ $key_len_type>]() as usize,
+                    buf.[<get_ $key_len_type>]() as usize,
+                    buf.[<get_ $value_len_type>]() as usize,
+                )
+            },
+
+    };
+}
+
+#[macro_export]
+macro_rules! put_fn_body {
+    ($key_len_type:ident, $value_len_type:ident) => {
+        paste! {
+            (LenType::$key_len_type, LenType::$value_len_type) => {
+                (
+                    buf.[<put_ $key_len_type>](self.overlap as $key_len_type);
+                    buf.[<put_ $key_len_type>](self.diff as $key_len_type);
+                    buf.[<put_ $value_len_type>](value as $value_len_type);
+                )
+            },
+        }
+    };
 }
 
 impl From<u8> for LenType {
     fn from(value: u8) -> Self {
         match value {
-            1 => LenType::U8U8,
-            2 => LenType::U8U16,
-            3 => LenType::U8U32,
-            4 => LenType::U16U8,
-            5 => LenType::U16U16,
-            6 => LenType::U16U32,
-            7 => LenType::U32U8,
-            8 => LenType::U32U16,
-            9 => LenType::U32U32,
-
+            // 1 => LenType::U8U8,
+            // 2 => LenType::U8U16,
+            // 3 => LenType::U8U32,
+            // 4 => LenType::U16U8,
+            // 5 => LenType::U16U16,
+            // 6 => LenType::U16U32,
+            // 7 => LenType::U32U8,
+            // 8 => LenType::U32U16,
+            // 9 => LenType::U32U32,
             _ => {
                 panic!("unexpected")
             }
         }
     }
 }
+
+// macro_rules! for_all_type {
+//     ($function:ident) => {
+//         $function!(u8, u8);
+//         $function!(u8, u16);
+//         $function!(u8, u32);
+//         $function!(u16, u8);
+//         $function!(u16, u16);
+//         $function!(u16, u32);
+//         $function!(u32, u8);
+//         $function!(u32, u16);
+//         $function!(u32, u32)
+//     }
+// }
+
+// macro_rules! put_fn_body {
+//     ($key_len_type:ident, $value_len_type:ident) => {
+//         {
+//         (LenType::$key_len_type, LenType::$value_len_type) => {
+//             buf.put_$key_len_type(self.overlap as $key_len_type);
+//             buf.put_$key_len_type(self.diff as $key_len_type);
+//             buf.put_$value_len_type(value as $value_len_type);
+//         }
+//     }
+//     };
+// }
+
+// fn put_fn(buf: impl BufMut, overlap: usize, diff: usize, value: usize, key_len) {
+//     match (self.key, self.value) {
+//         for_all_type!(put_fn_body!);
+//     };
+// }
+
+// for_all_type! {put_fn_body!}
+// for_all_type! {get_fn_body!}
 
 macro_rules! put_fn {
     ($self_:ident, $buf:ident, $overlap:ident, $diff:ident, $value:ident, $(($ty1:ident => ($put_fn:ident, $as_type: ident, $put_fn2:ident, $as_type2: ident))),*) => {
@@ -97,71 +202,77 @@ impl LenType {
         const U8_MAX: usize = u8::MAX as usize;
         const U16_MAX: usize = u16::MAX as usize;
         const U32_MAX: usize = u32::MAX as usize;
+        todo!();
 
-        match (klen, vlen) {
-            (0..=U8_MAX, 0..=U8_MAX) => LenType::U8U8,
-            (0..=U8_MAX, 0..=U16_MAX) => LenType::U8U16,
-            (0..=U8_MAX, 0..=U32_MAX) => LenType::U8U32,
-            (0..=U16_MAX, 0..=U8_MAX) => LenType::U16U8,
-            (0..=U16_MAX, 0..=U16_MAX) => LenType::U16U16,
-            (0..=U16_MAX, 0..=U32_MAX) => LenType::U16U32,
-            (0..=U32_MAX, 0..=U8_MAX) => LenType::U32U8,
-            (0..=U32_MAX, 0..=U16_MAX) => LenType::U32U16,
-            (0..=U32_MAX, 0..=U32_MAX) => LenType::U32U32,
+        // match (klen, vlen) {
+        //     (0..=U8_MAX, 0..=U8_MAX) => LenType::U8U8,
+        //     (0..=U8_MAX, 0..=U16_MAX) => LenType::U8U16,
+        //     (0..=U8_MAX, 0..=U32_MAX) => LenType::U8U32,
+        //     (0..=U16_MAX, 0..=U8_MAX) => LenType::U16U8,
+        //     (0..=U16_MAX, 0..=U16_MAX) => LenType::U16U16,
+        //     (0..=U16_MAX, 0..=U32_MAX) => LenType::U16U32,
+        //     (0..=U32_MAX, 0..=U8_MAX) => LenType::U32U8,
+        //     (0..=U32_MAX, 0..=U16_MAX) => LenType::U32U16,
+        //     (0..=U32_MAX, 0..=U32_MAX) => LenType::U32U32,
 
-            _ => unreachable!(),
-        }
+        //     _ => unreachable!(),
+        // }
     }
 
     fn len(&self) -> (usize, usize) {
-        match *self {
-            Self::U8U8 => (size_of::<u8>(), size_of::<u8>()),
-            Self::U8U16 => (size_of::<u8>(), size_of::<u16>()),
-            Self::U8U32 => (size_of::<u8>(), size_of::<u32>()),
+        todo!();
 
-            Self::U16U8 => (size_of::<u16>(), size_of::<u8>()),
-            Self::U16U16 => (size_of::<u16>(), size_of::<u16>()),
-            Self::U16U32 => (size_of::<u16>(), size_of::<u32>()),
+        // match *self {
+        //     Self::U8U8 => (size_of::<u8>(), size_of::<u8>()),
+        //     Self::U8U16 => (size_of::<u8>(), size_of::<u16>()),
+        //     Self::U8U32 => (size_of::<u8>(), size_of::<u32>()),
 
-            Self::U32U8 => (size_of::<u32>(), size_of::<u8>()),
-            Self::U32U16 => (size_of::<u32>(), size_of::<u16>()),
-            Self::U32U32 => (size_of::<u32>(), size_of::<u32>()),
-        }
+        //     Self::U16U8 => (size_of::<u16>(), size_of::<u8>()),
+        //     Self::U16U16 => (size_of::<u16>(), size_of::<u16>()),
+        //     Self::U16U32 => (size_of::<u16>(), size_of::<u32>()),
+
+        //     Self::U32U8 => (size_of::<u32>(), size_of::<u8>()),
+        //     Self::U32U16 => (size_of::<u32>(), size_of::<u16>()),
+        //     Self::U32U32 => (size_of::<u32>(), size_of::<u32>()),
+        // }
     }
 }
 
 pub trait BufMutExt: BufMut {
     fn put_key_prefix(&mut self, v1: usize, v2: usize, v3: usize, encoder: LenType) {
-        put_fn!(
-            encoder,
-            self, v1, v2, v3,
-            (U8U8 => (put_u8, u8, put_u8, u8)),
-            (U8U16 => (put_u8, u8, put_u16, u16)),
-            (U8U32 => (put_u8, u8, put_u32, u32)),
-            (U16U8 => (put_u16, u16, put_u8, u8)),
-            (U16U16 => (put_u16, u16, put_u16, u16)),
-            (U16U32 => (put_u16, u16, put_u32, u32)),
-            (U32U8 => (put_u32, u32, put_u8, u8)),
-            (U32U16 => (put_u32, u32, put_u16, u16)),
-            (U32U32 => (put_u32, u32, put_u32, u32))
-        );
+        todo!();
+
+        // put_fn!(
+        //     encoder,
+        //     self, v1, v2, v3,
+        //     (U8U8 => (put_u8, u8, put_u8, u8)),
+        //     (U8U16 => (put_u8, u8, put_u16, u16)),
+        //     (U8U32 => (put_u8, u8, put_u32, u32)),
+        //     (U16U8 => (put_u16, u16, put_u8, u8)),
+        //     (U16U16 => (put_u16, u16, put_u16, u16)),
+        //     (U16U32 => (put_u16, u16, put_u32, u32)),
+        //     (U32U8 => (put_u32, u32, put_u8, u8)),
+        //     (U32U16 => (put_u32, u32, put_u16, u16)),
+        //     (U32U32 => (put_u32, u32, put_u32, u32))
+        // );
     }
 }
 
 pub trait BufExt: Buf {
     fn get_key_prefix(&mut self, decoder: LenType) -> (usize, usize, usize) {
-        get_fn!(
-            decoder, self,
-            (U8U8 => (get_u8, get_u8)),
-            (U8U16 => (get_u8, get_u16)),
-            (U8U32 => (get_u8, get_u32)),
-            (U16U8 => (get_u16, get_u8)),
-            (U16U16 => (get_u16, get_u16)),
-            (U16U32 => (get_u16, get_u32)),
-            (U32U8 => (get_u32, get_u8)),
-            (U32U16 => (get_u32, get_u16)),
-            (U32U32 => (get_u32, get_u32))
-        )
+        todo!();
+        // get_fn!(
+        //     decoder, self,
+        //     (U8U8 => (get_u8, get_u8)),
+        //     (U8U16 => (get_u8, get_u16)),
+        //     (U8U32 => (get_u8, get_u32)),
+        //     (U16U8 => (get_u16, get_u8)),
+        //     (U16U16 => (get_u16, get_u16)),
+        //     (U16U32 => (get_u16, get_u32)),
+        //     (U32U8 => (get_u32, get_u8)),
+        //     (U32U16 => (get_u32, get_u16)),
+        //     (U32U32 => (get_u32, get_u32))
+        // )
     }
 }
 
@@ -348,6 +459,22 @@ impl KeyPrefix {
 impl KeyPrefix {
     pub fn encode(&self, mut buf: &mut impl BufMut, encoder: LenType) {
         buf.put_key_prefix(self.overlap, self.diff, self.value, encoder)
+    }
+
+    pub fn encode2(
+        &self,
+        mut buf: &mut impl BufMut,
+        key_len_type: LenType,
+        value_len_type: LenType,
+    ) {
+        // todo!()
+
+        for_all_type2!(impl_put_fn)
+
+        // match (key_len_type, value_len_type) {
+        //     // for_all_type!(put_fn_body)
+        //     for_all_type2!(impl_get_fn)
+        // }
     }
 
     pub fn decode(mut buf: &mut impl Buf, offset: usize, decoder: LenType) -> Self {
