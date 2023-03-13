@@ -48,7 +48,7 @@ impl BlockIterator {
             key: BytesMut::default(),
             value_range: 0..0,
             entry_len: 0,
-            last_len_type: LenType::U8U8,
+            last_len_type: LenType::u8,
         }
     }
 

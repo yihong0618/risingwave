@@ -56,31 +56,41 @@ macro_rules! for_all_type {
 
 #[macro_export]
 macro_rules! for_all_type2 {
-    ($macro:ident) => {
+    ([$($arg:ident)*], $macro:ident) => {
         $macro! {
-            {u8, u8},
-            {u8, u16},
-            {u8, u32},
-            {u16, u8},
-            {u16, u16},
-            {u16, u32},
-            {u32, u8},
-            {u32, u16},
-            {u32, u32}
-
+            $($arg, )*
+            { u8, u8 },
+            { u8, u16 },
+            { u8, u32 },
+            { u16, u8 },
+            { u16, u16 },
+            { u16, u32 },
+            { u32, u8 },
+            { u32, u16 },
+            { u32, u32 }
         }
     };
 }
 
 macro_rules! impl_put_fn {
-    ($( { $key_len_type:ident, $value_len_type:ident, $key_prefix:ident, $buf:ident}),*) => {
-            paste! {
-                $((LenType::$key_len_type, LenType::$value_len_type) => {
-                    $buf.[<put_ $key_len_type>]($key_prefix.overlap as $key_len_type);
-                    $buf.[<put_ $key_len_type>]($key_prefix.diff as $key_len_type);
-                    $buf.[<put_ $value_len_type>]($key_prefix.value as $value_len_type);
-                }
-            )*}
+    (
+        $self: ident,
+        $buf:ident,
+        $given_key_len_type:ident,
+        $given_value_len_type:ident,
+        $( { $key_len_type:ident, $value_len_type:ident }),*
+    ) => {
+        match ($given_key_len_type, $given_value_len_type) {
+            $(
+                (LenType::$key_len_type, LenType::$value_len_type) => {
+                    paste! {
+                        $buf.[<put_ $key_len_type>]($self.overlap as $key_len_type);
+                        $buf.[<put_ $key_len_type>]($self.diff as $key_len_type);
+                        $buf.[<put_ $value_len_type>]($self.value as $value_len_type);
+                    }
+                },
+            )*
+        }
     }
 }
 
@@ -469,7 +479,7 @@ impl KeyPrefix {
     ) {
         // todo!()
 
-        for_all_type2!(impl_put_fn)
+        for_all_type2!([self buf key_len_type value_len_type], impl_put_fn)
 
         // match (key_len_type, value_len_type) {
         //     // for_all_type!(put_fn_body)
