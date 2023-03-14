@@ -40,6 +40,7 @@ risingwave_storage = { path = "../storage" }
 risingwave_stream = { path = "../stream" }
 risingwave_tracing = { path = "../tracing" }
 serde_json = "1"
+sysinfo = { version = "0.26", default-features = false }
 tokio = { version = "0.2", package = "madsim-tokio", features = [
     "rt",
     "rt-multi-thread",

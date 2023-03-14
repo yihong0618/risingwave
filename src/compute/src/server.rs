@@ -54,6 +54,7 @@ use risingwave_storage::opts::StorageOpts;
 use risingwave_storage::StateStoreImpl;
 use risingwave_stream::executor::monitor::StreamingMetrics;
 use risingwave_stream::task::{LocalStreamManager, StreamEnvironment};
+use sysinfo::{CpuRefreshKind, ProcessRefreshKind, RefreshKind};
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinHandle;
 
@@ -338,6 +339,35 @@ pub async fn compute_node_serve(
             .await
             .unwrap();
     });
+
+    join_handle_vec.push(tokio::spawn(async move {
+        use sysinfo::{CpuExt, Pid, PidExt, ProcessExt, System, SystemExt};
+
+        let mut system =
+            System::new_with_specifics(RefreshKind::new().with_cpu(CpuRefreshKind::everything()));
+        let pid = sysinfo::get_current_pid().unwrap();
+        let mut min_interval = tokio::time::interval(Duration::from_secs(10));
+
+        loop {
+            tokio::select! {
+                // Wait for interval.
+                _ = min_interval.tick() => {
+                    let refresh_result = system.refresh_process_specifics(pid, ProcessRefreshKind::new());
+                    println!("refresh_process_specifics {}", refresh_result);
+
+                    let cpu = if let Some(process) = system.process(pid) {
+                        tracing::info!("COMPUTE pid {:?} process {:?}", pid, process);
+                        tracing::info!("COMPUTE pid {:?} process_cpu {:?} global_cpu {:?}", pid, process.cpu_usage(), system.global_cpu_info().cpu_usage());
+                        process.cpu_usage() as u32
+                    } else {
+                        println!("fail to get process pid {:?}", pid);
+                        0
+                    };
+                },
+            }
+        }
+    }));
+
     join_handle_vec.push(join_handle);
 
     // Boot metrics service.

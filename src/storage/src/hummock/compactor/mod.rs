@@ -49,6 +49,7 @@ use risingwave_pb::hummock::{
 };
 use risingwave_rpc_client::HummockMetaClient;
 pub use shared_buffer_compact::compact;
+use sysinfo::{Pid, PidExt, ProcessExt, System, SystemExt};
 use tokio::sync::oneshot::{Receiver, Sender};
 use tokio::task::JoinHandle;
 
@@ -340,6 +341,9 @@ impl Compactor {
         let task_progress_update_interval = Duration::from_millis(1000);
         let mut process_cpu_info = process::ProcessCpuInfo::new().unwrap();
         let cpu_core_num = process_cpu_info.cpu_num() as u32;
+        let mut system = System::new_all();
+        let pid = sysinfo::get_current_pid().unwrap();
+
         let join_handle = tokio::spawn(async move {
             let shutdown_map = CompactionShutdownMap::default();
             let mut min_interval = tokio::time::interval(stream_retry_interval);
@@ -379,6 +383,8 @@ impl Compactor {
 
                 let executor = compactor_context.compaction_executor.clone();
                 let mut last_workload = CompactorWorkload::default();
+                let process_ids = system.processes().keys().collect_vec();
+                println!("process_ids {:?}", process_ids);
 
                 // This inner loop is to consume stream or report task progress.
                 'consume_stream: loop {
@@ -401,15 +407,23 @@ impl Compactor {
                         }
 
                         _ = workload_collect_interval.tick() => {
-                            let cpu = match process_cpu_info.cpu_avg() {
-                                Ok(v) => (v * 100.0) as u32,
-                                Err(e) => {
-                                    tracing::warn!("Failed to collect process cpu. {e:?}");
-                                    0
-                                }
+                            // let cpu = match process_cpu_info.cpu_avg() {
+                            //     Ok(v) => (v * 100.0) as u32,
+                            //     Err(e) => {
+                            //         tracing::warn!("Failed to collect process cpu. {e:?}");
+                            //         0
+                            //     }
+                            // };
+
+                            system.refresh_cpu();
+                            let cpu = if let Some(process) = system.process(pid) {
+                                process.cpu_usage() as u32
+                            } else {
+                                println!("fail to get process pid {:?}", pid);
+                                0
                             };
 
-                            tracing::info!("compactor cpu usage {cpu}");
+                            tracing::info!("compactor cpu usage {}", cpu);
                             let workload = CompactorWorkload {
                                 cpu,
                             };
@@ -795,7 +809,10 @@ impl Compactor {
 mod process {
     use std::io::{Error, ErrorKind, Result};
 
+    // use darwin_libproc::processor::Processor;
     use minstant::Instant;
+    #[cfg(target_os = "linux")]
+    use procfs::cpu::CpuStat;
     #[cfg(target_os = "linux")]
     use risingwave_common::monitor::CLOCK_TICK;
     use risingwave_common::util::resource_util;
@@ -803,7 +820,7 @@ mod process {
     pub struct ProcessCpuInfo {
         sched_time: f64,
         num_cpus: usize,
-        last_cpu_collect_time: Instant,
+        last_cpu_collect_time: u64,
     }
 
     #[cfg(target_os = "linux")]
@@ -843,7 +860,7 @@ mod process {
             Ok(Self {
                 sched_time: Self::sched_time()?,
                 num_cpus: resource_util::cpu::total_cpu_available() as usize,
-                last_cpu_collect_time: Instant::now(),
+                last_cpu_collect_time: Self::get_cpu_time(),
             })
         }
 
@@ -857,17 +874,44 @@ mod process {
             let sched_time_delta = sched_time_total - self.sched_time;
             assert!(sched_time_delta >= 0.0, "time went backwards");
 
-            let now = Instant::now();
-            let elapsed = now - self.last_cpu_collect_time;
+            let now = Self::get_cpu_time();
+            let cpu_time_delta = now - self.last_cpu_collect_time;
 
             self.sched_time = sched_time_total;
             self.last_cpu_collect_time = now;
 
-            Ok(sched_time_delta / elapsed.as_secs_f64())
+            let process_cpu_usage = sched_time_delta / 100.0;
+            let system_cpu_usage = cpu_time_delta as f64 / 1000000000.0;
+            let cpu_usage = process_cpu_usage / system_cpu_usage * 100.0;
+
+            Ok(cpu_usage)
         }
 
         pub fn cpu_num(&self) -> usize {
             self.num_cpus
+        }
+
+        #[cfg(target_os = "linux")]
+        fn get_cpu_time() -> u64 {
+            let cpu_stat = CpuStat::stat().unwrap();
+            let mut sum: u64 = 0;
+            for cpu in cpu_stat.cpu_info.iter() {
+                sum += cpu.user
+                    + cpu.nice
+                    + cpu.system
+                    + cpu.idle
+                    + cpu.iowait
+                    + cpu.irq
+                    + cpu.softirq;
+            }
+            sum
+        }
+
+        #[cfg(target_os = "macos")]
+        fn get_cpu_time() -> u64 {
+            use mach::mach_time::mach_absolute_time;
+
+            unsafe { mach_absolute_time() }
         }
     }
 }
