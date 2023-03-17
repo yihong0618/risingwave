@@ -20,6 +20,7 @@
 mod hummock_iterator;
 mod stream_chunk_iterator;
 
+use std::any::type_name;
 use std::backtrace::Backtrace;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -134,8 +135,10 @@ impl<'a, T> Default for Pointer<'a, T> {
 
 impl<T> From<T> for Pointer<'static, T> {
     fn from(value: T) -> Self {
+        let ptr = Box::into_raw(Box::new(value));
+        println!("allocating: {} {}", type_name::<T>(), ptr as jlong);
         Pointer {
-            pointer: Box::into_raw(Box::new(value)) as jlong,
+            pointer: ptr as jlong,
             _phantom: PhantomData::default(),
         }
     }
@@ -152,17 +155,20 @@ impl<T> Pointer<'static, T> {
 
 impl<'a, T> Pointer<'a, T> {
     fn as_ref(&self) -> &'a T {
-        debug_assert!(self.pointer != 0);
+        println!("as_ref: {} {}", type_name::<T>(), self.pointer as jlong);
+        assert_ne!(self.pointer, 0);
         unsafe { &*(self.pointer as *const T) }
     }
 
     fn as_mut(&mut self) -> &'a mut T {
-        debug_assert!(self.pointer != 0);
+        println!("as_mut: {} {}", type_name::<T>(), self.pointer as jlong);
+        assert_ne!(self.pointer, 0);
         unsafe { &mut *(self.pointer as *mut T) }
     }
 
     fn drop(self) {
-        debug_assert!(self.pointer != 0);
+        println!("dropping: {} {}", type_name::<T>(), self.pointer as jlong);
+        assert_ne!(self.pointer, 0);
         unsafe { drop(Box::from_raw(self.pointer as *mut T)) }
     }
 }
@@ -354,6 +360,7 @@ pub extern "system" fn Java_com_risingwave_java_binding_Binding_rowIsNull<'a>(
     idx: jint,
 ) -> jboolean {
     execute_and_catch(env, move || {
+        println!("call row is null: {}", pointer.pointer);
         Ok(pointer.as_ref().is_null(idx as usize) as jboolean)
     })
 }
