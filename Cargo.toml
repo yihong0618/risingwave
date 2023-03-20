@@ -1,5 +1,7 @@
 [workspace]
 members = [
+  "src/pcap_producer",
+  "src/pcap_parser",
   "scripts/source/prepare_ci_pubsub",
   "src/batch",
   "src/bench",

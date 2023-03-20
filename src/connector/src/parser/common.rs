@@ -60,7 +60,10 @@ fn do_parse_simd_json_value(dtype: &DataType, v: &BorrowedValue<'_>) -> Result<S
             .ok_or_else(|| anyhow!("expect decimal"))?
             .into(),
         DataType::Varchar => ensure_str!(v, "varchar").to_string().into(),
-        DataType::Bytea => ensure_str!(v, "bytea").to_string().into(),
+        DataType::Bytea => {
+            let buf: Vec<u8> = simd_json::serde::from_borrowed_value(v.clone()).unwrap();
+            buf.into_boxed_slice().into()
+        }
         // debezium converts date to i32 for mysql and postgres
         DataType::Date => match v {
             BorrowedValue::String(s) => str_to_date(s)?.into(),
