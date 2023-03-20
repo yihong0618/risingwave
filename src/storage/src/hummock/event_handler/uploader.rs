@@ -33,6 +33,7 @@ use tracing::{debug, error};
 
 use crate::hummock::event_handler::hummock_event_handler::BufferTracker;
 use crate::hummock::event_handler::LocalInstanceId;
+use crate::hummock::iterator::UnorderedMergeIteratorInner;
 use crate::hummock::local_version::pinned_version::PinnedVersion;
 // use crate::hummock::store::immutable_memtable::MergedImmutableMemtable;
 use crate::hummock::store::memtable::{ImmId, ImmutableMemtable};
@@ -99,12 +100,24 @@ impl MergingImmTask {
     ) -> Self {
         let memory_limiter = context.buffer_tracker.get_memory_limiter().clone();
         let join_handle = tokio::spawn(async move {
-            Ok(ImmutableMemtable::build_merged_imm(
+            let mut mi = UnorderedMergeIteratorInner::new(
+                imms.clone().into_iter().map(|it| it.into_forward_iter()),
+            );
+
+            ImmutableMemtable::build_merged_imm_async(
                 table_id,
                 shard_id,
                 imms,
+                mi,
                 Some(memory_limiter),
-            ))
+            )
+            .await
+            // Ok(ImmutableMemtable::build_merged_imm(
+            //     table_id,
+            //     shard_id,
+            //     imms,
+            //     Some(memory_limiter),
+            // ))
         });
 
         MergingImmTask {

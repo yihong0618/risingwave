@@ -16,6 +16,7 @@ use std::ops::Bound;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use criterion::Throughput::Bytes;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use risingwave_common::catalog::TableId;
@@ -300,9 +301,11 @@ async fn test_read_version_basic() {
 //         // check the ingested imms
 //         for epoch in min_epoch..=max_epoch {
 //             let key = iterator_test_table_key_of(epoch as usize);
-//             let key_range =
-//                 map_table_key_range((Bound::Included(key.to_vec()),
-// Bound::Included(key.to_vec())));             let (staging_imm_iter, staging_sst_iter) =
+//             let key_range = map_table_key_range((
+//                 Bound::Included(Bytes::from(key.to_vec())),
+//                 Bound::Included(Bytes::from(key.to_vec())),
+//             ));
+//             let (staging_imm_iter, staging_sst_iter) =
 //                 read_version
 //                     .staging()
 //                     .prune_overlap(0, epoch, TableId::default(), &key_range);
@@ -348,7 +351,8 @@ async fn test_read_version_basic() {
 //
 //         {
 //             // add merged imm to read version, then all staging imms will be removed
-//             read_version.update(VersionUpdate::Staging(MergedImmMem(merged_imm.unwrap())));
+//             
+// read_version.update(VersionUpdate::Staging(StagingData::MergedImmMem(merged_imm.unwrap())));
 //         }
 //
 //         // ingest new batches
