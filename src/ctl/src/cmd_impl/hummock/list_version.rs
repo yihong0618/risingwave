@@ -27,7 +27,9 @@ pub async fn list_version(context: &CtlContext) -> anyhow::Result<()> {
     let version = meta_client.get_current_version().await?;
 
     for (cg, levels) in &version.levels {
-        let mut lsm_level_key_range: HashMap<u64, Vec<(u64, u64)>> = HashMap::default();
+        #[allow(clippy::type_complexity)]
+        let mut lsm_level_key_range: HashMap<u64, Vec<(u64, (u32, u16), u64)>> = HashMap::default();
+        let mut level_index_vec = Vec::default();
 
         let mut small_key = Bytes::default();
         let mut large_key = Bytes::default();
@@ -69,8 +71,17 @@ pub async fn list_version(context: &CtlContext) -> anyhow::Result<()> {
             let (right_table_id, right_vnode) = get_table_id_and_vnode(right);
 
             let diff_table_id = (right_table_id - left_table_id) as u64;
-            let diff_vnode = (right_vnode - left_vnode) as u64;
+            let diff_vnode = if right_table_id == left_table_id {
+                (right_vnode - left_vnode) as u64
+            } else {
+                (right_vnode + 256 - left_vnode) as u64
+            };
+
             let diff_length = diff_table_id * 256 + diff_vnode;
+            println!(
+                "lt {} lv {} rt {} rv {} length {}",
+                left_table_id, left_vnode, right_table_id, right_vnode, diff_length
+            );
 
             diff_length
         };
@@ -90,12 +101,16 @@ pub async fn list_version(context: &CtlContext) -> anyhow::Result<()> {
                     continue;
                 }
 
+                level_index_vec.push(l0_level.sub_level_id);
+
                 lsm_level_key_range.insert(l0_level.sub_level_id, vec![]);
                 let last_level = lsm_level_key_range.get_mut(&l0_level.sub_level_id).unwrap();
                 for sst in &l0_level.table_infos {
                     let length = sst_key_range_length(sst);
+                    let left = Bytes::from(sst.key_range.as_ref().unwrap().left.clone());
+                    let (table_id, vnode) = get_table_id_and_vnode(&left);
 
-                    last_level.push((sst.sst_id, length));
+                    last_level.push((sst.sst_id, (table_id, vnode), length));
                 }
 
                 let left = left_key(l0_level);
@@ -106,7 +121,7 @@ pub async fn list_version(context: &CtlContext) -> anyhow::Result<()> {
                 }
 
                 if right > large_key {
-                    large_key = Bytes::copy_from_slice(&right.as_ref());
+                    large_key = Bytes::copy_from_slice(right.as_ref());
                 }
             }
         }
@@ -116,6 +131,8 @@ pub async fn list_version(context: &CtlContext) -> anyhow::Result<()> {
                 continue;
             }
 
+            level_index_vec.push(level.level_idx as u64);
+
             lsm_level_key_range.insert(level.level_idx as u64, vec![]);
             let last_level = lsm_level_key_range
                 .get_mut(&(level.level_idx as u64))
@@ -124,7 +141,10 @@ pub async fn list_version(context: &CtlContext) -> anyhow::Result<()> {
             for sst in &level.table_infos {
                 let length = sst_key_range_length(sst);
 
-                last_level.push((sst.sst_id, length));
+                let left = Bytes::from(sst.key_range.as_ref().unwrap().left.clone());
+                let (table_id, vnode) = get_table_id_and_vnode(&left);
+
+                last_level.push((sst.sst_id, (table_id, vnode), length));
             }
 
             let left = left_key(level);
@@ -135,49 +155,27 @@ pub async fn list_version(context: &CtlContext) -> anyhow::Result<()> {
             }
 
             if right > large_key {
-                large_key = Bytes::copy_from_slice(&right.as_ref());
+                large_key = Bytes::copy_from_slice(right.as_ref());
             }
         }
+
+        let (l_table_id, l_vnode) = get_table_id_and_vnode(&small_key);
 
         let global_length = key_range_length(&small_key, &large_key);
 
         println!(
-            "cg {:?} small_key {:?} larget_key {:?} global_length {:?}",
+            "cg {:?} small_key {:?} large_key {:?} global_length {:?}",
             cg, small_key, large_key, global_length
         );
 
-        let mut printter_vec = vec![vec![]; lsm_level_key_range.len()];
-
-        let mut index = 0;
-        for (level_idx, level_stat) in lsm_level_key_range {
+        for level_idx in level_index_vec {
+            let level_stat = lsm_level_key_range.get(&level_idx).unwrap();
             println!("cg{}-L{}", cg, level_idx);
-            let printter = &mut printter_vec[index];
-            for (sst, length) in level_stat {
-                let ratio = (length * 100) as f64 / global_length as f64;
+            for (_sst, (table_id, vnode), length) in level_stat {
+                let raw_offset =
+                    (table_id - l_table_id) as u64 * 256 + (vnode + 256 - l_vnode) as u64;
 
-                println!(
-                    "sst {} length {} length_ratio {}%",
-                    sst,
-                    length,
-                    (length * 100) as f64 / global_length as f64
-                );
-
-                if ratio > 1.0 {
-                    let format_str_1 = "-".repeat((ratio / 100.0 * 20.0) as usize);
-                    let format_str_2 = format!("sst{} |{:?}| ", sst, format_str_1);
-
-                    printter.push(format_str_2);
-                }
-            }
-
-            println!("");
-
-            index += 1;
-        }
-
-        for printter in printter_vec {
-            for format_str in printter {
-                print!("{}", format_str);
+                print!("({}, {}), ", raw_offset, raw_offset + length);
             }
 
             println!();
