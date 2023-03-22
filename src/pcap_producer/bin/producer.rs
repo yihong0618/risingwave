@@ -2,7 +2,7 @@ use std::fmt::Write;
 use std::time::Duration;
 
 use kafka::client::KafkaClient;
-use kafka::producer::{ Producer, Record, RequiredAcks};
+use kafka::producer::{Producer, Record, RequiredAcks};
 use pcap::Capture;
 use pnet::packet::ethernet::EthernetPacket;
 use pnet::packet::ipv4::Ipv4Packet;
@@ -20,11 +20,11 @@ struct MyTcpPacket {
     acknowledgement_number: u32,
     window_size: u16,
     is_fin: bool,
+    ts: u64,
 }
 
 fn main() -> anyhow::Result<()> {
     let mut cap = Capture::from_file("c.pcap")?;
- 
 
     // ./kafka-topics --topic tcp --create  --bootstrap-server localhost:9092
     let mut producer = Producer::from_hosts(vec!["localhost:9092".to_owned()])
@@ -64,6 +64,7 @@ fn main() -> anyhow::Result<()> {
                 acknowledgement_number: tcp.get_acknowledgement(),
                 window_size: tcp.get_window(),
                 is_fin: tcp.get_flags() & TcpFlags::FIN != 0,
+                ts: packet.header.ts.tv_sec as u64,
             };
             let buf = serde_json::to_vec(&packet).unwrap();
             producer.send(&Record::from_value("tcp", buf)).unwrap();
