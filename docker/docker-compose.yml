@@ -26,6 +26,7 @@ services:
     volumes:
       - "./risingwave.toml:/risingwave.toml"
     environment:
+      AWS_DEFAULT_REGION: ap-southeast-1
       RUST_BACKTRACE: "1"
       RW_META_ADDR: ${RW_META_ADDR}
     container_name: compactor-0
@@ -66,6 +67,7 @@ services:
       - "./risingwave.toml:/risingwave.toml"
     environment:
       RUST_BACKTRACE: "1"
+      AWS_DEFAULT_REGION: ap-southeast-1
     container_name: compute-node-0
     healthcheck:
       test:
@@ -145,6 +147,7 @@ services:
       - "./risingwave.toml:/risingwave.toml"
     environment:
       RUST_BACKTRACE: "1"
+      AWS_DEFAULT_REGION: ap-southeast-1
     container_name: frontend-node-0
     healthcheck:
       test:
@@ -215,6 +218,7 @@ services:
       - "./risingwave.toml:/risingwave.toml"
     environment:
       RUST_BACKTRACE: "1"
+      AWS_DEFAULT_REGION: ap-southeast-1
     container_name: meta-node-0
     healthcheck:
       test:
