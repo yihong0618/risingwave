@@ -102,12 +102,14 @@ impl MetaNodeService {
         let provide_aws_s3 = config.provide_aws_s3.as_ref().unwrap();
 
         let provide_compute_node = config.provide_compute_node.as_ref().unwrap();
+        let provide_compactor = config.provide_compactor.as_ref().unwrap();
 
         // If compactors are provided, disable in-memory hummock (unshared).
         let hummock_in_memory_strategy = if matches!(
             hummock_in_memory_strategy,
             HummockInMemoryStrategy::Isolated
-        ) {
+        ) && provide_compactor.len() > 0
+        {
             HummockInMemoryStrategy::Disallowed
         } else {
             hummock_in_memory_strategy
