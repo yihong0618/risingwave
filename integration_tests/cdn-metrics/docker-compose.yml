@@ -1,10 +1,6 @@
 ---
 version: "3"
 services:
-  compactor-0:
-    extends:
-      file: ../../docker/docker-compose.yml
-      service: compactor-0
   compute-node-0:
     extends:
       file: ../../docker/docker-compose.yml
@@ -40,11 +36,11 @@ services:
   datagen:
     build: ../datagen
     depends_on: [message_queue]
-    command:
-      - /bin/sh
-      - -c
-      - /datagen --heavytail --mode cdn-metrics --qps 1000 kafka --brokers message_queue:29092
-    restart: always
+      #command:
+      #- /bin/sh
+      #- -c
+      #- /datagen --heavytail --mode cdn-metrics --qps 1000 kafka --brokers message_queue:29092
+      #restart: always
     container_name: datagen
 volumes:
   compute-node-0:
