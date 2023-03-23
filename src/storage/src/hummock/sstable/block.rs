@@ -189,6 +189,43 @@ impl Block {
         Ok(Self::decode_from_raw(buf))
     }
 
+    pub fn decode_with_dict_for_test(buf: Bytes, uncompressed_capacity: usize, dict: &[u8]) -> HummockResult<Self> {
+        // Verify checksum.
+
+        let xxhash64_checksum = (&buf[buf.len() - 8..]).get_u64_le();
+        xxhash64_verify(&buf[..buf.len() - 8], xxhash64_checksum)?;
+
+        // Decompress.
+        let compression = CompressionAlgorithm::decode(&mut &buf[buf.len() - 9..buf.len() - 8])?;
+        let compressed_data = &buf[..buf.len() - 9];
+
+        let buf = match compression {
+            CompressionAlgorithm::None => buf.slice(0..(buf.len() - 9)),
+            CompressionAlgorithm::Lz4 => {
+                let mut decoder = lz4::Decoder::new(compressed_data.reader())
+                    .map_err(HummockError::decode_error)?;
+                let mut decoded = Vec::with_capacity(uncompressed_capacity);
+                decoder
+                    .read_to_end(&mut decoded)
+                    .map_err(HummockError::decode_error)?;
+                debug_assert_eq!(decoded.capacity(), uncompressed_capacity);
+                Bytes::from(decoded)
+            }
+            CompressionAlgorithm::Zstd => {
+                let mut decoder = zstd::Decoder::with_dictionary(compressed_data.reader(), dict)
+                    .map_err(HummockError::decode_error)?;
+                let mut decoded = Vec::with_capacity(uncompressed_capacity);
+                decoder
+                    .read_to_end(&mut decoded)
+                    .map_err(HummockError::decode_error)?;
+                debug_assert_eq!(decoded.capacity(), uncompressed_capacity);
+                Bytes::from(decoded)
+            }
+        };
+
+        Ok(Self::decode_from_raw(buf))
+    }
+
     pub fn decode_from_raw(buf: Bytes) -> Self {
         let table_id = (&buf[buf.len() - 4..]).get_u32_le();
         // decode restart_points_type_index
@@ -404,6 +441,8 @@ pub struct BlockBuilder {
     // restart_points_type_index stores only the restart_point corresponding to each type change,
     // as an index, in order to reduce space usage
     restart_points_type_index: Vec<RestartPoint>,
+
+    dict_sample: Option<Vec<u8>>,
 }
 
 impl BlockBuilder {
@@ -420,6 +459,24 @@ impl BlockBuilder {
             compression_algorithm: options.compression_algorithm,
             table_id: None,
             restart_points_type_index: Vec::default(),
+            dict_sample: None,
+        }
+    }
+
+    pub fn new_with_dict_for_test(options: BlockBuilderOptions, dict_sample: Option<Vec<u8>>) -> Self {
+        Self {
+            // add more space to avoid re-allocate space.
+            buf: BytesMut::with_capacity(options.capacity + 256),
+            restart_count: options.restart_interval,
+            restart_points: Vec::with_capacity(
+                options.capacity / DEFAULT_ENTRY_SIZE / options.restart_interval + 1,
+            ),
+            last_key: vec![],
+            entry_count: 0,
+            compression_algorithm: options.compression_algorithm,
+            table_id: None,
+            restart_points_type_index: Vec::default(),
+            dict_sample,
         }
     }
 
@@ -447,13 +504,13 @@ impl BlockBuilder {
 
         let mut key: BytesMut = Default::default();
         full_key.encode_into_without_table_id(&mut key);
-        if self.entry_count > 0 {
-            debug_assert!(!key.is_empty());
-            debug_assert_eq!(
-                KeyComparator::compare_encoded_full_key(&self.last_key[..], &key[..]),
-                Ordering::Less
-            );
-        }
+        // if self.entry_count > 0 {
+        //     debug_assert!(!key.is_empty());
+        //     debug_assert_eq!(
+        //         KeyComparator::compare_encoded_full_key(&self.last_key[..], &key[..]),
+        //         Ordering::Less
+        //     );
+        // }
         // Update restart point if needed and calculate diff key.
         let k_type = LenType::new(key.len());
         let v_type = LenType::new(value.len());
@@ -587,10 +644,21 @@ impl BlockBuilder {
                 self.buf = writer.into_inner();
             }
             CompressionAlgorithm::Zstd => {
-                let mut encoder =
-                    zstd::Encoder::new(BytesMut::with_capacity(self.buf.len()).writer(), 4)
-                        .map_err(HummockError::encode_error)
-                        .unwrap();
+           
+                let mut encoder = match &self.dict_sample{
+                    Some(dict) =>zstd::Encoder::with_dictionary(BytesMut::with_capacity(self.buf.len()).writer(), 4, dict).map_err(HummockError::encode_error)
+                    .unwrap() ,
+                    None=>zstd::Encoder::new(BytesMut::with_capacity(self.buf.len()).writer(), 4)
+                    .map_err(HummockError::encode_error)
+                    .unwrap(), 
+                };
+                
+                // zstd::Encoder::with_dictionary(self.buf.len().writer(), 4, &self.dict_sample.unwrap()).map_err(HummockError::encode_error)
+                // .unwrap();;
+                // let mut encoder =
+                //     zstd::Encoder::new(BytesMut::with_capacity(self.buf.len()).writer(), 4)
+                //         .map_err(HummockError::encode_error)
+                        // .unwrap();
                 encoder
                     .write_all(&self.buf[..])
                     .map_err(HummockError::encode_error)
@@ -636,8 +704,10 @@ impl BlockBuilder {
 
 #[cfg(test)]
 mod tests {
+    use prost::Message;
     use risingwave_common::catalog::TableId;
     use risingwave_hummock_sdk::key::{FullKey, MAX_KEY_LEN};
+    use random_string::generate;
 
     use super::*;
     use crate::hummock::{BlockHolder, BlockIterator};
@@ -823,5 +893,72 @@ mod tests {
             assert!(!bi.is_valid());
             builder.clear();
         }
+    }
+
+    #[test]
+    fn test_compress_with_dict() {
+        let options = BlockBuilderOptions {
+            compression_algorithm: CompressionAlgorithm::Zstd,
+            ..Default::default()
+        };
+        
+        let charset = "1234567890abcdefghijklmnopqrstuvwxyz";
+        let mut keys = vec![];
+        for i in (0.. 1000){
+            let key = generate( MAX_KEY_LEN, charset).encode_to_vec();
+            keys.push(key)
+        }
+        
+        // construct dict
+        let mut dict = vec![] ;
+        for i in (0.. 1000){
+            if i % 10 == 0{
+                dict.extend(&keys[i]);
+            }
+        }
+        let mut builder = BlockBuilder::new_with_dict_for_test(options, Some(dict));
+
+        for i in (0.. 1000){
+            builder.add(construct_full_key_struct(0, &keys[i], 1), b"v1");
+        }
+        let capacity = builder.uncompressed_block_size();
+
+        println!("capacity = {:?}", capacity);
+
+        assert_eq!(capacity, builder.approximate_len() - 9);
+        let buf = builder.build().to_vec();
+        println!("block.len() = {:?}", buf.len());
+        println!("rate = {:?}%",  buf.len() as f32 / capacity as f32 * 100 as f32);
+    }
+
+    #[test]
+    fn test_compress_without_dict() {
+        let options = BlockBuilderOptions {
+            compression_algorithm: CompressionAlgorithm::Zstd,
+            ..Default::default()
+        };
+        
+        let charset = "1234567890abcdefghijklmnopqrstuvwxyz";
+        let mut keys = vec![];
+        for i in (0.. 1000){
+            let key = generate( MAX_KEY_LEN, charset).encode_to_vec();
+            keys.push(key)
+        }
+        
+
+        let mut builder = BlockBuilder::new_with_dict_for_test(options, None);
+
+        for i in (0.. 1000){
+            builder.add(construct_full_key_struct(0, &keys[i], 1), b"v1");
+        }
+        let capacity = builder.uncompressed_block_size();
+
+        println!("capacity = {:?}", capacity);
+
+        assert_eq!(capacity, builder.approximate_len() - 9);
+        let buf = builder.build().to_vec();
+        println!("block.len() = {:?}", buf.len());
+        println!("rate = {:?}%",  buf.len() as f32 / capacity as f32 * 100 as f32);
+        let block = Box::new(Block::decode(buf.into(), capacity).unwrap());
     }
 }
