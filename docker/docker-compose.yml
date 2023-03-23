@@ -8,13 +8,13 @@ services:
       - "--listen-addr"
       - "0.0.0.0:6660"
       - "--advertise-addr"
-      - "compactor-0:6660"
+      - ${RW_COMPACTOR_ADDR}:6660
       - "--prometheus-listener-addr"
       - "0.0.0.0:1260"
       - "--metrics-level"
       - "1"
       - "--meta-address"
-      - "http://$${RW_META_ADDR}:5690"
+      - http://${RW_META_ADDR}:5690
       - "--config-path"
       - /risingwave.toml
     expose:
@@ -27,8 +27,11 @@ services:
       - "./risingwave.toml:/risingwave.toml"
     environment:
       AWS_DEFAULT_REGION: ap-southeast-1
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       RUST_BACKTRACE: "1"
       RW_META_ADDR: ${RW_META_ADDR}
+      RW_COMPACTOR_ADDR: ${RW_COMPACTOR_ADDR}
     container_name: compactor-0
     healthcheck:
       test:
@@ -68,6 +71,8 @@ services:
     environment:
       RUST_BACKTRACE: "1"
       AWS_DEFAULT_REGION: ap-southeast-1
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
     container_name: compute-node-0
     healthcheck:
       test:
@@ -148,6 +153,8 @@ services:
     environment:
       RUST_BACKTRACE: "1"
       AWS_DEFAULT_REGION: ap-southeast-1
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
     container_name: frontend-node-0
     healthcheck:
       test:
@@ -190,7 +197,7 @@ services:
       - "--listen-addr"
       - "0.0.0.0:5690"
       - "--advertise-addr"
-      - "meta-node-0:5690"
+      - ${RW_META_ADDR}:5690
       - "--dashboard-host"
       - "0.0.0.0:5691"
       - "--prometheus-host"
@@ -219,6 +226,9 @@ services:
     environment:
       RUST_BACKTRACE: "1"
       AWS_DEFAULT_REGION: ap-southeast-1
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      RW_META_ADDR: ${RW_META_ADDR}
     container_name: meta-node-0
     healthcheck:
       test:
