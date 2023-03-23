@@ -14,19 +14,20 @@ services:
       - "--metrics-level"
       - "1"
       - "--meta-address"
-      - "http://meta-node-0:5690"
+      - "http://$${RW_META_ADDR}:5690"
       - "--config-path"
       - /risingwave.toml
     expose:
       - "6660"
       - "1260"
     ports: []
-    depends_on:
-      - meta-node-0
+    # depends_on:
+    #   - meta-node-0
     volumes:
       - "./risingwave.toml:/risingwave.toml"
     environment:
       RUST_BACKTRACE: "1"
+      RW_META_ADDR: ${RW_META_ADDR}
     container_name: compactor-0
     healthcheck:
       test:

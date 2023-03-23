@@ -1,0 +1,11 @@
+---
+version: "3"
+services:
+  compactor-node-0:
+    extends:
+      file: ../../docker/docker-compose.yml
+      service: compactor-0
+volumes:
+  compactor-node-0:
+    external: false
+name: risingwave-compose
