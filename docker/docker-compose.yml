@@ -208,6 +208,8 @@ services:
       - "etcd-0:2388"
       - "--connector-rpc-endpoint"
       - "connector-node:50051"
+      - --prometheus-endpoint
+      - http://${RW_META_ADDR}:9500
       - "--state-store"
       - "hummock+s3://rw-bench-patrick-demo-risingwave-hummock"
       - "--config-path"
