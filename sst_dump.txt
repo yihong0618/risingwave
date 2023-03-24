@@ -1,0 +1,14 @@
+[cargo-make] INFO - cargo make 0.36.3
+[cargo-make] INFO - Build File: Makefile.toml
+[cargo-make] INFO - Task: configure-if-not-configured
+[cargo-make] INFO - Profile: development
+[cargo-make] INFO - Skipping Task: configure-if-not-configured 
+[cargo-make] INFO - Build Done in 1.12 seconds.
+[cargo-make] INFO - cargo make 0.36.3
+[cargo-make] INFO - Build File: Makefile.toml
+[cargo-make] INFO - Task: ctl
+[cargo-make] INFO - Profile: development
+[cargo-make] INFO - Running Task: ctl
+[cargo-make] INFO - Execute Command: "/usr/bin/env" "bash" "/tmp/fsio_8fnGFDlmnV.sh" "hummock" "sst-dump" "-"
+[cargo-make] ERROR - Unable to execute script.
+[cargo-make] WARN - Build Failed.
