@@ -16,6 +16,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 
 use itertools::Itertools;
+use pretty_xmlish::Pretty;
 use risingwave_common::catalog::{Field, FieldDisplay, Schema};
 use risingwave_common::types::DataType;
 use risingwave_common::util::sort_util::{ColumnOrder, ColumnOrderDisplay, OrderType};
@@ -469,35 +470,33 @@ impl<PlanRef: stream::StreamPlanRef> Agg<PlanRef> {
         (self.agg_calls, self.group_key, self.input)
     }
 
-    pub fn fmt_with_name(&self, f: &mut fmt::Formatter<'_>, name: &str) -> fmt::Result {
-        let mut builder = f.debug_struct(name);
-        self.fmt_fields_with_builder(&mut builder);
-        builder.finish()
+    pub fn fmt_with_name<'a>(&self, name: &str) -> Pretty<'a> {
+        let mut vec = Vec::with_capacity(2);
+        self.fmt_fields_with_builder(&mut vec);
+        Pretty::childless_record(name, vec)
     }
 
-    pub fn fmt_fields_with_builder(&self, builder: &mut fmt::DebugStruct<'_, '_>) {
+    pub fn fmt_fields_with_builder<'a>(&self, builder: &mut Vec<(&str, Pretty<'a>)>) {
         if !self.group_key.is_empty() {
-            builder.field("group_key", &self.group_key_display());
+            let calls = self
+                .agg_calls
+                .iter()
+                .map(|plan_agg_call| {
+                    Pretty::debug(&PlanAggCallDisplay {
+                        plan_agg_call,
+                        input_schema: self.input.schema(),
+                    })
+                })
+                .collect();
+            builder.push(("group_key", Pretty::Array(calls)));
         }
-        builder.field("aggs", &self.agg_calls_display());
-    }
-
-    fn agg_calls_display(&self) -> Vec<PlanAggCallDisplay<'_>> {
-        self.agg_calls
-            .iter()
-            .map(|plan_agg_call| PlanAggCallDisplay {
-                plan_agg_call,
-                input_schema: self.input.schema(),
-            })
-            .collect_vec()
-    }
-
-    fn group_key_display(&self) -> Vec<FieldDisplay<'_>> {
-        self.group_key
+        let aggs = self
+            .group_key
             .iter()
             .copied()
-            .map(|i| FieldDisplay(self.input.schema().fields.get(i).unwrap()))
-            .collect_vec()
+            .map(|i| Pretty::display(&FieldDisplay(self.input.schema().fields.get(i).unwrap())))
+            .collect();
+        builder.push(("aggs", Pretty::Array(aggs)));
     }
 }
 
