@@ -469,6 +469,15 @@ impl<K: LruKey, T: LruValue> LruCacheShard<K, T> {
     ///
     /// Return: `Some(value)` if the handle is released, and `None` if the value is still in use.
     unsafe fn release(&mut self, h: *mut LruHandle<K, T>) -> Option<(K, T)> {
+        let mut to_delete = vec![];
+        self.release2(h, &mut to_delete)
+    }
+
+    unsafe fn release2(
+        &mut self,
+        h: *mut LruHandle<K, T>,
+        last_reference_list: &mut Vec<(K, T)>,
+    ) -> Option<(K, T)> {
         debug_assert!(!h.is_null());
         // The handle should not be in lru before calling this method.
         #[cfg(debug_assertions)]
@@ -485,8 +494,15 @@ impl<K: LruKey, T: LruValue> LruCacheShard<K, T> {
                 self.lru_insert(h);
                 return None;
             }
-            // Remove the handle from table.
-            self.table.remove((*h).hash, (*h).get_key());
+
+            if !self.lru_usage.load(Ordering::Relaxed) >= (*h).charge {
+                self.evict_from_lru((*h).charge, last_reference_list);
+                self.lru_insert(h);
+                return None;
+            } else {
+                // Remove the handle from table when no charge to evict
+                self.table.remove((*h).hash, (*h).get_key());
+            }
         }
 
         // Since the released handle was previously used externally, it must not be in LRU, and we
@@ -662,13 +678,23 @@ impl<K: LruKey, T: LruValue> LruCache<K, T> {
 
     unsafe fn release(&self, handle: *mut LruHandle<K, T>) {
         debug_assert!(!handle.is_null());
+        let mut to_delete = vec![];
         let data = {
             let mut shard = self.shards[self.shard((*handle).hash)].lock();
-            shard.release(handle)
+            shard.release2(handle, &mut to_delete)
         };
         // do not deallocate data with holding mutex.
-        if let Some((key,value)) = data && let Some(listener) = &self.listener {
-            listener.on_release(key, value);
+        // if let Some((key,value)) = data && let Some(listener) = &self.listener {
+        //     listener.on_release(key, value);
+        // }
+        if let Some(listener) = &self.listener {
+            if let Some((key, value)) = data {
+                listener.on_release(key, value);
+            }
+
+            for (key, value) in to_delete {
+                listener.on_release(key, value);
+            }
         }
     }
 
