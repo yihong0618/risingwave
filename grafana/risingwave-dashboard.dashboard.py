@@ -1374,6 +1374,24 @@ def section_streaming_actors(outer_panels):
                         ),
                     ],
                 ),
+                panels.timeseries_percentage(
+                    "Join Actor Operator Cache Ratio",
+                    "",
+                    [
+                        panels.target(
+                            f"rate({metric('stream_join_lookup_miss_count')}[$__rate_interval]) / rate({metric('stream_join_lookup_total_count')}[$__rate_interval])",
+                            "lookup miss rate {{actor_id}} {{side}}",
+                        ),
+                        panels.target(
+                            f"rate({metric('stream_join_lookup_real_miss_count')}[$__rate_interval]) / rate({metric('stream_join_lookup_total_count')}[$__rate_interval])",
+                            "lookup real miss rate {{actor_id}} {{side}}",
+                        ),
+                        panels.target(
+                            f"rate({metric('stream_join_may_exist_true_count')}[$__rate_interval]) / rate({metric('stream_join_insert_cache_miss_count')}[$__rate_interval])",
+                            "may exist rate {{actor_id}} {{side}}",
+                        ),
+                    ],
+                ),
                 panels.timeseries_actor_latency(
                     "Join Executor Barrier Align",
                     "",
