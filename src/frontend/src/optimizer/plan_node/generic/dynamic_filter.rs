@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use fixedbitset::FixedBitSet;
+use pretty_xmlish::{XmlNode, Pretty};
+use risingwave_common::catalog::Schema;
 use risingwave_common::util::sort_util::OrderType;
 pub use risingwave_pb::expr::expr_node::Type as ExprType;
 
@@ -19,7 +22,7 @@ use super::GenericPlanRef;
 use crate::expr::{ExprImpl, FunctionCall, InputRef};
 use crate::optimizer::plan_node::stream;
 use crate::optimizer::plan_node::utils::TableCatalogBuilder;
-use crate::utils::Condition;
+use crate::utils::{Condition, ConditionDisplay};
 use crate::TableCatalog;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -53,6 +56,20 @@ impl<PlanRef: GenericPlanRef> DynamicFilter<PlanRef> {
                 .unwrap(),
             )],
         }
+    }
+
+    pub fn fmt_with_name<'a>(&self, name: &str) -> XmlNode<'a> {
+        let mut vec = Vec::with_capacity(3) ;
+        let mut concat_schema = self.left.schema().fields.clone();
+        concat_schema.extend(self.right.schema().fields.clone());
+        let concat_schema = Schema::new(concat_schema);
+
+        vec.push(("predicate".into(), Pretty::debug(&ConditionDisplay {
+            condition: &self.predicate(),
+            input_schema: &concat_schema,
+        })));
+
+        XmlNode::new(name.into(), vec, vec![])
     }
 }
 

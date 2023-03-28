@@ -17,6 +17,7 @@ use std::fmt;
 
 use fixedbitset::FixedBitSet;
 use itertools::Itertools;
+use pretty_xmlish::Pretty;
 use risingwave_common::error::{ErrorCode, Result, TrackingIssue};
 use risingwave_common::types::{DataType, Datum, ScalarImpl, F64};
 use risingwave_common::util::sort_util::{ColumnOrder, OrderType};
@@ -969,8 +970,8 @@ impl LogicalAgg {
         Self::new(agg_calls, group_key, input)
     }
 
-    pub fn fmt_with_name(&self, f: &mut fmt::Formatter<'_>, name: &str) -> fmt::Result {
-        self.core.fmt_with_name(f, name)
+    pub fn fmt_with_name(&self, name: &str) -> Pretty<'_> {
+        self.core.fmt_with_name(name)
     }
 
     pub fn fmt_fields_with_builder(&self, builder: &mut fmt::DebugStruct<'_, '_>) {
@@ -1009,8 +1010,8 @@ impl PlanTreeNodeUnary for LogicalAgg {
 impl_plan_tree_node_for_unary! {LogicalAgg}
 
 impl fmt::Display for LogicalAgg {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.fmt_with_name(f, "LogicalAgg")
+    fn fmt(&self) -> Pretty<'_> {
+        self.fmt_with_name("LogicalAgg")
     }
 }
 

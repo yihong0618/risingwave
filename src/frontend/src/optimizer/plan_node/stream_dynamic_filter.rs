@@ -16,6 +16,7 @@ use std::fmt;
 
 use fixedbitset::FixedBitSet;
 use itertools::Itertools;
+use pretty_xmlish::Pretty;
 use risingwave_common::catalog::{FieldDisplay, Schema};
 pub use risingwave_pb::expr::expr_node::Type as ExprType;
 use risingwave_pb::stream_plan::stream_node::NodeBody;
@@ -76,51 +77,38 @@ impl StreamDynamicFilter {
     pub fn left_index(&self) -> usize {
         self.core.left_index
     }
-}
 
-impl fmt::Display for StreamDynamicFilter {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self) -> Pretty<'_> {
         let verbose = self.base.ctx.is_explain_verbose();
-        let mut builder = f.debug_struct("StreamDynamicFilter");
+        let mut node = self.core.fmt_with_name("StreamDynamicFilter");
 
         let mut concat_schema = self.left().schema().fields.clone();
         concat_schema.extend(self.right().schema().fields.clone());
         let concat_schema = Schema::new(concat_schema);
 
-        let predicate = self.core.predicate();
-
-        builder.field(
-            "predicate",
-            &ConditionDisplay {
-                condition: &predicate,
-                input_schema: &concat_schema,
-            },
-        );
-
         let watermark_columns = &self.base.watermark_columns;
-        if self.base.watermark_columns.count_ones(..) > 0 {
+        if watermark_columns.count_ones(..) > 0 {
             let schema = self.schema();
-            builder.field(
-                "output_watermarks",
-                &watermark_columns
-                    .ones()
-                    .map(|idx| FieldDisplay(schema.fields.get(idx).unwrap()))
-                    .collect_vec(),
-            );
+            let vec = watermark_columns
+                .ones()
+                .map(|idx| Pretty::display(&FieldDisplay(schema.fields.get(idx).unwrap())))
+                .collect();
+            node.fields
+                .push(("output_watermarks".into(), Pretty::Array(vec)));
         };
 
         if verbose {
             // For now, output all columns from the left side. Make it explicit here.
-            builder.field(
-                "output",
-                &IndicesDisplay {
+            node.fields.push((
+                "output".into(),
+                Pretty::display(&IndicesDisplay {
                     indices: &(0..self.schema().fields.len()).collect_vec(),
                     input_schema: self.schema(),
-                },
-            );
+                }),
+            ));
         }
 
-        builder.finish()
+        Pretty::Record(node)
     }
 }
 
