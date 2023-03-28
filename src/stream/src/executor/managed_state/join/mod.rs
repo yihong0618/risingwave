@@ -158,6 +158,7 @@ pub struct JoinHashMapMetrics {
     side: &'static str,
     /// How many times have we hit the cache of join executor
     lookup_miss_count: usize,
+    lookup_real_miss_count: usize,
     total_lookup_count: usize,
     /// How many times have we miss the cache when insert row
     insert_cache_miss_count: usize,
@@ -171,6 +172,7 @@ impl JoinHashMapMetrics {
             actor_id: actor_id.to_string(),
             side,
             lookup_miss_count: 0,
+            lookup_real_miss_count: 0,
             total_lookup_count: 0,
             insert_cache_miss_count: 0,
             may_exist_true_count: 0,
@@ -182,6 +184,10 @@ impl JoinHashMapMetrics {
             .join_lookup_miss_count
             .with_label_values(&[&self.actor_id, self.side])
             .inc_by(self.lookup_miss_count as u64);
+        self.metrics
+            .join_lookup_real_miss_count
+            .with_label_values(&[&self.actor_id, self.side])
+            .inc_by(self.lookup_real_miss_count as u64);
         self.metrics
             .join_total_lookup_count
             .with_label_values(&[&self.actor_id, self.side])
@@ -196,6 +202,7 @@ impl JoinHashMapMetrics {
             .inc_by(self.may_exist_true_count as u64);
         self.total_lookup_count = 0;
         self.lookup_miss_count = 0;
+        self.lookup_real_miss_count = 0;
         self.insert_cache_miss_count = 0;
         self.may_exist_true_count = 0;
     }
@@ -371,6 +378,9 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
             None => {
                 self.metrics.lookup_miss_count += 1;
                 let res = self.fetch_cached_state(key).await?;
+                if !res.is_empty() {
+                    self.metrics.lookup_real_miss_count += 1;
+                }
                 self.current_seq_id += 1;
                 res.into()
             }

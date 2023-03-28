@@ -1357,6 +1357,10 @@ def section_streaming_actors(outer_panels):
                             "cache miss {{actor_id}} {{side}}",
                         ),
                         panels.target(
+                            f"rate({metric('stream_join_lookup_real_miss_count')}[$__rate_interval])",
+                            "cache real miss {{actor_id}} {{side}}",
+                        ),
+                        panels.target(
                             f"rate({metric('stream_join_lookup_total_count')}[$__rate_interval])",
                             "total lookups {{actor_id}} {{side}}",
                         ),
