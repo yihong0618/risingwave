@@ -954,7 +954,7 @@ mod tests {
             .unwrap()
             .into_bytes();
         let mut encoder =
-            zstd::Encoder::new(BytesMut::with_capacity(sst_content.len()).writer(), 4).unwrap();
+            zstd::Encoder::new(BytesMut::with_capacity(sst_content.len()).writer(), 1).unwrap();
         encoder.write_all(&sst_content).unwrap();
         let writer = encoder
             .finish()
@@ -973,9 +973,9 @@ mod tests {
         assert_eq!(decoded, sst_content);
 
 
-        let dict = &sst_content[..sst_content.len()/10];
+        let dict = &sst_content[..sst_content.len()/3];
         let mut dict_encoder =
-            zstd::Encoder::with_dictionary(BytesMut::with_capacity(sst_content.len()).writer(), 4, dict).unwrap();
+            zstd::Encoder::with_dictionary(BytesMut::with_capacity(sst_content.len()).writer(), 1, dict).unwrap();
             dict_encoder.write_all(&sst_content).unwrap();
         let writer = dict_encoder
             .finish()
