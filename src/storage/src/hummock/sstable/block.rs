@@ -189,7 +189,11 @@ impl Block {
         Ok(Self::decode_from_raw(buf))
     }
 
-    pub fn decode_with_dict_for_test(buf: Bytes, uncompressed_capacity: usize, dict: &[u8]) -> HummockResult<Self> {
+    pub fn decode_with_dict_for_test(
+        buf: Bytes,
+        uncompressed_capacity: usize,
+        dict: &[u8],
+    ) -> HummockResult<Self> {
         // Verify checksum.
 
         let xxhash64_checksum = (&buf[buf.len() - 8..]).get_u64_le();
@@ -463,7 +467,10 @@ impl BlockBuilder {
         }
     }
 
-    pub fn new_with_dict_for_test(options: BlockBuilderOptions, dict_sample: Option<Vec<u8>>) -> Self {
+    pub fn new_with_dict_for_test(
+        options: BlockBuilderOptions,
+        dict_sample: Option<Vec<u8>>,
+    ) -> Self {
         Self {
             // add more space to avoid re-allocate space.
             buf: BytesMut::with_capacity(options.capacity + 256),
@@ -644,21 +651,26 @@ impl BlockBuilder {
                 self.buf = writer.into_inner();
             }
             CompressionAlgorithm::Zstd => {
-           
-                let mut encoder = match &self.dict_sample{
-                    Some(dict) =>zstd::Encoder::with_dictionary(BytesMut::with_capacity(self.buf.len()).writer(), 4, dict).map_err(HummockError::encode_error)
-                    .unwrap() ,
-                    None=>zstd::Encoder::new(BytesMut::with_capacity(self.buf.len()).writer(), 4)
+                let mut encoder = match &self.dict_sample {
+                    Some(dict) => zstd::Encoder::with_dictionary(
+                        BytesMut::with_capacity(self.buf.len()).writer(),
+                        4,
+                        dict,
+                    )
                     .map_err(HummockError::encode_error)
-                    .unwrap(), 
+                    .unwrap(),
+                    None => zstd::Encoder::new(BytesMut::with_capacity(self.buf.len()).writer(), 4)
+                        .map_err(HummockError::encode_error)
+                        .unwrap(),
                 };
-                
-                // zstd::Encoder::with_dictionary(self.buf.len().writer(), 4, &self.dict_sample.unwrap()).map_err(HummockError::encode_error)
+
+                // zstd::Encoder::with_dictionary(self.buf.len().writer(), 4,
+                // &self.dict_sample.unwrap()).map_err(HummockError::encode_error)
                 // .unwrap();;
                 // let mut encoder =
                 //     zstd::Encoder::new(BytesMut::with_capacity(self.buf.len()).writer(), 4)
                 //         .map_err(HummockError::encode_error)
-                        // .unwrap();
+                // .unwrap();
                 encoder
                     .write_all(&self.buf[..])
                     .map_err(HummockError::encode_error)
@@ -704,10 +716,12 @@ impl BlockBuilder {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use prost::Message;
+    use random_string::generate;
     use risingwave_common::catalog::TableId;
     use risingwave_hummock_sdk::key::{FullKey, MAX_KEY_LEN};
-    use random_string::generate;
 
     use super::*;
     use crate::hummock::{BlockHolder, BlockIterator};
@@ -901,24 +915,24 @@ mod tests {
             compression_algorithm: CompressionAlgorithm::Zstd,
             ..Default::default()
         };
-        
+
         let charset = "1234567890abcdefghijklmnopqrstuvwxyz";
         let mut keys = vec![];
-        for i in (0.. 1000){
-            let key = generate( MAX_KEY_LEN, charset).encode_to_vec();
+        for i in (0..1000) {
+            let key = generate(MAX_KEY_LEN, charset).encode_to_vec();
             keys.push(key)
         }
-        
+
         // construct dict
-        let mut dict = vec![] ;
-        for i in (0.. 1000){
-            if i % 10 == 0{
+        let mut dict = vec![];
+        for i in (0..1000) {
+            if i % 10 == 0 {
                 dict.extend(&keys[i]);
             }
         }
         let mut builder = BlockBuilder::new_with_dict_for_test(options, Some(dict));
 
-        for i in (0.. 1000){
+        for i in (0..1000) {
             builder.add(construct_full_key_struct(0, &keys[i], 1), b"v1");
         }
         let capacity = builder.uncompressed_block_size();
@@ -928,37 +942,87 @@ mod tests {
         assert_eq!(capacity, builder.approximate_len() - 9);
         let buf = builder.build().to_vec();
         println!("block.len() = {:?}", buf.len());
-        println!("rate = {:?}%",  buf.len() as f32 / capacity as f32 * 100 as f32);
+        println!(
+            "rate = {:?}%",
+            buf.len() as f32 / capacity as f32 * 100 as f32
+        );
     }
 
     #[test]
-    fn test_compress_without_dict() {
-        let options = BlockBuilderOptions {
-            compression_algorithm: CompressionAlgorithm::Zstd,
-            ..Default::default()
-        };
-        
-        let charset = "1234567890abcdefghijklmnopqrstuvwxyz";
-        let mut keys = vec![];
-        for i in (0.. 1000){
-            let key = generate( MAX_KEY_LEN, charset).encode_to_vec();
-            keys.push(key)
-        }
-        
+    fn test_compress_sst() {
+        let sst_content = fs::read_to_string("/Users/wangcongyi/Desktop/151.txt")
+            .unwrap()
+            .into_bytes();
+        let mut encoder =
+            zstd::Encoder::new(BytesMut::with_capacity(sst_content.len()).writer(), 4).unwrap();
+        encoder.write_all(&sst_content).unwrap();
+        let writer = encoder
+            .finish()
+            .map_err(HummockError::encode_error)
+            .unwrap();
+        let compress_without_dict = writer.into_inner();
 
-        let mut builder = BlockBuilder::new_with_dict_for_test(options, None);
 
-        for i in (0.. 1000){
-            builder.add(construct_full_key_struct(0, &keys[i], 1), b"v1");
-        }
-        let capacity = builder.uncompressed_block_size();
+        println!(
+            "compress rate without dict = {:?}%",
+            compress_without_dict.len() as f32 / sst_content.len() as f32 * 100 as f32
+        );
+        let mut decoder = zstd::Decoder::new(compress_without_dict.reader()).unwrap();
+        let mut decoded = Vec::with_capacity(sst_content.len());
+        decoder.read_to_end(&mut decoded).unwrap();
+        assert_eq!(decoded, sst_content);
 
-        println!("capacity = {:?}", capacity);
 
-        assert_eq!(capacity, builder.approximate_len() - 9);
-        let buf = builder.build().to_vec();
-        println!("block.len() = {:?}", buf.len());
-        println!("rate = {:?}%",  buf.len() as f32 / capacity as f32 * 100 as f32);
-        let block = Box::new(Block::decode(buf.into(), capacity).unwrap());
+        let dict = &sst_content[..sst_content.len()/10];
+        let mut dict_encoder =
+            zstd::Encoder::with_dictionary(BytesMut::with_capacity(sst_content.len()).writer(), 4, dict).unwrap();
+            dict_encoder.write_all(&sst_content).unwrap();
+        let writer = dict_encoder
+            .finish()
+            .map_err(HummockError::encode_error)
+            .unwrap();
+        let compress_with_dict = writer.into_inner();
+
+        println!(
+            "compress rate without dict = {:?}%",
+            compress_with_dict.len() as f32 / sst_content.len() as f32 * 100 as f32
+        );
+        let mut decoder = zstd::Decoder::with_dictionary(compress_with_dict.reader(), dict).unwrap();
+        let mut decoded = Vec::with_capacity(sst_content.len());
+        decoder.read_to_end(&mut decoded).unwrap();
+        assert_eq!(decoded, sst_content);
     }
+
+    // #[test]
+    // fn test_compress_without_dict() {
+    //     let options = BlockBuilderOptions {
+    //         compression_algorithm: CompressionAlgorithm::Zstd,
+    //         ..Default::default()
+    //     };
+
+    //     let charset = "1234567890abcdefghijklmnopqrstuvwxyz";
+    //     let mut keys = vec![];
+    //     for i in (0..1000) {
+    //         let key = generate(MAX_KEY_LEN, charset).encode_to_vec();
+    //         keys.push(key)
+    //     }
+
+    //     let mut builder = BlockBuilder::new_with_dict_for_test(options, None);
+
+    //     for i in (0..1000) {
+    //         builder.add(construct_full_key_struct(0, &keys[i], 1), b"v1");
+    //     }
+    //     let capacity = builder.uncompressed_block_size();
+
+    //     println!("capacity = {:?}", capacity);
+
+    //     assert_eq!(capacity, builder.approximate_len() - 9);
+    //     let buf = builder.build().to_vec();
+    //     println!("block.len() = {:?}", buf.len());
+    //     println!(
+    //         "rate = {:?}%",
+    //         buf.len() as f32 / capacity as f32 * 100 as f32
+    //     );
+    //     let block = Box::new(Block::decode(buf.into(), capacity).unwrap());
+    // }
 }
