@@ -909,120 +909,273 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_compress_with_dict() {
-        let options = BlockBuilderOptions {
-            compression_algorithm: CompressionAlgorithm::Zstd,
-            ..Default::default()
-        };
 
-        let charset = "1234567890abcdefghijklmnopqrstuvwxyz";
-        let mut keys = vec![];
-        for i in (0..1000) {
-            let key = generate(MAX_KEY_LEN, charset).encode_to_vec();
-            keys.push(key)
-        }
-
-        // construct dict
-        let mut dict = vec![];
-        for i in (0..1000) {
-            if i % 10 == 0 {
-                dict.extend(&keys[i]);
-            }
-        }
-        let mut builder = BlockBuilder::new_with_dict_for_test(options, Some(dict));
-
-        for i in (0..1000) {
-            builder.add(construct_full_key_struct(0, &keys[i], 1), b"v1");
-        }
-        let capacity = builder.uncompressed_block_size();
-
-        println!("capacity = {:?}", capacity);
-
-        assert_eq!(capacity, builder.approximate_len() - 9);
-        let buf = builder.build().to_vec();
-        println!("block.len() = {:?}", buf.len());
-        println!(
-            "rate = {:?}%",
-            buf.len() as f32 / capacity as f32 * 100 as f32
-        );
-    }
 
     #[test]
     fn test_compress_sst() {
-        let sst_content = fs::read_to_string("/Users/wangcongyi/Desktop/151.txt")
+        let sst1 = fs::read_to_string("/Users/wangcongyi/Desktop/151.txt")
             .unwrap()
             .into_bytes();
         let mut encoder =
-            zstd::Encoder::new(BytesMut::with_capacity(sst_content.len()).writer(), 1).unwrap();
-        encoder.write_all(&sst_content).unwrap();
+            zstd::Encoder::new(BytesMut::with_capacity(sst1.len()).writer(), 1).unwrap();
+        encoder.write_all(&sst1).unwrap();
+        let writer = encoder
+            .finish()
+            .map_err(HummockError::encode_error)
+            .unwrap();
+        let compress_without_dict = writer.into_inner();
+        println!("\n-----sst1------");
+        println!(
+            "compress rate without dict = {:?}%",
+            compress_without_dict.len() as f32 / sst1.len() as f32 * 100 as f32
+        );
+        let mut decoder = zstd::Decoder::new(compress_without_dict.reader()).unwrap();
+        let mut decoded = Vec::with_capacity(sst1.len());
+        decoder.read_to_end(&mut decoded).unwrap();
+        assert_eq!(decoded, sst1);
+
+        let dict = &sst1[..sst1.len() / 10];
+        let mut dict_encoder =
+            zstd::Encoder::with_dictionary(BytesMut::with_capacity(sst1.len()).writer(), 1, dict)
+                .unwrap();
+
+        dict_encoder.write_all(&sst1).unwrap();
+        let writer = dict_encoder
+            .finish()
+            .map_err(HummockError::encode_error)
+            .unwrap();
+        let sst1_compress_with_dict = writer.into_inner();
+
+        println!(
+            "compress rate with dict = {:?}%",
+            sst1_compress_with_dict.len() as f32 / sst1.len() as f32 * 100 as f32
+        );
+        let mut decoder =
+            zstd::Decoder::with_dictionary(sst1_compress_with_dict.reader(), dict).unwrap();
+        let mut decoded = Vec::with_capacity(sst1.len());
+        decoder.read_to_end(&mut decoded).unwrap();
+        assert_eq!(decoded, sst1);
+
+        println!("\n-----sst2------");
+        let sst2 = fs::read_to_string("/Users/wangcongyi/Desktop/152.txt")
+            .unwrap()
+            .into_bytes();
+
+        let mut encoder =
+            zstd::Encoder::new(BytesMut::with_capacity(sst2.len()).writer(), 1).unwrap();
+        encoder.write_all(&sst2).unwrap();
         let writer = encoder
             .finish()
             .map_err(HummockError::encode_error)
             .unwrap();
         let compress_without_dict = writer.into_inner();
 
-
         println!(
             "compress rate without dict = {:?}%",
-            compress_without_dict.len() as f32 / sst_content.len() as f32 * 100 as f32
+            compress_without_dict.len() as f32 / sst2.len() as f32 * 100 as f32
         );
         let mut decoder = zstd::Decoder::new(compress_without_dict.reader()).unwrap();
-        let mut decoded = Vec::with_capacity(sst_content.len());
+        let mut decoded = Vec::with_capacity(sst2.len());
         decoder.read_to_end(&mut decoded).unwrap();
-        assert_eq!(decoded, sst_content);
+        assert_eq!(decoded, sst2);
 
-
-        let dict = &sst_content[..sst_content.len()/3];
         let mut dict_encoder =
-            zstd::Encoder::with_dictionary(BytesMut::with_capacity(sst_content.len()).writer(), 1, dict).unwrap();
-            dict_encoder.write_all(&sst_content).unwrap();
+            zstd::Encoder::with_dictionary(BytesMut::with_capacity(sst2.len()).writer(), 1, dict)
+                .unwrap();
+        dict_encoder.write_all(&sst2).unwrap();
         let writer = dict_encoder
             .finish()
             .map_err(HummockError::encode_error)
             .unwrap();
-        let compress_with_dict = writer.into_inner();
+        let sst2_compress_with_dict = writer.into_inner();
+        println!(
+            "compress rate with dict = {:?}%",
+            sst2_compress_with_dict.len() as f32 / sst2.len() as f32 * 100 as f32
+        );
+        let mut decoder =
+            zstd::Decoder::with_dictionary(sst2_compress_with_dict.reader(), dict).unwrap();
+        let mut decoded = Vec::with_capacity(sst2.len());
+        decoder.read_to_end(&mut decoded).unwrap();
+        assert_eq!(decoded, sst2);
+
+        println!("\n-----sst3------");
+        let sst3 = fs::read_to_string("/Users/wangcongyi/Desktop/153.txt")
+            .unwrap()
+            .into_bytes();
+        let mut encoder =
+            zstd::Encoder::new(BytesMut::with_capacity(sst3.len()).writer(), 1).unwrap();
+        encoder.write_all(&sst3).unwrap();
+        let writer = encoder
+            .finish()
+            .map_err(HummockError::encode_error)
+            .unwrap();
+        let compress_without_dict = writer.into_inner();
 
         println!(
             "compress rate without dict = {:?}%",
-            compress_with_dict.len() as f32 / sst_content.len() as f32 * 100 as f32
+            compress_without_dict.len() as f32 / sst3.len() as f32 * 100 as f32
         );
-        let mut decoder = zstd::Decoder::with_dictionary(compress_with_dict.reader(), dict).unwrap();
-        let mut decoded = Vec::with_capacity(sst_content.len());
+        let mut dict_encoder =
+            zstd::Encoder::with_dictionary(BytesMut::with_capacity(sst3.len()).writer(), 1, dict)
+                .unwrap();
+        dict_encoder.write_all(&sst3).unwrap();
+        let writer = dict_encoder
+            .finish()
+            .map_err(HummockError::encode_error)
+            .unwrap();
+        let sst3_compress_with_dict = writer.into_inner();
+        println!(
+            "compress rate with dict = {:?}%",
+            sst3_compress_with_dict.len() as f32 / sst3.len() as f32 * 100 as f32
+        );
+        let mut decoder =
+            zstd::Decoder::with_dictionary(sst3_compress_with_dict.reader(), dict).unwrap();
+        let mut decoded = Vec::with_capacity(sst3.len());
         decoder.read_to_end(&mut decoded).unwrap();
-        assert_eq!(decoded, sst_content);
+        assert_eq!(decoded, sst3);
+
+        println!("\n-----sst4------");
+        let sst4 = fs::read_to_string("/Users/wangcongyi/Desktop/154.txt")
+            .unwrap()
+            .into_bytes();
+        let mut encoder =
+            zstd::Encoder::new(BytesMut::with_capacity(sst4.len()).writer(), 1).unwrap();
+        encoder.write_all(&sst4).unwrap();
+        let writer = encoder
+            .finish()
+            .map_err(HummockError::encode_error)
+            .unwrap();
+        let compress_without_dict = writer.into_inner();
+
+        println!(
+            "compress rate without dict = {:?}%",
+            compress_without_dict.len() as f32 / sst4.len() as f32 * 100 as f32
+        );
+        let mut dict_encoder =
+            zstd::Encoder::with_dictionary(BytesMut::with_capacity(sst4.len()).writer(), 1, dict)
+                .unwrap();
+        dict_encoder.write_all(&sst4).unwrap();
+        let writer = dict_encoder
+            .finish()
+            .map_err(HummockError::encode_error)
+            .unwrap();
+        let sst4_compress_with_dict = writer.into_inner();
+        println!(
+            "compress rate with dict = {:?}%",
+            sst4_compress_with_dict.len() as f32 / sst4.len() as f32 * 100 as f32
+        );
+        let mut decoder =
+            zstd::Decoder::with_dictionary(sst4_compress_with_dict.reader(), dict).unwrap();
+        let mut decoded = Vec::with_capacity(sst4.len());
+        decoder.read_to_end(&mut decoded).unwrap();
+        assert_eq!(decoded, sst4);
+
+        println!("\n-----sst5------");
+        let sst5 = fs::read_to_string("/Users/wangcongyi/Desktop/156.txt")
+            .unwrap()
+            .into_bytes();
+        let mut encoder =
+            zstd::Encoder::new(BytesMut::with_capacity(sst5.len()).writer(), 1).unwrap();
+        encoder.write_all(&sst5).unwrap();
+        let writer = encoder
+            .finish()
+            .map_err(HummockError::encode_error)
+            .unwrap();
+        let compress_without_dict = writer.into_inner();
+
+        println!(
+            "compress rate without dict = {:?}%",
+            compress_without_dict.len() as f32 / sst5.len() as f32 * 100 as f32
+        );
+        let mut dict_encoder =
+            zstd::Encoder::with_dictionary(BytesMut::with_capacity(sst5.len()).writer(), 1, dict)
+                .unwrap();
+        dict_encoder.write_all(&sst5).unwrap();
+        let writer = dict_encoder
+            .finish()
+            .map_err(HummockError::encode_error)
+            .unwrap();
+        let sst5_compress_with_dict = writer.into_inner();
+        println!(
+            "compress rate with dict = {:?}%",
+            sst5_compress_with_dict.len() as f32 / sst5.len() as f32 * 100 as f32
+        );
+        let mut decoder =
+            zstd::Decoder::with_dictionary(sst5_compress_with_dict.reader(), dict).unwrap();
+        let mut decoded = Vec::with_capacity(sst5.len());
+        decoder.read_to_end(&mut decoded).unwrap();
+        assert_eq!(decoded, sst5);
+
+        println!("\n-----sst6------");
+        let sst6 = fs::read_to_string("/Users/wangcongyi/Desktop/157.txt")
+            .unwrap()
+            .into_bytes();
+        let mut encoder =
+            zstd::Encoder::new(BytesMut::with_capacity(sst6.len()).writer(), 1).unwrap();
+        encoder.write_all(&sst6).unwrap();
+        let writer = encoder
+            .finish()
+            .map_err(HummockError::encode_error)
+            .unwrap();
+        let compress_without_dict = writer.into_inner();
+
+        println!(
+            "compress rate without dict = {:?}%",
+            compress_without_dict.len() as f32 / sst6.len() as f32 * 100 as f32
+        );
+        let mut dict_encoder =
+            zstd::Encoder::with_dictionary(BytesMut::with_capacity(sst6.len()).writer(), 1, dict)
+                .unwrap();
+        dict_encoder.write_all(&sst6).unwrap();
+        let writer = dict_encoder
+            .finish()
+            .map_err(HummockError::encode_error)
+            .unwrap();
+        let sst6_compress_with_dict = writer.into_inner();
+        println!(
+            "compress rate with dict = {:?}%",
+            sst6_compress_with_dict.len() as f32 / sst6.len() as f32 * 100 as f32
+        );
+        let mut decoder =
+            zstd::Decoder::with_dictionary(sst6_compress_with_dict.reader(), dict).unwrap();
+        let mut decoded = Vec::with_capacity(sst6.len());
+        decoder.read_to_end(&mut decoded).unwrap();
+        assert_eq!(decoded, sst6);
+
+        println!("\n-----sst7------");
+        let sst7 = fs::read_to_string("/Users/wangcongyi/Desktop/158.txt")
+            .unwrap()
+            .into_bytes();
+        let mut encoder =
+            zstd::Encoder::new(BytesMut::with_capacity(sst7.len()).writer(), 1).unwrap();
+        encoder.write_all(&sst7).unwrap();
+        let writer = encoder
+            .finish()
+            .map_err(HummockError::encode_error)
+            .unwrap();
+        let compress_without_dict = writer.into_inner();
+
+        println!(
+            "compress rate without dict = {:?}%",
+            compress_without_dict.len() as f32 / sst7.len() as f32 * 100 as f32
+        );
+        let mut dict_encoder =
+            zstd::Encoder::with_dictionary(BytesMut::with_capacity(sst7.len()).writer(), 1, dict)
+                .unwrap();
+        dict_encoder.write_all(&sst7).unwrap();
+        let writer = dict_encoder
+            .finish()
+            .map_err(HummockError::encode_error)
+            .unwrap();
+        let sst7_compress_with_dict = writer.into_inner();
+        println!(
+            "compress rate with dict = {:?}%",
+            sst7_compress_with_dict.len() as f32 / sst7.len() as f32 * 100 as f32
+        );
+        let mut decoder =
+            zstd::Decoder::with_dictionary(sst7_compress_with_dict.reader(), dict).unwrap();
+        let mut decoded = Vec::with_capacity(sst7.len());
+        decoder.read_to_end(&mut decoded).unwrap();
+        assert_eq!(decoded, sst7);
     }
-
-    // #[test]
-    // fn test_compress_without_dict() {
-    //     let options = BlockBuilderOptions {
-    //         compression_algorithm: CompressionAlgorithm::Zstd,
-    //         ..Default::default()
-    //     };
-
-    //     let charset = "1234567890abcdefghijklmnopqrstuvwxyz";
-    //     let mut keys = vec![];
-    //     for i in (0..1000) {
-    //         let key = generate(MAX_KEY_LEN, charset).encode_to_vec();
-    //         keys.push(key)
-    //     }
-
-    //     let mut builder = BlockBuilder::new_with_dict_for_test(options, None);
-
-    //     for i in (0..1000) {
-    //         builder.add(construct_full_key_struct(0, &keys[i], 1), b"v1");
-    //     }
-    //     let capacity = builder.uncompressed_block_size();
-
-    //     println!("capacity = {:?}", capacity);
-
-    //     assert_eq!(capacity, builder.approximate_len() - 9);
-    //     let buf = builder.build().to_vec();
-    //     println!("block.len() = {:?}", buf.len());
-    //     println!(
-    //         "rate = {:?}%",
-    //         buf.len() as f32 / capacity as f32 * 100 as f32
-    //     );
-    //     let block = Box::new(Block::decode(buf.into(), capacity).unwrap());
-    // }
 }
