@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use fixedbitset::FixedBitSet;
 use pretty_xmlish::{XmlNode, Pretty};
 use risingwave_common::catalog::Schema;
 use risingwave_common::util::sort_util::OrderType;
