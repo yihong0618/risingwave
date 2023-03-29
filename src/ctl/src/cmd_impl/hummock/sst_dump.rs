@@ -324,23 +324,15 @@ fn print_kv_pairs(
 
         let epoch = Epoch::from(full_key.epoch);
         let date_time = DateTime::<Utc>::from(epoch.as_system_time());
-        all_sst_content.put_slice(&full_key.encode());
-        all_sst_content.put_slice(full_val);
-
-        // println!("\t\t  {:?}, ", full_key);
-        // println!("\t\t {:?}", full_val);
 
 
-        if args.print_table {
-            print_table_column(full_key, humm_val, table_data)?;
-        }
+        println!("{:?}", full_key.encode());
+        println!("{:?}", humm_val);
 
-        println!();
 
         block_iter.next();
     }
 
-    println!("all是:{:?}", all_sst_content);
 
     Ok(())
 }
