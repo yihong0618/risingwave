@@ -13,83 +13,162 @@
 // limitations under the License.
 
 use std::io::{Error, ErrorKind, Result};
+use std::sync::Arc;
 
-use prometheus::core::{Collector, Desc};
-use prometheus::{proto, IntCounter, IntGauge, Opts, Registry};
+use itertools::Itertools;
+use parking_lot::Mutex;
+use prometheus::core::{Collector, Desc, Describer};
+use prometheus::proto::{Gauge, LabelPair, Metric, MetricFamily, MetricType};
+use prometheus::{proto, Opts, Registry};
+use risingwave_common::catalog::TableId;
 
+use crate::task::{ActorId, FragmentId};
 
-/// Monitors current process.
-pub fn monitor_process(registry: &Registry) -> Result<()> {
-    let pc = ProcessCollector::new();
+/// Monitors actor info.
+pub fn monitor_actor_info(registry: &Registry, collector: Arc<ActorInfoCollector>) -> Result<()> {
+    let ac = ActorInfoCollectorWrapper { inner: collector };
     registry
-        .register(Box::new(pc))
+        .register(Box::new(ac))
         .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
 }
 
-pub const ACTOR_INFO_DESC: &[&str] = &[
-    "Actor id to fragment id mapping",
-    "Table id to table name and actor id mapping"
-];
+const ACTOR_ID_LABEL: &str = "actor_id";
+const FRAGMENT_ID_LABEL: &str = "fragment_id";
+const TABLE_ID_LABEL: &str = "table_id";
+const TABLE_NAME_LABEL: &str = "table_name";
+const ADD_GAUGE_VALUE: f64 = 1.0;
+const DROP_GAUGE_VALUE: f64 = 0.0;
 
-pub struct ActorInfoToCollect {
-    new_actors: Vec<MetricFamily>,
-    new_tables: Vec<MetricFamily>
-}
 
 /// A collector to collect actor info
 pub struct ActorInfoCollector {
-    actor_info_to_collect: Mutex<ActorInfoToCollect>
-}
-
-impl Default for ActorInfoCollector {
-    fn default() -> Self {
-        Self::new()
-    }
+    desc: Vec<Desc>,
+    actor_info_to_collect: Mutex<Vec<MetricFamily>>,
 }
 
 impl ActorInfoCollector {
     pub fn new() -> Self {
         Self {
-            actor_info_to_collect: Mutex::new(ActorInfoToCollect::default())
+            desc: vec![
+                Opts::new("actor_id_info", "Mapping from actor id to fragment id")
+                    .variable_labels(vec![
+                        ACTOR_ID_LABEL.to_owned(),
+                        FRAGMENT_ID_LABEL.to_owned(),
+                    ])
+                    .describe()
+                    .unwrap(),
+                Opts::new(
+                    "state_table_id_info",
+                    "Mapping from table id to table name and actor id",
+                )
+                .variable_labels(vec![
+                    TABLE_ID_LABEL.to_owned(),
+                    ACTOR_ID_LABEL.to_owned(),
+                    TABLE_NAME_LABEL.to_owned(),
+                ])
+                .describe()
+                .unwrap(),
+            ],
+            actor_info_to_collect: Mutex::new(vec![]),
         }
     }
-}
 
-impl Collector for ActorInfoCollector {
+    pub fn add_actor(&self, actor_id: ActorId, fragment_id: FragmentId) {
+        self.actor_change(actor_id, fragment_id, ADD_GAUGE_VALUE);
+    }
+
+    pub fn add_table(&self, table_id: TableId, actor_id: ActorId, table_name: &str) {
+        self.table_change(table_id, actor_id, table_name, ADD_GAUGE_VALUE);
+    }
+
+    pub fn drop_actor(&self, actor_id: ActorId, fragment_id: FragmentId) {
+        self.actor_change(actor_id, fragment_id, DROP_GAUGE_VALUE);
+    }
+
+    pub fn drop_table(&self, table_id: TableId, actor_id: ActorId, table_name: &str) {
+        self.table_change(table_id, actor_id, table_name, DROP_GAUGE_VALUE);
+    }
+
+
+    fn actor_change(&self, actor_id: ActorId, fragment_id: FragmentId, value: f64) {
+        // Fake a metric family with the corresponding desc
+        let mut mf = MetricFamily::default();
+        mf.set_name(self.desc[0].fq_name.clone());
+        mf.set_help(self.desc[0].help.clone());
+        mf.set_field_type(MetricType::GAUGE);
+
+        // Fake a gauge metric with the corresponding label
+        let mut m = Metric::default();
+        let mut gauge = Gauge::default();
+        gauge.set_value(value);
+        m.set_gauge(gauge);
+        let mut labels = Vec::with_capacity(2);
+        let mut label = LabelPair::new();
+        label.set_name(ACTOR_ID_LABEL.to_owned());
+        label.set_value(actor_id.to_string());
+        labels.push(label);
+        let mut label = LabelPair::new();
+        label.set_name(FRAGMENT_ID_LABEL.to_owned());
+        label.set_value(fragment_id.to_string());
+        labels.push(label);
+        m.set_label(labels.into());
+        mf.set_metric(vec![m].into());
+
+        // Store the fake metric family for later collection
+        self.actor_info_to_collect.lock().push(mf);
+    }
+
+    fn table_change(&self, table_id: TableId, actor_id: ActorId, table_name: &str, value: f64) {
+        // Fake a metric family with the corresponding desc
+        let mut mf = MetricFamily::default();
+        mf.set_name(self.desc[1].fq_name.clone());
+        mf.set_help(self.desc[1].help.clone());
+        mf.set_field_type(MetricType::GAUGE);
+
+        // Fake a gauge metric with the corresponding label
+        let mut m = Metric::default();
+        let mut gauge = Gauge::default();
+        gauge.set_value(value);
+        m.set_gauge(gauge);
+        let mut labels = Vec::with_capacity(3);
+        let mut label = LabelPair::new();
+        label.set_name(TABLE_ID_LABEL.to_owned());
+        label.set_value(table_id.to_string());
+        labels.push(label);
+        let mut label = LabelPair::new();
+        label.set_name(ACTOR_ID_LABEL.to_owned());
+        label.set_value(actor_id.to_string());
+        labels.push(label);
+        let mut label = LabelPair::new();
+        label.set_name(TABLE_NAME_LABEL.to_owned());
+        label.set_value(table_name.to_string());
+        labels.push(label);
+        m.set_label(labels.into());
+        mf.set_metric(vec![m].into());
+
+        // Store the fake metric family for later collection
+        self.actor_info_to_collect.lock().push(mf);
+    }
+
     fn desc(&self) -> Vec<&Desc> {
-        self.descs.iter().collect()
+        self.desc.iter().collect_vec()
     }
 
     fn collect(&self) -> Vec<proto::MetricFamily> {
-        let p = match procfs::process::Process::myself() {
-            Ok(p) => p,
-            Err(..) => {
-                // we can't construct a Process object, so there's no stats to gather
-                return Vec::new();
-            }
-        };
+        self.actor_info_to_collect.lock().split_off(0)
+    }
+}
 
-        // memory
-        self.vsize.set(p.stat.vsize as i64);
-        self.rss.set(p.stat.rss * *PAGESIZE);
+pub struct ActorInfoCollectorWrapper {
+    inner: Arc<ActorInfoCollector>,
+}
 
-        // cpu
-        let cpu_total_mfs = {
-            let total = (p.stat.utime + p.stat.stime) / *CLOCK_TICK;
-            let past = self.cpu_total.get();
-            self.cpu_total.inc_by(total - past);
-            self.cpu_total.collect()
-        };
+impl Collector for ActorInfoCollectorWrapper {
+    fn desc(&self) -> Vec<&Desc> {
+        self.inner.desc()
+    }
 
-        self.cpu_core_num
-            .set(resource_util::cpu::total_cpu_available() as i64);
-
-        // collect MetricFamilies.
-        let mut mfs = Vec::with_capacity(4);
-        mfs.extend(cpu_total_mfs);
-        mfs.extend(self.vsize.collect());
-        mfs.extend(self.rss.collect());
-        mfs.extend(self.cpu_core_num.collect());
-        mfs
+    fn collect(&self) -> Vec<proto::MetricFamily> {
+        self.inner.collect()
     }
 }

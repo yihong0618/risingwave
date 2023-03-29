@@ -13,4 +13,5 @@
 // limitations under the License.
 
 pub mod streaming_stats;
+pub mod actor_info_collector;
 pub use streaming_stats::*;
