@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use bytes::{Buf, Bytes, BytesMut, BufMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use chrono::offset::Utc;
 use chrono::DateTime;
 use clap::Args;
@@ -232,14 +232,18 @@ pub async fn sst_dump_via_sstable_store(
     // }
 
     // println!("Block Count: {}", sstable.block_count());
+    let mut sst_data: BytesMut = BytesMut::default();
     for i in 0..sstable.block_count() {
         if let Some(block_id) = &args.block_id {
             if *block_id == i as u64 {
                 print_block(i, table_data, sstable_store, sstable, args).await?;
+
                 return Ok(());
             }
         } else {
-            print_block(i, table_data, sstable_store, sstable, args).await?;
+            // print_block(i, table_data, sstable_store, sstable, args).await?;
+            let block_data = get_block_data(i, table_data, sstable_store, sstable, args).await?;
+            sst_data.put_slice(&block_data);
         }
     }
     Ok(())
@@ -266,8 +270,8 @@ async fn print_block(
     sst: &Sstable,
     args: &SstDumpArgs,
 ) -> anyhow::Result<()> {
-    // println!("\tBlock {}", block_idx);
-    // println!("\t-----------");
+    println!("\tBlock {}", block_idx);
+    println!("\t-----------");
 
     let block_meta = &sst.meta.block_metas[block_idx];
     let smallest_key = FullKey::decode(&block_meta.smallest_key);
@@ -286,10 +290,10 @@ async fn print_block(
     let checksum = (&block_data[len - 8..]).get_u64_le();
     let compression = CompressionAlgorithm::decode(&mut &block_data[len - 9..len - 8])?;
 
-    // println!(
-    //     "\tOffset: {}, Size: {}, Checksum: {}, Compression Algorithm: {:?}, Smallest Key: {:?}",
-    //     block_meta.offset, block_meta.len, checksum, compression, smallest_key
-    // );
+    println!(
+        "\tOffset: {}, Size: {}, Checksum: {}, Compression Algorithm: {:?}, Smallest Key: {:?}",
+        block_meta.offset, block_meta.len, checksum, compression, smallest_key
+    );
 
     if args.print_entry {
         print_kv_pairs(
@@ -301,6 +305,41 @@ async fn print_block(
     }
 
     Ok(())
+}
+
+/// Prints a block of a given SST including all contained KV-pairs.
+async fn get_block_data(
+    block_idx: usize,
+    table_data: &TableData,
+    sstable_store: &SstableStore,
+    sst: &Sstable,
+    args: &SstDumpArgs,
+) -> anyhow::Result<(BytesMut)> {
+    let block_meta = &sst.meta.block_metas[block_idx];
+    let smallest_key = FullKey::decode(&block_meta.smallest_key);
+    let data_path = sstable_store.get_sst_data_path(sst.id);
+
+    // Retrieve encoded block data in bytes
+    let store = sstable_store.store();
+    let block_loc = BlockLocation {
+        offset: block_meta.offset as usize,
+        size: block_meta.len as usize,
+    };
+    let block_data = store.read(&data_path, Some(block_loc)).await?;
+
+    // Retrieve checksum and compression algorithm used from the encoded block data
+    let len = block_data.len();
+    let checksum = (&block_data[len - 8..]).get_u64_le();
+    let compression = CompressionAlgorithm::decode(&mut &block_data[len - 9..len - 8])?;
+
+    let block_data = get_content_from_block(
+        block_data,
+        table_data,
+        block_meta.uncompressed_size as usize,
+        args,
+    )?;
+
+    Ok(block_data)
 }
 
 /// Prints the data of KV-Pairs of a given block out to the terminal.
@@ -316,7 +355,6 @@ fn print_kv_pairs(
     let holder = BlockHolder::from_owned_block(block);
     let mut block_iter = BlockIterator::new(holder);
     block_iter.seek_to_first();
-    let mut all_sst_content: BytesMut = BytesMut::default();
     while block_iter.is_valid() {
         let full_key = block_iter.key();
         let full_val = block_iter.value();
@@ -325,16 +363,43 @@ fn print_kv_pairs(
         let epoch = Epoch::from(full_key.epoch);
         let date_time = DateTime::<Utc>::from(epoch.as_system_time());
 
-
         println!("{:?}", full_key.encode());
         println!("{:?}", humm_val);
-
 
         block_iter.next();
     }
 
-
     Ok(())
+}
+
+/// Get the data of KV-Pairs of a given block out to the terminal.
+fn get_content_from_block(
+    block_data: Bytes,
+    table_data: &TableData,
+    uncompressed_capacity: usize,
+    args: &SstDumpArgs,
+) -> anyhow::Result<(BytesMut)> {
+    let block = Box::new(Block::decode(block_data, uncompressed_capacity).unwrap());
+    let holder = BlockHolder::from_owned_block(block);
+    let mut block_iter = BlockIterator::new(holder);
+    block_iter.seek_to_first();
+    let mut all_kv_pairs: BytesMut = BytesMut::default();
+    while block_iter.is_valid() {
+        let full_key = block_iter.key();
+        let full_val = block_iter.value();
+        let humm_val = HummockValue::from_slice(full_val)?;
+
+        let epoch = Epoch::from(full_key.epoch);
+        let date_time = DateTime::<Utc>::from(epoch.as_system_time());
+
+        let kv = (full_key.encode(), humm_val);
+        all_kv_pairs.put_slice(full_key.encode().as_ref());
+        all_kv_pairs.put_slice(full_val);
+
+        block_iter.next();
+    }
+
+    Ok((all_kv_pairs))
 }
 
 /// If possible, prints information about the table, column, and stored value.
