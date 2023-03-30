@@ -6116,6 +6116,7 @@ dependencies = [
  "tracing",
  "uuid",
  "workspace-hack",
+ "zstd",
 ]
 
 [[package]]

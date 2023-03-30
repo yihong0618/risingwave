@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::collections::HashMap;
+use std::io::{Read, Write};
 use std::sync::Arc;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -246,6 +247,40 @@ pub async fn sst_dump_via_sstable_store(
             sst_data.put_slice(&block_data);
         }
     }
+
+    // compress without dict
+    let mut encoder =
+        zstd::Encoder::new(BytesMut::with_capacity(sst_data.len()).writer(), 1).unwrap();
+    encoder.write_all(&sst_data).unwrap();
+    let writer = encoder.finish().unwrap();
+    let compress_without_dict = writer.into_inner();
+    println!(
+        "compress rate without dict = {:?}%",
+        compress_without_dict.len() as f32 / sst_data.len() as f32 * 100 as f32
+    );
+    let mut decoder = zstd::Decoder::new(compress_without_dict.reader()).unwrap();
+    let mut decoded = Vec::with_capacity(sst_data.len());
+    assert_eq!(decoded, sst_data);
+
+    // compress with dict
+    let dict = &sst_data[..sst_data.len() / 10];
+    let mut dict_encoder =
+        zstd::Encoder::with_dictionary(BytesMut::with_capacity(sst_data.len()).writer(), 1, dict)
+            .unwrap();
+
+    dict_encoder.write_all(&sst_data).unwrap();
+    let writer = dict_encoder.finish().unwrap();
+    let sst_compress_with_dict = writer.into_inner();
+
+    println!(
+        "compress rate with dict = {:?}%",
+        sst_compress_with_dict.len() as f32 / sst_data.len() as f32 * 100 as f32
+    );
+    let mut decoder =
+        zstd::Decoder::with_dictionary(sst_compress_with_dict.reader(), dict).unwrap();
+    let mut decoded = Vec::with_capacity(sst_data.len());
+    decoder.read_to_end(&mut decoded).unwrap();
+    assert_eq!(decoded, sst_data);
     Ok(())
 }
 
