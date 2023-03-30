@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use bytes::{Buf, Bytes};
+use bytes::{Buf, Bytes, BytesMut, BufMut};
 use chrono::offset::Utc;
 use chrono::DateTime;
 use clap::Args;
@@ -160,9 +160,9 @@ fn print_level(level: &Level, sst_info: &SstableInfo) {
 }
 
 fn print_object(obj: &ObjectMetadata) {
-    println!("Object Key: {}", obj.key);
-    println!("Object Size: {}", obj.total_size);
-    println!("Object Last Modified: {}", obj.last_modified);
+    // println!("Object Key: {}", obj.key);
+    // println!("Object Size: {}", obj.total_size);
+    // println!("Object Last Modified: {}", obj.last_modified);
 }
 
 async fn get_meta_offset_from_object(
@@ -207,31 +207,31 @@ pub async fn sst_dump_via_sstable_store(
     let smallest_key = FullKey::decode(&sstable_meta.smallest_key);
     let largest_key = FullKey::decode(&sstable_meta.largest_key);
 
-    println!("SST object id: {}", object_id);
-    println!("-------------------------------------");
-    println!("File Size: {}", sstable.estimate_size());
+    // println!("SST object id: {}", object_id);
+    // println!("-------------------------------------");
+    // println!("File Size: {}", sstable.estimate_size());
 
-    println!("Key Range:");
-    println!(
-        "\tleft:\t{:?}\n\tright:\t{:?}\n\t",
-        smallest_key, largest_key,
-    );
+    // println!("Key Range:");
+    // println!(
+    //     "\tleft:\t{:?}\n\tright:\t{:?}\n\t",
+    //     smallest_key, largest_key,
+    // );
 
-    println!("Estimated Table Size: {}", sstable_meta.estimated_size);
-    println!("Bloom Filter Size: {}", sstable_meta.bloom_filter.len());
-    println!("Key Count: {}", sstable_meta.key_count);
-    println!("Version: {}", sstable_meta.version);
-    println!(
-        "Range Tomestone Count: {}",
-        sstable_meta.range_tombstone_list.len()
-    );
-    for range_tomstone in &sstable_meta.range_tombstone_list {
-        println!("\tstart: {:?}", range_tomstone.start_user_key);
-        println!("\tend: {:?}", range_tomstone.end_user_key);
-        println!("\tepoch: {:?}", range_tomstone.sequence);
-    }
+    // println!("Estimated Table Size: {}", sstable_meta.estimated_size);
+    // println!("Bloom Filter Size: {}", sstable_meta.bloom_filter.len());
+    // println!("Key Count: {}", sstable_meta.key_count);
+    // println!("Version: {}", sstable_meta.version);
+    // println!(
+    //     "Range Tomestone Count: {}",
+    //     sstable_meta.range_tombstone_list.len()
+    // );
+    // for range_tomstone in &sstable_meta.range_tombstone_list {
+    //     println!("\tstart: {:?}", range_tomstone.start_user_key);
+    //     println!("\tend: {:?}", range_tomstone.end_user_key);
+    //     println!("\tepoch: {:?}", range_tomstone.sequence);
+    // }
 
-    println!("Block Count: {}", sstable.block_count());
+    // println!("Block Count: {}", sstable.block_count());
     for i in 0..sstable.block_count() {
         if let Some(block_id) = &args.block_id {
             if *block_id == i as u64 {
@@ -266,8 +266,8 @@ async fn print_block(
     sst: &Sstable,
     args: &SstDumpArgs,
 ) -> anyhow::Result<()> {
-    println!("\tBlock {}", block_idx);
-    println!("\t-----------");
+    // println!("\tBlock {}", block_idx);
+    // println!("\t-----------");
 
     let block_meta = &sst.meta.block_metas[block_idx];
     let smallest_key = FullKey::decode(&block_meta.smallest_key);
@@ -286,10 +286,10 @@ async fn print_block(
     let checksum = (&block_data[len - 8..]).get_u64_le();
     let compression = CompressionAlgorithm::decode(&mut &block_data[len - 9..len - 8])?;
 
-    println!(
-        "\tOffset: {}, Size: {}, Checksum: {}, Compression Algorithm: {:?}, Smallest Key: {:?}",
-        block_meta.offset, block_meta.len, checksum, compression, smallest_key
-    );
+    // println!(
+    //     "\tOffset: {}, Size: {}, Checksum: {}, Compression Algorithm: {:?}, Smallest Key: {:?}",
+    //     block_meta.offset, block_meta.len, checksum, compression, smallest_key
+    // );
 
     if args.print_entry {
         print_kv_pairs(
@@ -316,7 +316,7 @@ fn print_kv_pairs(
     let holder = BlockHolder::from_owned_block(block);
     let mut block_iter = BlockIterator::new(holder);
     block_iter.seek_to_first();
-
+    let mut all_sst_content: BytesMut = BytesMut::default();
     while block_iter.is_valid() {
         let full_key = block_iter.key();
         let full_val = block_iter.value();
@@ -325,18 +325,14 @@ fn print_kv_pairs(
         let epoch = Epoch::from(full_key.epoch);
         let date_time = DateTime::<Utc>::from(epoch.as_system_time());
 
-        println!("\t\t   key: {:?}, len={}", full_key, full_key.encoded_len());
-        println!("\t\t value: {:?}, len={}", humm_val, humm_val.encoded_len());
-        println!("\t\t epoch: {} ({})", epoch, date_time);
 
-        if args.print_table {
-            print_table_column(full_key, humm_val, table_data)?;
-        }
+        println!("{:?}", full_key.encode());
+        println!("{:?}", humm_val);
 
-        println!();
 
         block_iter.next();
     }
+
 
     Ok(())
 }
