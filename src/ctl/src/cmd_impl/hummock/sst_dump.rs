@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::{Duration, Instant};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::Arc;
@@ -206,35 +207,11 @@ pub async fn sst_dump_via_sstable_store(
     let sstable = sstable_cache.value().as_ref();
     let sstable_meta = &sstable.meta;
 
-    println!("\n sstable meta size = {:?}", sstable.meta.encoded_size());
-
-
-    // println!("SST object id: {}", object_id);
-    // println!("-------------------------------------");
-    // println!("File Size: {}", sstable.estimate_size());
-
-    // println!("Key Range:");
-    // println!(
-    //     "\tleft:\t{:?}\n\tright:\t{:?}\n\t",
-    //     smallest_key, largest_key,
-    // );
-
-    // println!("Estimated Table Size: {}", sstable_meta.estimated_size);
-    // println!("Bloom Filter Size: {}", sstable_meta.bloom_filter.len());
-    // println!("Key Count: {}", sstable_meta.key_count);
-    // println!("Version: {}", sstable_meta.version);
-    // println!(
-    //     "Range Tomestone Count: {}",
-    //     sstable_meta.range_tombstone_list.len()
-    // );
-    // for range_tomstone in &sstable_meta.range_tombstone_list {
-    //     println!("\tstart: {:?}", range_tomstone.start_user_key);
-    //     println!("\tend: {:?}", range_tomstone.end_user_key);
-    //     println!("\tepoch: {:?}", range_tomstone.sequence);
-    // }
+    println!("\nsstable meta size = {:?} KB", sstable_meta.encoded_size()/1024);
 
     println!("Block Count: {}", sstable.block_count());
     let mut sst_data: BytesMut = BytesMut::default();
+    let mut dict: BytesMut = BytesMut::default();
     for i in 0..sstable.block_count() {
         if let Some(block_id) = &args.block_id {
             if *block_id == i as u64 {
@@ -245,13 +222,15 @@ pub async fn sst_dump_via_sstable_store(
         } else {
             let block_data = get_block_data(i, table_data, sstable_store, sstable, args).await?;
             sst_data.put_slice(&block_data);
+            // dict.put_slice(&block_data[..]);
         }
     }
-    println!("sst data size = {:?}", sst_data.len());
-    let dict = &sst_data[..sst_data.len() / 4];
+    let dict = &sst_data[..1024*64*480];
+    println!("\nsample size = {:?} KB", dict.len()/1024);
+    println!("sst data size = {:?} MB\n", sst_data.len()/1024/1024);
     for i in 0..sstable.block_count() {
         let block_data = get_block_data(i, table_data, sstable_store, sstable, args).await?;
-        bench_compress_block_data(block_data, dict).await?;
+        bench_compress_block_data(i, block_data, &dict).await?;
     }
     Ok(())
 }
@@ -337,25 +316,30 @@ async fn get_block_data(
 }
 
 /// Prints a block of a given SST including all contained KV-pairs.
-async fn bench_compress_block_data(block_data: Bytes, dict: &[u8]) -> anyhow::Result<()> {
+async fn bench_compress_block_data( block_idx: usize, block_data: Bytes, dict: &[u8]) -> anyhow::Result<()> {
     // compress without dict
+    let start_compress_without_dict = Instant::now();
     let mut encoder =
         zstd::Encoder::new(BytesMut::with_capacity(block_data.len()).writer(), 4).unwrap();
     encoder.write_all(&block_data).unwrap();
     let writer = encoder.finish().unwrap();
     let compress_without_dict = writer.into_inner();
-    println!("\n -------Block------");
-    println!("block_data size = {:?}", block_data.len());
+    let duration_compress_without_dict= start_compress_without_dict.elapsed();
+    println!("\n--------- Block {}", block_idx);
     println!(
         "compress rate without dict = {:?}%",
         compress_without_dict.len() as f32 / block_data.len() as f32 * 100 as f32
     );
+    let start_decompress_without_dict = Instant::now();
     let mut decoder = zstd::Decoder::new(compress_without_dict.reader()).unwrap();
     let mut decoded = Vec::with_capacity(block_data.len());
     decoder.read_to_end(&mut decoded).unwrap();
+    let duration_start_decompress_without_dict = start_decompress_without_dict.elapsed();
+
     assert_eq!(decoded, block_data);
 
     // compress with dict
+    let start_duration_start_compress_with_dict = Instant::now();
     let mut dict_encoder =
         zstd::Encoder::with_dictionary(BytesMut::with_capacity(block_data.len()).writer(), 4, dict)
             .unwrap();
@@ -363,15 +347,23 @@ async fn bench_compress_block_data(block_data: Bytes, dict: &[u8]) -> anyhow::Re
     dict_encoder.write_all(&block_data).unwrap();
     let writer = dict_encoder.finish().unwrap();
     let sst_compress_with_dict = writer.into_inner();
+    let duration_compress_with_dict = start_duration_start_compress_with_dict.elapsed();
 
     println!(
-        "compress rate with dict = {:?}%\n",
+        "compress rate with dict = {:?}%",
         sst_compress_with_dict.len() as f32 / block_data.len() as f32 * 100 as f32
     );
+    let start = Instant::now();
     let mut decoder =
         zstd::Decoder::with_dictionary(sst_compress_with_dict.reader(), &dict).unwrap();
     let mut decoded = Vec::with_capacity(block_data.len());
     decoder.read_to_end(&mut decoded).unwrap();
+    let duration = start.elapsed();
+
+    println!("\ncompress without dict latency: {:?}", duration_compress_without_dict);
+    println!("compress with dict latency: {:?}", duration_compress_with_dict);
+    println!("\ndecompress without dict latency: {:?}", duration_start_decompress_without_dict);
+    println!("decompress with dict latency: {:?}", duration);
     assert_eq!(decoded, block_data);
     Ok(())
 }
