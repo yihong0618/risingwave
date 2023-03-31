@@ -205,8 +205,9 @@ pub async fn sst_dump_via_sstable_store(
         .await?;
     let sstable = sstable_cache.value().as_ref();
     let sstable_meta = &sstable.meta;
-    let smallest_key = FullKey::decode(&sstable_meta.smallest_key);
-    let largest_key = FullKey::decode(&sstable_meta.largest_key);
+
+    println!("\n sstable meta size = {:?}", sstable.meta.encoded_size());
+
 
     // println!("SST object id: {}", object_id);
     // println!("-------------------------------------");
@@ -232,7 +233,7 @@ pub async fn sst_dump_via_sstable_store(
     //     println!("\tepoch: {:?}", range_tomstone.sequence);
     // }
 
-    // println!("Block Count: {}", sstable.block_count());
+    println!("Block Count: {}", sstable.block_count());
     let mut sst_data: BytesMut = BytesMut::default();
     for i in 0..sstable.block_count() {
         if let Some(block_id) = &args.block_id {
@@ -242,45 +243,16 @@ pub async fn sst_dump_via_sstable_store(
                 return Ok(());
             }
         } else {
-            // print_block(i, table_data, sstable_store, sstable, args).await?;
             let block_data = get_block_data(i, table_data, sstable_store, sstable, args).await?;
             sst_data.put_slice(&block_data);
         }
     }
-
-    // compress without dict
-    let mut encoder =
-        zstd::Encoder::new(BytesMut::with_capacity(sst_data.len()).writer(), 1).unwrap();
-    encoder.write_all(&sst_data).unwrap();
-    let writer = encoder.finish().unwrap();
-    let compress_without_dict = writer.into_inner();
-    println!(
-        "compress rate without dict = {:?}%",
-        compress_without_dict.len() as f32 / sst_data.len() as f32 * 100 as f32
-    );
-    let mut decoder = zstd::Decoder::new(compress_without_dict.reader()).unwrap();
-    let mut decoded = Vec::with_capacity(sst_data.len());
-    assert_eq!(decoded, sst_data);
-
-    // compress with dict
-    let dict = &sst_data[..sst_data.len() / 10];
-    let mut dict_encoder =
-        zstd::Encoder::with_dictionary(BytesMut::with_capacity(sst_data.len()).writer(), 1, dict)
-            .unwrap();
-
-    dict_encoder.write_all(&sst_data).unwrap();
-    let writer = dict_encoder.finish().unwrap();
-    let sst_compress_with_dict = writer.into_inner();
-
-    println!(
-        "compress rate with dict = {:?}%",
-        sst_compress_with_dict.len() as f32 / sst_data.len() as f32 * 100 as f32
-    );
-    let mut decoder =
-        zstd::Decoder::with_dictionary(sst_compress_with_dict.reader(), dict).unwrap();
-    let mut decoded = Vec::with_capacity(sst_data.len());
-    decoder.read_to_end(&mut decoded).unwrap();
-    assert_eq!(decoded, sst_data);
+    println!("sst data size = {:?}", sst_data.len());
+    let dict = &sst_data[..sst_data.len() / 4];
+    for i in 0..sstable.block_count() {
+        let block_data = get_block_data(i, table_data, sstable_store, sstable, args).await?;
+        bench_compress_block_data(block_data, dict).await?;
+    }
     Ok(())
 }
 
@@ -349,9 +321,8 @@ async fn get_block_data(
     sstable_store: &SstableStore,
     sst: &Sstable,
     args: &SstDumpArgs,
-) -> anyhow::Result<(BytesMut)> {
+) -> anyhow::Result<Bytes> {
     let block_meta = &sst.meta.block_metas[block_idx];
-    let smallest_key = FullKey::decode(&block_meta.smallest_key);
     let data_path = sstable_store.get_sst_data_path(sst.id);
 
     // Retrieve encoded block data in bytes
@@ -362,19 +333,47 @@ async fn get_block_data(
     };
     let block_data = store.read(&data_path, Some(block_loc)).await?;
 
-    // Retrieve checksum and compression algorithm used from the encoded block data
-    let len = block_data.len();
-    let checksum = (&block_data[len - 8..]).get_u64_le();
-    let compression = CompressionAlgorithm::decode(&mut &block_data[len - 9..len - 8])?;
-
-    let block_data = get_content_from_block(
-        block_data,
-        table_data,
-        block_meta.uncompressed_size as usize,
-        args,
-    )?;
-
     Ok(block_data)
+}
+
+/// Prints a block of a given SST including all contained KV-pairs.
+async fn bench_compress_block_data(block_data: Bytes, dict: &[u8]) -> anyhow::Result<()> {
+    // compress without dict
+    let mut encoder =
+        zstd::Encoder::new(BytesMut::with_capacity(block_data.len()).writer(), 4).unwrap();
+    encoder.write_all(&block_data).unwrap();
+    let writer = encoder.finish().unwrap();
+    let compress_without_dict = writer.into_inner();
+    println!("\n -------Block------");
+    println!("block_data size = {:?}", block_data.len());
+    println!(
+        "compress rate without dict = {:?}%",
+        compress_without_dict.len() as f32 / block_data.len() as f32 * 100 as f32
+    );
+    let mut decoder = zstd::Decoder::new(compress_without_dict.reader()).unwrap();
+    let mut decoded = Vec::with_capacity(block_data.len());
+    decoder.read_to_end(&mut decoded).unwrap();
+    assert_eq!(decoded, block_data);
+
+    // compress with dict
+    let mut dict_encoder =
+        zstd::Encoder::with_dictionary(BytesMut::with_capacity(block_data.len()).writer(), 4, dict)
+            .unwrap();
+
+    dict_encoder.write_all(&block_data).unwrap();
+    let writer = dict_encoder.finish().unwrap();
+    let sst_compress_with_dict = writer.into_inner();
+
+    println!(
+        "compress rate with dict = {:?}%\n",
+        sst_compress_with_dict.len() as f32 / block_data.len() as f32 * 100 as f32
+    );
+    let mut decoder =
+        zstd::Decoder::with_dictionary(sst_compress_with_dict.reader(), &dict).unwrap();
+    let mut decoded = Vec::with_capacity(block_data.len());
+    decoder.read_to_end(&mut decoded).unwrap();
+    assert_eq!(decoded, block_data);
+    Ok(())
 }
 
 /// Prints the data of KV-Pairs of a given block out to the terminal.
