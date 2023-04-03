@@ -102,44 +102,155 @@ def section_overview(panels):
     ]
 
 
-def section_streaming(panels):
+def section_cpu(outer_panels):
+    panels = outer_panels.sub_panel()
     return [
-        panels.row("Streaming"),
-        panels.timeseries_rowsps(
-            "Source Throughput(rows/s)",
-            "The figure shows the number of rows read by each source per second.",
+        outer_panels.row_collapsed(
+            "CPU",
             [
-                panels.target(
-                    f"rate({metric('stream_source_output_rows_counts')}[$__rate_interval])",
-                    "source={{source_name}} {{source_id}} @ {{instance}}",
+                panels.timeseries_cpu(
+                    "Node CPU",
+                    "The CPU usage of each RisingWave component.",
+                    [
+                        panels.target(
+                            f"sum(rate({metric('process_cpu_seconds_total')}[$__rate_interval])) by (job,instance)",
+                            "cpu - {{job}} @ {{instance}}",
+                        ),
+                    ],
                 ),
-            ],
-        ),
-        panels.timeseries_bytesps(
-            "Source Throughput(MB/s)",
-            "The figure shows the number of bytes read by each source per second.",
-            [
-                panels.target(
-                    f"(sum by (source_id)(rate({metric('partition_input_bytes')}[$__rate_interval])))/(1000*1000)",
-                    "source={{source_id}}",
-                )
-            ],
-        ),
-        panels.timeseries_rowsps(
-            "Backfill Throughput(rows)",
-            "Total number of rows that have been read from the backfill operator used by MV on MV",
-            [
-                panels.target(
-                    f"rate({metric('stream_backfill_snapshot_read_row_count')}[$__rate_interval])",
-                    "Read Snapshot - table_id={{table_id}} actor={{actor_id}} @ {{instance}}"
-                ),
-                panels.target(
-                    f"rate({metric('stream_backfill_upstream_output_row_count')}[$__rate_interval])",
-                    "Upstream - table_id={{table_id}} actor={{actor_id}} @ {{instance}}"
-                ),
-            ],
-        ),
+            ]
+        )
+    ]
 
+
+def section_memory(outer_panels):
+    panels = outer_panels.sub_panel()
+    return [
+        outer_panels.row_collapsed(
+            "Memory",
+            [
+
+            ]
+        )
+    ]
+
+
+def section_network(outer_panels):
+    panels = outer_panels.sub_panel()
+    return [
+        outer_panels.row_collapsed(
+            "Network",
+            [
+
+            ]
+        )
+    ]
+
+
+def section_storage(outer_panels):
+    panels = outer_panels.sub_panel()
+    return [
+        outer_panels.row_collapsed(
+            "Storage",
+            [
+                panels.timeseries_kilobytes(
+                    "Size (KB)",
+                    "KBs total file bytes",
+                    [
+                        panels.target(
+                            f"sum({metric('storage_level_total_file_size')})",
+                            "Latest",
+                        ),
+                    ],
+                ),
+                panels.timeseries_bytes(
+                    "Write Bytes",
+                    "The number of bytes that have been written by compaction."
+                    "Flush refers to the process of compacting Memtables to SSTables at Level 0."
+                    "Compaction refers to the process of compacting SSTables at one level to another level.",
+                    [
+                        panels.target(
+                            f"sum({metric('storage_level_compact_write')}) by (job)",
+                            "Compaction - {{job}}",
+                        ),
+                        panels.target(
+                            f"sum({metric('compactor_write_build_l0_bytes')}) by (job)",
+                            "Flush - {{job}}",
+                        ),
+                    ],
+                ),
+
+            ]
+        )
+    ]
+
+
+def section_streaming(outer_panels):
+    panels = outer_panels.sub_panel()
+    return [
+        outer_panels.row_collapsed(
+            "Streaming",
+            [
+                panels.timeseries_rowsps(
+                    "Source Throughput(rows/s)",
+                    "The figure shows the number of rows read by each source per second.",
+                    [
+                        panels.target(
+                            f"rate({metric('stream_source_output_rows_counts')}[$__rate_interval])",
+                            "source={{source_name}} {{source_id}} @ {{instance}}",
+                        ),
+                    ],
+                ),
+                panels.timeseries_bytesps(
+                    "Source Throughput(MB/s)",
+                    "The figure shows the number of bytes read by each source per second.",
+                    [
+                        panels.target(
+                            f"(sum by (source_id)(rate({metric('partition_input_bytes')}[$__rate_interval])))/(1000*1000)",
+                            "source={{source_id}}",
+                        )
+                    ],
+                ),
+                panels.timeseries_rowsps(
+                    "Backfill Throughput(rows)",
+                    "Total number of rows that have been read from the backfill operator used by MV on MV",
+                    [
+                        panels.target(
+                            f"rate({metric('stream_backfill_snapshot_read_row_count')}[$__rate_interval])",
+                            "Read Snapshot - table_id={{table_id}} actor={{actor_id}} @ {{instance}}"
+                        ),
+                        panels.target(
+                            f"rate({metric('stream_backfill_upstream_output_row_count')}[$__rate_interval])",
+                            "Upstream - table_id={{table_id}} actor={{actor_id}} @ {{instance}}"
+                        ),
+                    ],
+                ),
+                panels.timeseries_percentage(
+                    "Actor Backpressure",
+                    "We first record the total blocking duration(ns) of output buffer of each actor. It shows how "
+                    "much time it takes an actor to process a message, i.e. a barrier, a watermark or rows of data, "
+                    "on average. Then we divide this duration by 1 second and show it as a percentage.",
+                    [
+                        panels.target(
+                            f"rate({metric('stream_actor_output_buffer_blocking_duration_ns')}[$__rate_interval]) / 1000000000",
+                            "{{actor_id}}",
+                        ),
+                    ],
+                ),
+            ]
+        )
+    ]
+
+
+def section_batch(outer_panels):
+    panels = outer_panels.sub_panel()
+    return [
+        outer_panels.row_collapsed(
+            "Batch",
+            [
+
+            ]
+        )
     ]
 
 
@@ -590,6 +701,7 @@ def section_object_storage(outer_panels):
             ],
         )
     ]
+
 
 def section_streaming_actors(outer_panels):
     panels = outer_panels.sub_panel()
