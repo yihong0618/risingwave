@@ -116,7 +116,10 @@ impl TierCompactionPicker {
 
             select_level_inputs.reverse();
 
-            tracing::info!("TRACK tier_compaction level_count {}", select_level_inputs.len());
+            tracing::info!(
+                "TRACK tier_compaction level_count {}",
+                select_level_inputs.len()
+            );
 
             // println!(
             //     "pick TierCompaction level.sub_level_id {}",
