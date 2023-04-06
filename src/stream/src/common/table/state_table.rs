@@ -456,7 +456,7 @@ where
         }
     }
 
-    fn table_id(&self) -> TableId {
+    pub fn table_id(&self) -> TableId {
         self.table_id
     }
 

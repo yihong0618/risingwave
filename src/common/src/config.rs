@@ -529,7 +529,7 @@ mod default {
         pub fn wkx_max_memory_manager_step() -> usize {
             2
         }
-        
+
         pub fn share_buffers_sync_parallelism() -> u32 {
             1
         }

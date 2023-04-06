@@ -71,6 +71,9 @@ pub struct StreamingMetrics {
     pub agg_chunk_lookup_miss_count: GenericCounterVec<AtomicU64>,
     pub agg_chunk_total_lookup_count: GenericCounterVec<AtomicU64>,
 
+    pub cache_real_resue_distance_bucket_count: GenericCounterVec<AtomicU64>,
+    pub cache_ghost_resue_distance_bucket_count: GenericCounterVec<AtomicU64>,
+
     /// The duration from receipt of barrier to all actors collection.
     /// And the max of all node `barrier_inflight_latency` is the latency for a barrier
     /// to flow through the graph.
@@ -425,6 +428,22 @@ impl StreamingMetrics {
         )
         .unwrap();
 
+        let cache_real_resue_distance_bucket_count = register_int_counter_vec_with_registry!(
+            "stream_cache_real_resue_distance_bucket_count",
+            "Executor Cache real resue distance count in each bucket",
+            &["actor_id", "table_id", "side", "bucket_id"],
+            registry
+        )
+        .unwrap();
+
+        let cache_ghost_resue_distance_bucket_count = register_int_counter_vec_with_registry!(
+            "stream_cache_ghost_resue_distance_bucket_count",
+            "Executor Cache ghost resue distance count in each bucket",
+            &["actor_id", "table_id", "side", "bucket_id"],
+            registry
+        )
+        .unwrap();
+
         let opts = histogram_opts!(
             "stream_barrier_inflight_duration_seconds",
             "barrier_inflight_latency",
@@ -532,6 +551,8 @@ impl StreamingMetrics {
             agg_cached_keys,
             agg_chunk_lookup_miss_count,
             agg_chunk_total_lookup_count,
+            cache_real_resue_distance_bucket_count,
+            cache_ghost_resue_distance_bucket_count,
             barrier_inflight_latency,
             barrier_sync_latency,
             sink_commit_duration,

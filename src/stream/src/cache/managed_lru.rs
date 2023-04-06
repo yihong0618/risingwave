@@ -18,7 +18,7 @@ use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use lru::{DefaultHasher, LruCache};
+use lru::{DefaultHasher, IndexedLruCache, LruCache};
 
 /// The managed cache is a lru cache that bounds the memory usage by epoch.
 /// Should be used with `GlobalMemoryManager`.
@@ -88,5 +88,54 @@ pub fn new_with_hasher<K: Hash + Eq, V, S: BuildHasher>(
     ManagedLruCache {
         inner: LruCache::unbounded_with_hasher(hasher),
         watermark_epoch,
+    }
+}
+
+pub struct ManagedIndexedLruCache<K, V, S = DefaultHasher, A: Clone + Allocator = Global> {
+    pub(super) inner: IndexedLruCache<K, V, S, A>,
+    /// The entry with epoch less than water should be evicted.
+    /// Should only be updated by the `GlobalMemoryManager`.
+    pub(super) watermark_epoch: Arc<AtomicU64>,
+}
+
+impl<K: Hash + Eq, V, S: BuildHasher, A: Clone + Allocator> ManagedIndexedLruCache<K, V, S, A> {
+    /// Evict epochs lower than the watermark
+    pub fn evict(&mut self) {
+        let epoch = self.watermark_epoch.load(Ordering::Relaxed);
+        self.inner.evict_by_epoch_bucket(epoch);
+    }
+}
+
+pub fn new_indexed_with_hasher_in<K: Hash + Eq, V, S: BuildHasher, A: Clone + Allocator>(
+    watermark_epoch: Arc<AtomicU64>,
+    hasher: S,
+    alloc: A,
+    ghost_cap: usize,
+    update_interval: u32,
+    ghost_bucket_count: usize,
+) -> ManagedIndexedLruCache<K, V, S, A> {
+    ManagedIndexedLruCache {
+        inner: IndexedLruCache::unbounded_with_hasher_in(
+            hasher,
+            alloc,
+            ghost_cap,
+            update_interval,
+            ghost_bucket_count,
+        ),
+        watermark_epoch,
+    }
+}
+
+impl<K, V, S, A: Clone + Allocator> Deref for ManagedIndexedLruCache<K, V, S, A> {
+    type Target = IndexedLruCache<K, V, S, A>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<K, V, S, A: Clone + Allocator> DerefMut for ManagedIndexedLruCache<K, V, S, A> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
     }
 }

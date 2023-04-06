@@ -25,6 +25,7 @@ use futures_async_stream::for_await;
 pub(super) use join_entry_state::JoinEntryState;
 use local_stats_alloc::{SharedStatsAlloc, StatsAlloc};
 use risingwave_common::buffer::Bitmap;
+use risingwave_common::catalog::TableId;
 use risingwave_common::collection::estimate_size::EstimateSize;
 use risingwave_common::hash::{HashKey, PrecomputedBuildHasher};
 use risingwave_common::row;
@@ -36,13 +37,16 @@ use risingwave_common::util::sort_util::OrderType;
 use risingwave_storage::store::PrefetchOptions;
 use risingwave_storage::StateStore;
 
-use crate::cache::{cache_may_stale, new_with_hasher_in, ExecutorCache};
+use crate::cache::{cache_may_stale, new_indexed_with_hasher_in, ExecutorIndexedCache};
 use crate::common::table::state_table::StateTable;
 use crate::executor::error::StreamExecutorResult;
 use crate::executor::monitor::StreamingMetrics;
 use crate::task::{ActorId, AtomicU64Ref};
 
 type DegreeType = u64;
+const BUCKET_NUMBER: usize = 30;
+const GHOST_CAP: usize = 300000;
+const REAL_UPDATE_INTERVAL: u32 = 20000;
 
 fn build_degree_row(order_key: impl Row, degree: DegreeType) -> impl Row {
     order_key.chain(row::once(Some(ScalarImpl::Int64(degree as i64))))
@@ -148,13 +152,14 @@ impl DerefMut for HashValueWrapper {
 }
 
 type JoinHashMapInner<K> =
-    ExecutorCache<K, HashValueWrapper, PrecomputedBuildHasher, SharedStatsAlloc<Global>>;
+    ExecutorIndexedCache<K, HashValueWrapper, PrecomputedBuildHasher, SharedStatsAlloc<Global>>;
 
 pub struct JoinHashMapMetrics {
     /// Metrics used by join executor
     metrics: Arc<StreamingMetrics>,
     /// Basic information
     actor_id: String,
+    table_id: String,
     side: &'static str,
     /// How many times have we hit the cache of join executor
     lookup_miss_count: usize,
@@ -163,19 +168,38 @@ pub struct JoinHashMapMetrics {
     /// How many times have we miss the cache when insert row
     insert_cache_miss_count: usize,
     may_exist_true_count: usize,
+
+    bucket_ids: Vec<String>,
+    bucket_counts: Vec<usize>,
+    ghost_bucket_counts: Vec<usize>,
 }
 
 impl JoinHashMapMetrics {
-    pub fn new(metrics: Arc<StreamingMetrics>, actor_id: ActorId, side: &'static str) -> Self {
+    pub fn new(
+        metrics: Arc<StreamingMetrics>,
+        actor_id: ActorId,
+        side: &'static str,
+        table_id: TableId,
+    ) -> Self {
+        let mut bucket_ids = vec![];
+        for i in 0..=BUCKET_NUMBER {
+            bucket_ids.push(i.to_string());
+        }
+        let bucket_counts = vec![0; BUCKET_NUMBER + 1];
+        let ghost_bucket_counts = vec![0; BUCKET_NUMBER + 1];
         Self {
             metrics,
             actor_id: actor_id.to_string(),
+            table_id: table_id.table_id.to_string(),
             side,
             lookup_miss_count: 0,
             lookup_real_miss_count: 0,
             total_lookup_count: 0,
             insert_cache_miss_count: 0,
             may_exist_true_count: 0,
+            bucket_ids,
+            bucket_counts,
+            ghost_bucket_counts,
         }
     }
 
@@ -200,6 +224,36 @@ impl JoinHashMapMetrics {
             .join_may_exist_true_count
             .with_label_values(&[&self.actor_id, self.side])
             .inc_by(self.may_exist_true_count as u64);
+        for i in 0..=BUCKET_NUMBER {
+            let count = self.bucket_counts[i];
+            self.metrics
+                .cache_real_resue_distance_bucket_count
+                .with_label_values(&[
+                    &self.actor_id,
+                    &self.table_id,
+                    self.side,
+                    &self.bucket_ids[i],
+                ])
+                .inc_by(count as u64);
+            self.bucket_counts[i] = 0;
+
+            let mut ghost_count = self.ghost_bucket_counts[i];
+            if i == BUCKET_NUMBER {
+                assert!(self.lookup_miss_count >= self.lookup_real_miss_count);
+                assert!(ghost_count >= (self.lookup_miss_count - self.lookup_real_miss_count));
+                ghost_count -= self.lookup_miss_count - self.lookup_real_miss_count;
+            }
+            self.metrics
+                .cache_ghost_resue_distance_bucket_count
+                .with_label_values(&[
+                    &self.actor_id,
+                    &self.table_id,
+                    self.side,
+                    &self.bucket_ids[i],
+                ])
+                .inc_by(ghost_count as u64);
+            self.ghost_bucket_counts[i] = 0;
+        }
         self.total_lookup_count = 0;
         self.lookup_miss_count = 0;
         self.lookup_real_miss_count = 0;
@@ -238,7 +292,9 @@ pub struct JoinHashMap<K: HashKey, S: StateStore> {
     pk_contained_in_jk: bool,
     /// Metrics of the hash map
     metrics: JoinHashMapMetrics,
-    current_seq_id: u64,
+    bucket_size: usize,
+    ghost_bucket_size: usize,
+    ghost_start: usize,
 }
 
 struct TableInner<S: StateStore> {
@@ -268,6 +324,7 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
         pk_contained_in_jk: bool,
         metrics: Arc<StreamingMetrics>,
         actor_id: ActorId,
+        table_id: TableId,
         side: &'static str,
     ) -> Self {
         let alloc = StatsAlloc::new(Global).shared();
@@ -295,10 +352,13 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
             table: degree_table,
         };
 
-        let cache = ExecutorCache::new(new_with_hasher_in(
+        let cache = ExecutorIndexedCache::new(new_indexed_with_hasher_in(
             watermark_epoch,
             PrecomputedBuildHasher,
             alloc,
+            GHOST_CAP,
+            REAL_UPDATE_INTERVAL,
+            BUCKET_NUMBER,
         ));
 
         Self {
@@ -310,8 +370,10 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
             degree_state,
             need_degree_table,
             pk_contained_in_jk,
-            metrics: JoinHashMapMetrics::new(metrics, actor_id, side),
-            current_seq_id: 0,
+            metrics: JoinHashMapMetrics::new(metrics, actor_id, side, table_id),
+            bucket_size: 1,
+            ghost_bucket_size: 1,
+            ghost_start: 0,
         }
     }
 
@@ -358,30 +420,13 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
         let state = self.inner.peek_mut(key);
         self.metrics.total_lookup_count += 1;
         Ok(match state {
-            Some(state) => {
-                let res = state.take();
-                let old_seq_id = res.get_seq_id();
-                let seq_gap = self.current_seq_id - old_seq_id;
-                // tracing::info!(
-                //     "insert_row seq_gap: {}, current_seq_id: {}, current_seq_id: {}",
-                //     seq_gap,
-                //     self.current_seq_id,
-                //     old_seq_id
-                // );
-                self.metrics
-                    .metrics
-                    .join_cached_seq_gap
-                    .with_label_values(&[&self.metrics.actor_id, self.metrics.side, "read"])
-                    .observe(seq_gap as f64);
-                res
-            }
+            Some(state) => state.take(),
             None => {
                 self.metrics.lookup_miss_count += 1;
                 let res = self.fetch_cached_state(key).await?;
                 if !res.is_empty() {
                     self.metrics.lookup_real_miss_count += 1;
                 }
-                self.current_seq_id += 1;
                 res.into()
             }
         })
@@ -392,7 +437,7 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
     async fn fetch_cached_state(&self, key: &K) -> StreamExecutorResult<JoinEntryState> {
         let key = key.deserialize(&self.join_key_data_types)?;
 
-        let mut entry_state = JoinEntryState::new(self.current_seq_id);
+        let mut entry_state = JoinEntryState::new();
 
         if self.need_degree_table {
             let table_iter_fut = self
@@ -461,42 +506,47 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
         let pk = (&value.row)
             .project(&self.state.pk_indices)
             .memcmp_serialize(&self.pk_serializer);
-        if let Some(entry) = self.inner.get_mut(key) {
+        let ent = self.inner.get_mut(key, false);
+        if let Some(entry) = ent {
             // Update cache
             entry.insert(pk, value.encode());
-            let old_seq_id = entry.get_seq_id();
-            let seq_gap = self.current_seq_id - old_seq_id;
-            tracing::info!(
-                "insert seq_gap: {}, current_seq_id: {}, current_seq_id: {}",
-                seq_gap,
-                self.current_seq_id,
-                old_seq_id
-            );
-            self.metrics
-                .metrics
-                .join_cached_seq_gap
-                .with_label_values(&[&self.metrics.actor_id, self.metrics.side, "write"])
-                .observe(seq_gap as f64);
-            entry.set_seq_id(self.current_seq_id);
+
+            // let stack_distance = self.current_index_id - idx.unwrap();
+            // self.metrics
+            //     .metrics
+            //     .join_cached_seq_gap
+            //     .with_label_values(&[&self.metrics.actor_id, self.metrics.side, "write_sd"])
+            //     .observe(stack_distance as f64);
         } else if self.pk_contained_in_jk {
             // Refill cache when the join key contains primary key.
             self.metrics.insert_cache_miss_count += 1;
-            let mut state = JoinEntryState::new(self.current_seq_id);
+            let mut state = JoinEntryState::new();
             state.insert(pk, value.encode());
-            self.update_state(key, state.into());
-            self.current_seq_id += 1;
+            self.update_state(key, state.into(), false, false);
         } else {
             let prefix = key.deserialize(&self.join_key_data_types)?;
             self.metrics.insert_cache_miss_count += 1;
             // Refill cache when the join key exists in neither cache or storage.
             if !self.state.table.may_exist(&prefix).await? {
-                let mut state = JoinEntryState::new(self.current_seq_id);
+                let mut state = JoinEntryState::new();
                 state.insert(pk, value.encode());
-                self.update_state(key, state.into());
-                self.current_seq_id += 1;
+                self.update_state(key, state.into(), false, false);
             } else {
                 self.metrics.may_exist_true_count += 1;
             }
+
+            // if let Some(index) = idx {
+            //     let stack_distance = self.current_index_id - index;
+            //     self.metrics
+            //         .metrics
+            //         .join_cached_seq_gap
+            //         .with_label_values(&[
+            //             &self.metrics.actor_id,
+            //             self.metrics.side,
+            //             "write_ghost_sd",
+            //         ])
+            //         .observe(stack_distance as f64);
+            // }
         }
 
         // Update the flush buffer.
@@ -513,41 +563,46 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
         let pk = (&value)
             .project(&self.state.pk_indices)
             .memcmp_serialize(&self.pk_serializer);
-        if let Some(entry) = self.inner.get_mut(key) {
+        let ent = self.inner.get_mut(key, false);
+        if let Some(entry) = ent {
             // Update cache
             entry.insert(pk, join_row.encode());
-            let old_seq_id = entry.get_seq_id();
-            let seq_gap = self.current_seq_id - old_seq_id;
-            // tracing::info!(
-            //     "insert_row seq_gap: {}, current_seq_id: {}, current_seq_id: {}",
-            //     seq_gap,
-            //     self.current_seq_id,
-            //     old_seq_id
-            // );
-            self.metrics
-                .metrics
-                .join_cached_seq_gap
-                .with_label_values(&[&self.metrics.actor_id, self.metrics.side, "write"])
-                .observe(seq_gap as f64);
-            entry.set_seq_id(self.current_seq_id);
+
+            // let stack_distance = self.current_index_id - idx.unwrap();
+            // self.metrics
+            //     .metrics
+            //     .join_cached_seq_gap
+            //     .with_label_values(&[&self.metrics.actor_id, self.metrics.side, "write_sd"])
+            //     .observe(stack_distance as f64);
         } else if self.pk_contained_in_jk {
             // Refill cache when the join key contains primary key.
             self.metrics.insert_cache_miss_count += 1;
-            let mut state = JoinEntryState::new(self.current_seq_id);
+            let mut state = JoinEntryState::new();
             state.insert(pk, join_row.encode());
-            self.update_state(key, state.into());
+            self.update_state(key, state.into(), false, false);
         } else {
             let prefix = key.deserialize(&self.join_key_data_types)?;
             self.metrics.insert_cache_miss_count += 1;
             // Refill cache when the join key exists in neither cache or storage.
             if !self.state.table.may_exist(&prefix).await? {
-                let mut state = JoinEntryState::new(self.current_seq_id);
+                let mut state = JoinEntryState::new();
                 state.insert(pk, join_row.encode());
-                self.update_state(key, state.into());
-                self.current_seq_id += 1;
+                self.update_state(key, state.into(), false, false);
             } else {
                 self.metrics.may_exist_true_count += 1;
             }
+            // if let Some(index) = idx {
+            //     let stack_distance = self.current_index_id - index;
+            //     self.metrics
+            //         .metrics
+            //         .join_cached_seq_gap
+            //         .with_label_values(&[
+            //             &self.metrics.actor_id,
+            //             self.metrics.side,
+            //             "write_ghost_sd",
+            //         ])
+            //         .observe(stack_distance as f64);
+            // }
         }
 
         // Update the flush buffer.
@@ -557,7 +612,8 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
 
     /// Delete a join row
     pub fn delete(&mut self, key: &K, value: JoinRow<impl Row>) {
-        if let Some(entry) = self.inner.get_mut(key) {
+        let ent = self.inner.get_mut(key, false);
+        if let Some(entry) = ent {
             let pk = (&value.row)
                 .project(&self.state.pk_indices)
                 .memcmp_serialize(&self.pk_serializer);
@@ -573,7 +629,8 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
     /// Delete a row
     /// Used when the side does not need to update degree.
     pub fn delete_row(&mut self, key: &K, value: impl Row) {
-        if let Some(entry) = self.inner.get_mut(key) {
+        let ent = self.inner.get_mut(key, false);
+        if let Some(entry) = ent {
             let pk = (&value)
                 .project(&self.state.pk_indices)
                 .memcmp_serialize(&self.pk_serializer);
@@ -585,9 +642,39 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
     }
 
     /// Update a [`JoinEntryState`] into the hash table.
-    pub fn update_state(&mut self, key: &K, mut state: HashValueType) {
-        state.set_seq_id(self.current_seq_id);
-        self.inner.put(key.clone(), HashValueWrapper(Some(state)));
+    pub fn update_state(&mut self, key: &K, state: HashValueType, is_read: bool, sampled: bool) {
+        if is_read {
+            let res =
+                self.inner
+                    .put_sample(key.clone(), HashValueWrapper(Some(state)), true, sampled);
+            if let Some((distance, is_ghost)) = res {
+                if is_ghost {
+                    let bucket_index = if distance < self.ghost_start as u32 {
+                        0
+                    } else if distance
+                        > (self.ghost_start + self.ghost_bucket_size * BUCKET_NUMBER) as u32
+                    {
+                        BUCKET_NUMBER
+                    } else {
+                        (distance as usize - self.ghost_start) / self.ghost_bucket_size
+                    };
+
+                    self.metrics.ghost_bucket_counts[bucket_index] += 1;
+                } else {
+                    let bucket_index = if distance > (self.bucket_size * BUCKET_NUMBER) as u32 {
+                        BUCKET_NUMBER
+                    } else {
+                        distance as usize / self.bucket_size
+                    };
+                    self.metrics.bucket_counts[bucket_index] += 1;
+                }
+            } else {
+                // out of cache
+                self.metrics.ghost_bucket_counts[BUCKET_NUMBER] += 1;
+            }
+        } else {
+            self.inner.put(key.clone(), HashValueWrapper(Some(state)));
+        }
     }
 
     /// Manipulate the degree of the given [`JoinRow`] and [`EncodedJoinRow`] with `action`, both in
@@ -642,17 +729,51 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
     }
 
     /// Cached rows for this hash table.
-    #[expect(dead_code)]
-    pub fn cached_rows(&self) -> usize {
-        self.inner.values().map(|e| e.len()).sum()
-    }
+    // #[expect(dead_code)]
+    // pub fn cached_rows(&self) -> usize {
+    //     self.inner.values().map(|e| e.len()).sum()
+    // }
 
     /// Cached entry count for this hash table.
     pub fn entry_count(&self) -> usize {
         self.inner.len()
     }
 
+    pub fn bucket_count(&self) -> usize {
+        self.inner.bucket_count()
+    }
+
+    pub fn ghost_bucket_count(&self) -> usize {
+        self.inner.ghost_bucket_count()
+    }
+
     pub fn null_matched(&self) -> &FixedBitSet {
         &self.null_matched
+    }
+
+    pub fn update_bucket_size(&mut self, entry_count: usize) {
+        let old_entry_count = self.bucket_size * BUCKET_NUMBER;
+        if old_entry_count as f64 * 1.2 < entry_count as f64
+            || old_entry_count as f64 * 0.7 > entry_count as f64
+        {
+            self.bucket_size = std::cmp::max(
+                (entry_count as f64 * 1.1 / BUCKET_NUMBER as f64).round() as usize,
+                1,
+            );
+            self.ghost_bucket_size = std::cmp::max(
+                ((entry_count as f64 * 0.3 + GHOST_CAP as f64) / BUCKET_NUMBER as f64).round()
+                    as usize,
+                1,
+            );
+            self.ghost_start = std::cmp::max((entry_count as f64 * 0.8).round() as usize, 1);
+            info!(
+                "WKXLOG ghost_start switch to {}, old_entry_count: {}, new_entry_count: {}",
+                self.ghost_start, old_entry_count, entry_count
+            );
+        }
+    }
+
+    pub fn statistic_ghost_start(&self) -> usize {
+        self.ghost_start
     }
 }

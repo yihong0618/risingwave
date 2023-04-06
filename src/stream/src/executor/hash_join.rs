@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashSet};
+use std::hash::Hasher;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -55,6 +57,7 @@ pub type JoinTypePrimitive = u8;
 
 /// Evict the cache every n rows.
 const EVICT_EVERY_N_ROWS: u32 = 1024;
+const SAMPLE_NUM_IN_TEN_K: u64 = 200;
 
 #[allow(non_snake_case, non_upper_case_globals)]
 pub mod JoinType {
@@ -547,6 +550,8 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
 
         let watermark_buffers = BTreeMap::new();
 
+        let table_id_l = state_table_l.table_id();
+        let table_id_r = state_table_r.table_id();
         Self {
             ctx: ctx.clone(),
             input_l: Some(input_l),
@@ -568,6 +573,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     pk_contained_in_jk_l,
                     metrics.clone(),
                     ctx.id,
+                    table_id_l,
                     "left",
                 ),
                 join_key_indices: join_key_indices_l,
@@ -593,6 +599,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     pk_contained_in_jk_r,
                     metrics.clone(),
                     ctx.id,
+                    table_id_r,
                     "right",
                 ),
                 join_key_indices: join_key_indices_r,
@@ -724,7 +731,22 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     self.side_r.ht.update_epoch(barrier.epoch.curr);
 
                     // Report metrics of cached join rows/entries
-                    for (side, ht) in [("left", &self.side_l.ht), ("right", &self.side_r.ht)] {
+                    for (side, side_bucket, side_ghost_bucket, side_ghost_start, ht) in [
+                        (
+                            "left",
+                            "left_bucket",
+                            "left_ghost_bucket",
+                            "left_ghost_start",
+                            &mut self.side_l.ht,
+                        ),
+                        (
+                            "right",
+                            "right_bucket",
+                            "right_ghost_bucket",
+                            "right_ghost_start",
+                            &mut self.side_r.ht,
+                        ),
+                    ] {
                         // TODO(yuhao): Those two metric calculation cost too much time (>250ms).
                         // Those will result in that barrier is always ready
                         // in source. Since select barrier is preferred,
@@ -733,10 +755,24 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                         //     .join_cached_rows
                         //     .with_label_values(&[&actor_id_str, side])
                         //     .set(ht.cached_rows() as i64);
+                        let cache_entry_count = ht.entry_count();
                         self.metrics
                             .join_cached_entries
                             .with_label_values(&[&actor_id_str, side])
-                            .set(ht.entry_count() as i64);
+                            .set(cache_entry_count as i64);
+                        self.metrics
+                            .join_cached_entries
+                            .with_label_values(&[&actor_id_str, side_bucket])
+                            .set(ht.bucket_count() as i64);
+                        self.metrics
+                            .join_cached_entries
+                            .with_label_values(&[&actor_id_str, side_ghost_bucket])
+                            .set(ht.ghost_bucket_count() as i64);
+                        self.metrics
+                            .join_cached_entries
+                            .with_label_values(&[&actor_id_str, side_ghost_start])
+                            .set(ht.statistic_ghost_start() as i64);
+                        ht.update_bucket_size(cache_entry_count);
                         // self.metrics
                         //     .join_cached_estimated_size
                         //     .with_label_values(&[&actor_id_str, side])
@@ -895,6 +931,11 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
         for ((op, row), key) in chunk.rows().zip_eq_debug(keys.iter()) {
             Self::evict_cache(side_update, side_match, cnt_rows_received);
 
+            // let sampled = hasher.hash_one(&key);
+            let mut hasher = DefaultHasher::new();
+            key.hash(&mut hasher);
+            let sampled = hasher.finish() % 10000 < SAMPLE_NUM_IN_TEN_K;
+
             let matched_rows: Option<HashValueType> =
                 Self::hash_eq_match(key, &mut side_match.ht).await?;
             match op {
@@ -961,7 +1002,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                             yield chunk;
                         }
                         // Insert back the state taken from ht.
-                        side_match.ht.update_state(key, matched_rows);
+                        side_match.ht.update_state(key, matched_rows, true, sampled);
                     } else if let Some(chunk) =
                         hashjoin_chunk_builder.forward_if_not_matched(Op::Insert, row)
                     {
@@ -1029,7 +1070,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                             yield chunk;
                         }
                         // Insert back the state taken from ht.
-                        side_match.ht.update_state(key, matched_rows);
+                        side_match.ht.update_state(key, matched_rows, true, sampled);
                     } else if let Some(chunk) =
                         hashjoin_chunk_builder.forward_if_not_matched(Op::Delete, row)
                     {

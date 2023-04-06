@@ -34,15 +34,13 @@ type JoinEntryStateValuesMut<'a> = btree_map::ValuesMut<'a, PkType, StateValueTy
 pub struct JoinEntryState {
     /// The full copy of the state.
     cached: BTreeMap<PkType, StateValueType>,
-    seq_id: u64,
 }
 
 impl JoinEntryState {
     /// New
-    pub fn new(seq_id: u64) -> Self {
+    pub fn new() -> Self {
         Self {
             cached: Default::default(),
-            seq_id,
         }
     }
 
@@ -72,14 +70,6 @@ impl JoinEntryState {
             let decoded = encoded.decode(data_types);
             (encoded, decoded)
         })
-    }
-
-    pub fn get_seq_id(&self) -> u64 {
-        self.seq_id
-    }
-
-    pub fn set_seq_id(&mut self, new_id: u64) {
-        self.seq_id = new_id;
     }
 
     #[expect(dead_code)]
