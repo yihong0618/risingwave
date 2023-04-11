@@ -61,7 +61,8 @@ path = "file_cache_bench/main.rs"
 
 [[bin]]
 name = "s3-bench"
-path = "s3_bench/main.rs"
+# path = "s3_bench/main.rs"
+path = "s3_bench/reproduce_8796.rs"
 
 [features]
 bpf = ["bcc", "risingwave_storage/bpf"]
