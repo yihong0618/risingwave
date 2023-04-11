@@ -351,7 +351,7 @@ impl NonOverlapSubLevelPicker {
                 // to prefer interval-aligned files.
                 let write_amp_delta =
                     (overlap_level_size as f64 * 100.0 / select_level_size as f64) as u64;
-
+                    
                 scores.push((
                     (
                         select_level_count,
@@ -378,27 +378,29 @@ impl NonOverlapSubLevelPicker {
                 |(
                     (
                         select_level_count,
-                        write_amp_delta,
-                        select_level_file_count,
-                        _all_file_size,
-                        _select_file_count,
+                        _write_amp_delta,
+                        _select_level_file_count,
+                        all_file_size,
+                        select_file_count,
                     ),
                     _x,
                 ),
                  (
                     (
                         select_level_count2,
-                        write_amp_delta2,
-                        select_level_file_count2,
-                        _all_file_size2,
-                        _select_file_count2,
+                        _write_amp_delta2,
+                        _select_level_file_count2,
+                        all_file_size2,
+                        select_file_count2,
                     ),
                     _y,
                 )| {
                     select_level_count2
                         .cmp(select_level_count)
-                        .then_with(|| write_amp_delta.cmp(write_amp_delta2)) // a way to choose a small guard
-                        .then_with(|| select_level_file_count.cmp(select_level_file_count2))
+                        // .then_with(|| write_amp_delta.cmp(write_amp_delta2)) // a way to choose a
+                        // small guard
+                        .then_with(|| select_file_count.cmp(select_file_count2))
+                        .then_with(|| all_file_size.cmp(all_file_size2))
                 },
             )
             .map(

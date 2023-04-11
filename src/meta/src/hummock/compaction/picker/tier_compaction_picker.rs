@@ -664,8 +664,6 @@ pub mod tests {
                 .pick_compaction(&levels, &levels_handler, &mut local_stats)
                 .unwrap();
             ret.add_pending_task(1, &mut levels_handler);
-            println!("ret input {:?}", ret.input_levels);
-
             assert_eq!(
                 ret.input_levels
                     .iter()
