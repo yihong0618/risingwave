@@ -125,6 +125,7 @@ pub struct TaskConfig {
     pub stats_target_table_ids: Option<HashSet<u32>>,
     pub task_type: compact_task::TaskType,
     pub split_by_table: bool,
+    pub split_by_vnode: bool,
 }
 
 pub fn estimate_state_for_compaction(task: &CompactTask) -> (u64, usize) {

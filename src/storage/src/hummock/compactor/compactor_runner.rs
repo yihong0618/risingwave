@@ -69,6 +69,8 @@ impl CompactorRunner {
             right: Bytes::copy_from_slice(task.splits[split_index].get_right()),
             right_exclusive: true,
         };
+        let allow_split_by_vnode =
+            task.existing_table_ids.len() == 1 && task.table_options.len() == 1;
 
         let compactor = Compactor::new(
             context.clone(),
@@ -81,6 +83,7 @@ impl CompactorRunner {
                 stats_target_table_ids: Some(HashSet::from_iter(task.existing_table_ids.clone())),
                 task_type: task.task_type(),
                 split_by_table: task.split_by_state_table,
+                split_by_vnode: allow_split_by_vnode && !context.is_share_buffer_compact,
             },
         );
 
