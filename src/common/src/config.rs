@@ -195,11 +195,17 @@ pub struct MetaConfig {
     #[serde(default = "default::meta::periodic_ttl_reclaim_compaction_interval_sec")]
     pub periodic_ttl_reclaim_compaction_interval_sec: u64,
 
+    #[serde(default = "default::meta::periodic_split_compact_group_interval_sec")]
+    pub periodic_split_compact_group_interval_sec: u64,
+
     /// Compute compactor_task_limit for machines with different hardware.Currently cpu is used as
     /// the main consideration,and is adjusted by max_compactor_task_multiplier, calculated as
     /// compactor_task_limit = core_num * max_compactor_task_multiplier;
     #[serde(default = "default::meta::max_compactor_task_multiplier")]
     pub max_compactor_task_multiplier: u32,
+
+    #[serde(default = "default::meta::split_check_size_limit")]
+    pub split_check_size_limit: u64,
 
     #[serde(flatten)]
     pub unrecognized: HashMap<String, Value>,
@@ -586,15 +592,23 @@ mod default {
         }
 
         pub fn periodic_space_reclaim_compaction_interval_sec() -> u64 {
-            3600 // 60min
+            180 // 5min
         }
 
         pub fn periodic_ttl_reclaim_compaction_interval_sec() -> u64 {
             1800 // 30mi
         }
 
+        pub fn periodic_split_compact_group_interval_sec() -> u64 {
+            180 // 5mi
+        }
+
         pub fn max_compactor_task_multiplier() -> u32 {
             2
+        }
+
+        pub fn split_check_size_limit() -> u64 {
+            4 * 1024 * 1024 * 1024 // 4GB
         }
     }
 

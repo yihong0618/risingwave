@@ -13,14 +13,18 @@
 // limitations under the License.
 
 use std::collections::{HashMap, HashSet};
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use futures::future::{Either, Shared};
 use futures::stream::select;
 use futures::{FutureExt, Stream, StreamExt};
 use parking_lot::Mutex;
+use risingwave_common::util::select_all;
 use risingwave_hummock_sdk::compact::compact_task_to_string;
+use risingwave_hummock_sdk::compaction_group::StaticCompactionGroupId;
 use risingwave_hummock_sdk::CompactionGroupId;
 use risingwave_pb::hummock::compact_task::{self, TaskStatus};
 use risingwave_pb::hummock::subscribe_compact_tasks_response::Task;
@@ -29,7 +33,8 @@ use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot::Receiver;
 use tokio::sync::Notify;
-use tokio_stream::wrappers::{IntervalStream, UnboundedReceiverStream};
+use tokio_stream::wrappers::UnboundedReceiverStream;
+use tracing::log::info;
 
 use super::Compactor;
 use crate::hummock::compaction::{
@@ -145,6 +150,7 @@ where
             sched_rx,
             self.env.opts.periodic_space_reclaim_compaction_interval_sec,
             self.env.opts.periodic_ttl_reclaim_compaction_interval_sec,
+            self.env.opts.periodic_compaction_interval_sec,
             self.env.opts.periodic_compaction_interval_sec,
         );
         self.schedule_loop(
@@ -361,7 +367,6 @@ where
                                     compact_task::TaskType::Dynamic,
                                 )
                                 .await;
-                                continue;
                             }
                             SchedulerEvent::SpaceReclaimTrigger => {
                                 // Disable periodic trigger for compaction_deterministic_test.
@@ -374,7 +379,6 @@ where
                                     compact_task::TaskType::SpaceReclaim,
                                 )
                                 .await;
-                                continue;
                             }
                             SchedulerEvent::TtlReclaimTrigger => {
                                 // Disable periodic trigger for compaction_deterministic_test.
@@ -387,7 +391,13 @@ where
                                     compact_task::TaskType::Ttl,
                                 )
                                 .await;
-                                continue;
+                            }
+                            SchedulerEvent::GroupSplitTrigger => {
+                                // Disable periodic trigger for compaction_deterministic_test.
+                                if self.env.opts.compaction_deterministic_test {
+                                    continue;
+                                }
+                                self.on_handle_check_split_multi_group().await;
                             }
                         }
                     }
@@ -466,13 +476,110 @@ where
 
         true
     }
+
+    async fn on_handle_check_split_multi_group(&self) {
+        let mut group_infos = self
+            .hummock_manager
+            .calculate_compaction_group_statistic()
+            .await;
+        group_infos.sort_by_key(|group| group.group_size);
+        group_infos.reverse();
+        let group_split_limit = self.env.opts.split_check_size_limit;
+        let group_size_limit = group_split_limit * 2;
+        let table_split_limit = group_split_limit / 4;
+        let mut table_infos = vec![];
+        for group in &group_infos {
+            if group.table_statistic.len() == 1 || group.group_size < group_size_limit {
+                continue;
+            }
+            for (table_id, table_size) in &group.table_statistic {
+                table_infos.push((*table_id, group.group_id, *table_size, group.group_size));
+            }
+        }
+        table_infos.sort_by(|a, b| b.2.cmp(&a.2));
+        let default_group_id: CompactionGroupId = StaticCompactionGroupId::StateDefault.into();
+        let mv_group_id: CompactionGroupId = StaticCompactionGroupId::MaterializedView.into();
+        for (table_id, parent_group_id, table_size, parent_group_size) in table_infos {
+            let mut target_compact_group_id = None;
+            if table_size < table_split_limit {
+                continue;
+            }
+
+            // do not split a large table and a small table because it would increase IOPS of small
+            // table.
+            if parent_group_id != default_group_id && parent_group_id != mv_group_id {
+                let rest_group_size = parent_group_size - table_size;
+                if rest_group_size < table_size && rest_group_size < table_split_limit {
+                    continue;
+                }
+            }
+            for group in &group_infos {
+                if group.group_id == mv_group_id
+                    || group.group_id == default_group_id
+                    || group.group_id == parent_group_id
+                    || group.group_size + table_size > group_split_limit
+                    // do not move state-table from a small group to a large group
+                    || group.group_size + table_size * 2 > parent_group_size
+                {
+                    continue;
+                }
+                target_compact_group_id = Some(group.group_id);
+            }
+            let ret = self
+                .hummock_manager
+                .move_state_table_to_compaction_group(
+                    parent_group_id,
+                    &[table_id],
+                    target_compact_group_id,
+                    false,
+                )
+                .await;
+            match ret {
+                Ok(_) => {
+                    info!(
+                        "move state table [{}] from group-{} to group-{:?} success",
+                        table_id, parent_group_id, target_compact_group_id
+                    );
+                    return;
+                }
+                Err(e) => info!(
+                    "failed to move state table [{}] from group-{} to group-{:?} because {:?}",
+                    table_id, parent_group_id, target_compact_group_id, e
+                ),
+            }
+        }
+    }
 }
 
-enum SchedulerEvent {
+#[derive(Clone)]
+pub enum SchedulerEvent {
     Channel((CompactionGroupId, compact_task::TaskType)),
     DynamicTrigger,
     SpaceReclaimTrigger,
     TtlReclaimTrigger,
+    GroupSplitTrigger,
+}
+
+pub struct IntervalStream {
+    interval: tokio::time::Interval,
+    event: SchedulerEvent,
+}
+
+impl IntervalStream {
+    pub fn new(interval: tokio::time::Interval, event: SchedulerEvent) -> Self {
+        Self { interval, event }
+    }
+}
+
+impl Stream for IntervalStream {
+    type Item = SchedulerEvent;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<SchedulerEvent>> {
+        match self.interval.poll_tick(cx) {
+            Poll::Ready(_) => Poll::Ready(Some(self.event.clone())),
+            Poll::Pending => Poll::Pending,
+        }
+    }
 }
 
 impl<S> CompactionScheduler<S>
@@ -484,6 +591,7 @@ where
         periodic_space_reclaim_compaction_interval_sec: u64,
         periodic_ttl_reclaim_compaction_interval_sec: u64,
         periodic_compaction_interval_sec: u64,
+        periodic_check_split_group_interval_sec: u64,
     ) -> impl Stream<Item = SchedulerEvent> {
         let dynamic_channel_trigger =
             UnboundedReceiverStream::new(sched_rx).map(SchedulerEvent::Channel);
@@ -492,7 +600,7 @@ where
             tokio::time::interval(Duration::from_secs(periodic_compaction_interval_sec));
         min_trigger_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let dynamic_tick_trigger =
-            IntervalStream::new(min_trigger_interval).map(|_| SchedulerEvent::DynamicTrigger);
+            IntervalStream::new(min_trigger_interval, SchedulerEvent::DynamicTrigger);
 
         let mut min_space_reclaim_trigger_interval = tokio::time::interval(Duration::from_secs(
             periodic_space_reclaim_compaction_interval_sec,
@@ -500,23 +608,36 @@ where
 
         min_space_reclaim_trigger_interval
             .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        let space_reclaim_trigger = IntervalStream::new(min_space_reclaim_trigger_interval)
-            .map(|_| SchedulerEvent::SpaceReclaimTrigger);
+        let space_reclaim_trigger = IntervalStream::new(
+            min_space_reclaim_trigger_interval,
+            SchedulerEvent::SpaceReclaimTrigger,
+        );
 
         let mut min_ttl_reclaim_trigger_interval = tokio::time::interval(Duration::from_secs(
             periodic_ttl_reclaim_compaction_interval_sec,
         ));
         min_ttl_reclaim_trigger_interval
             .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        let ttl_reclaim_trigger = IntervalStream::new(min_ttl_reclaim_trigger_interval)
-            .map(|_| SchedulerEvent::TtlReclaimTrigger);
-
+        let ttl_reclaim_trigger = IntervalStream::new(
+            min_ttl_reclaim_trigger_interval,
+            SchedulerEvent::TtlReclaimTrigger,
+        );
+        let mut split_group_trigger_interval =
+            tokio::time::interval(Duration::from_secs(periodic_check_split_group_interval_sec));
+        split_group_trigger_interval
+            .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let split_group_trigger = IntervalStream::new(
+            split_group_trigger_interval,
+            SchedulerEvent::GroupSplitTrigger,
+        );
         select(
             dynamic_channel_trigger,
-            select(
+            select_all(vec![
+                split_group_trigger,
                 dynamic_tick_trigger,
-                select(space_reclaim_trigger, ttl_reclaim_trigger),
-            ),
+                space_reclaim_trigger,
+                ttl_reclaim_trigger,
+            ]),
         )
     }
 }
