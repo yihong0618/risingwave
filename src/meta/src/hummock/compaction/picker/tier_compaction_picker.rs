@@ -62,9 +62,13 @@ impl TierCompactionPicker {
                 continue;
             }
 
+            let max_compaction_bytes = std::cmp::min(
+                self.config.max_compaction_bytes,
+                self.config.sub_level_max_compaction_bytes,
+            );
             let non_overlap_sub_level_picker = NonOverlapSubLevelPicker::new(
                 0,
-                self.config.max_compaction_bytes,
+                max_compaction_bytes,
                 1,
                 self.config.level0_max_compact_file_number,
                 self.overlap_strategy.clone(),
@@ -461,7 +465,7 @@ pub mod tests {
         let levels_handler = vec![LevelHandler::new(0)];
         let config = Arc::new(
             CompactionConfigBuilder::new()
-                .level0_tier_compact_file_number(2)
+                .level0_tier_compact_file_number(0)
                 .target_file_size_base(30)
                 .build(),
         );
@@ -604,7 +608,7 @@ pub mod tests {
             let mut levels_handler = vec![LevelHandler::new(0)];
             let config = Arc::new(
                 CompactionConfigBuilder::new()
-                    .level0_tier_compact_file_number(2)
+                    .level0_tier_compact_file_number(0)
                     .build(),
             );
             let mut picker =
@@ -635,10 +639,10 @@ pub mod tests {
                     generate_table(1, 1, 100, 200, 1),
                     generate_table(2, 1, 300, 400, 1),
                 ],
-                vec![generate_table(3, 1, 100, 150, 1)],
+                vec![generate_table(3, 1, 100, 200, 1)],
                 vec![
                     generate_table(4, 1, 100, 200, 1),
-                    generate_table(5, 1, 300, 350, 1),
+                    generate_table(5, 1, 300, 400, 1),
                 ],
             ]);
             let levels = Levels {
@@ -650,7 +654,7 @@ pub mod tests {
             let mut levels_handler = vec![LevelHandler::new(0)];
             let config = Arc::new(
                 CompactionConfigBuilder::new()
-                    .level0_tier_compact_file_number(2)
+                    .level0_tier_compact_file_number(0)
                     .build(),
             );
             let mut picker =
@@ -660,6 +664,8 @@ pub mod tests {
                 .pick_compaction(&levels, &levels_handler, &mut local_stats)
                 .unwrap();
             ret.add_pending_task(1, &mut levels_handler);
+            println!("ret input {:?}", ret.input_levels);
+
             assert_eq!(
                 ret.input_levels
                     .iter()

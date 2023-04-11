@@ -187,18 +187,16 @@ impl NonOverlapSubLevelPicker {
                 continue;
             }
 
-            let mut all_file_size = 0;
-            let mut all_file_count = 0;
+            // let mut all_file_size = 0;
+            // let mut all_file_count = 0;
             for (right, table) in select_tables.iter().enumerate().skip(left) {
                 if level_handler.is_pending_compact(&table.sst_id) {
                     break;
                 }
 
-                if all_file_size > self.max_compaction_bytes
-                    || all_file_count > self.max_file_count as usize
-                {
-                    break;
-                }
+                let mut all_file_size = 0;
+                let mut all_file_count = right - left + 1;
+                // all_file_count = right - left + 1;
 
                 let mut select_sst_id_set = BTreeSet::default();
                 let mut level_select_files: Vec<Vec<SstableInfo>> = vec![vec![]; l0.len()];
@@ -211,7 +209,11 @@ impl NonOverlapSubLevelPicker {
                     all_file_size += sst.file_size;
                 }
 
-                all_file_count += right - left + 1;
+                if all_file_size > self.max_compaction_bytes
+                    || all_file_count > self.max_file_count as usize
+                {
+                    break;
+                }
 
                 let mut select_level_count = 1;
                 let mut last_level_index = 0;
