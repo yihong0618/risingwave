@@ -1296,15 +1296,18 @@ where
             let label = if CompactStatus::is_trivial_move_task(compact_task) {
                 // TODO: only support can_trivial_move in DynamicLevelCompcation, will check
                 // task_type next PR
-                "trivial-move"
+
+                let select_level = compact_task.input_ssts[0].level_idx;
+                let target_level = compact_task.target_level;
+                format!("{} l{}->l{}", "trivial-move", select_level, target_level)
             } else {
-                "unassigned"
+                "unassigned".to_string()
             };
 
             self.metrics
                 .compact_frequency
                 .with_label_values(&[
-                    label,
+                    &label,
                     &compact_task.compaction_group_id.to_string(),
                     task_type_label,
                     task_status_label,

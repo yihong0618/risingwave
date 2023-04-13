@@ -125,7 +125,7 @@ impl LevelCompactionPicker {
 
         let overlap_strategy = create_overlap_strategy(self.config.compaction_mode());
         let non_overlap_sub_level_picker = NonOverlapSubLevelPicker::new(
-            self.config.sub_level_max_compaction_bytes,
+            0,
             self.config.max_compaction_bytes,
             1,
             self.config.level0_max_compact_file_number,
@@ -146,7 +146,7 @@ impl LevelCompactionPicker {
         ) = (vec![], vec![]);
 
         {
-            for (total_select_size, _, level_select_table) in l0_select_tables_vec {
+            for (total_select_size, _, level_select_table) in &l0_select_tables_vec {
                 let mut sst_id_set = BTreeSet::default();
 
                 let l0_select_tables = level_select_table
@@ -199,9 +199,8 @@ impl LevelCompactionPicker {
             }
 
             if skip_by_write_amp {
-                stats.skip_by_pending_files += 1;
+                stats.skip_by_write_amp_limit += 1;
             }
-
             return None;
         }
 

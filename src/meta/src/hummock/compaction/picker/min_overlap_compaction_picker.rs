@@ -187,8 +187,6 @@ impl NonOverlapSubLevelPicker {
                 continue;
             }
 
-            // let mut all_file_size = 0;
-            // let mut all_file_count = 0;
             for (right, table) in select_tables.iter().enumerate().skip(left) {
                 if level_handler.is_pending_compact(&table.sst_id) {
                     break;
@@ -196,7 +194,6 @@ impl NonOverlapSubLevelPicker {
 
                 let mut all_file_size = 0;
                 let mut all_file_count = right - left + 1;
-                // all_file_count = right - left + 1;
 
                 let mut select_sst_id_set = BTreeSet::default();
                 let mut level_select_files: Vec<Vec<SstableInfo>> = vec![vec![]; l0.len()];
@@ -351,7 +348,7 @@ impl NonOverlapSubLevelPicker {
                 // to prefer interval-aligned files.
                 let write_amp_delta =
                     (overlap_level_size as f64 * 100.0 / select_level_size as f64) as u64;
-                    
+
                 scores.push((
                     (
                         select_level_count,

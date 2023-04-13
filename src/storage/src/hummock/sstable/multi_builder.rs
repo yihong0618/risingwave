@@ -110,7 +110,7 @@ where
             key_range,
             last_table_id: 0,
             split_by_table,
-            last_vnode_point: VirtualNode::COUNT / 4 - 1,
+            last_vnode_point: VirtualNode::COUNT / 8 - 1,
             split_by_vnode,
         }
     }
@@ -159,7 +159,7 @@ where
         if self.split_by_table && full_key.user_key.table_id.table_id != self.last_table_id {
             self.last_table_id = full_key.user_key.table_id.table_id;
             switch_builder = true;
-            self.last_vnode_point = VirtualNode::COUNT / 4 - 1;
+            self.last_vnode_point = VirtualNode::COUNT / 8 - 1;
         }
 
         if self.last_vnode_point != VirtualNode::MAX.to_index() && self.split_by_vnode {
@@ -167,7 +167,7 @@ where
             if key_vnode > self.last_vnode_point {
                 switch_builder = true;
                 let old_last_vnode_point = self.last_vnode_point;
-                let table_weight = 4_usize;
+                let table_weight = 8_usize;
                 let (basic, remainder) = VirtualNode::COUNT.div_rem(&table_weight);
                 let small_segments_area = basic * (table_weight - remainder);
                 self.last_vnode_point = (if key_vnode < small_segments_area {

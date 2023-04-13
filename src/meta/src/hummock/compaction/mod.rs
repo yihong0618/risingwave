@@ -267,7 +267,7 @@ impl Default for ManualCompactionOption {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct LocalPickerStatistic {
     skip_by_write_amp_limit: u64,
     skip_by_count_limit: u64,
