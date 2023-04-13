@@ -146,7 +146,7 @@ impl LevelCompactionPicker {
         ) = (vec![], vec![]);
 
         {
-            for (total_select_size, _, level_select_table) in &l0_select_tables_vec {
+            for (total_select_size, _, level_select_table) in l0_select_tables_vec {
                 let mut sst_id_set = BTreeSet::default();
 
                 let l0_select_tables = level_select_table
