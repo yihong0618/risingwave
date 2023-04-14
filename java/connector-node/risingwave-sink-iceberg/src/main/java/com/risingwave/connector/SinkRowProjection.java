@@ -1,16 +1,13 @@
 package com.risingwave.connector;
 
-import com.google.common.base.Preconditions;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.risingwave.connector.api.sink.SinkRow;
 import com.risingwave.proto.Data;
-import org.apache.iceberg.types.Types;
-
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-
-import static com.google.common.base.Preconditions.checkNotNull;
-
+import org.apache.iceberg.types.Types;
 
 public class SinkRowProjection implements SinkRow {
     private final int[] mappedIndex;
@@ -23,13 +20,18 @@ public class SinkRowProjection implements SinkRow {
     }
 
     public static SinkRowProjection create(Types.StructType schema, Types.StructType deleteSchema) {
-        var fieldIdToPosition = IntStream.range(0, schema.fields().size())
-                .boxed()
-                .collect(Collectors.toMap(idx -> schema.fields().get(idx).fieldId(), Function.identity()));
+        var fieldIdToPosition =
+                IntStream.range(0, schema.fields().size())
+                        .boxed()
+                        .collect(
+                                Collectors.toMap(
+                                        idx -> schema.fields().get(idx).fieldId(),
+                                        Function.identity()));
 
-        int[] mappedIndex = deleteSchema.fields().stream()
-                .mapToInt(field -> fieldIdToPosition.get(field.fieldId()))
-                .toArray();
+        int[] mappedIndex =
+                deleteSchema.fields().stream()
+                        .mapToInt(field -> fieldIdToPosition.get(field.fieldId()))
+                        .toArray();
 
         return new SinkRowProjection(mappedIndex);
     }

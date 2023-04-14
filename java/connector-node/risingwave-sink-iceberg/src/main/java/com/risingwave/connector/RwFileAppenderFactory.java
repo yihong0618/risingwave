@@ -1,8 +1,15 @@
 package com.risingwave.connector;
 
+import static org.apache.hadoop.thirdparty.com.google.common.base.Preconditions.checkNotNull;
+import static org.apache.parquet.Preconditions.checkState;
+
 import com.risingwave.connector.api.sink.SinkRow;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import org.apache.iceberg.*;
-import org.apache.iceberg.avro.Avro;
 import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.data.parquet.GenericParquetWriter;
@@ -14,16 +21,6 @@ import org.apache.iceberg.parquet.Parquet;
 import org.apache.iceberg.parquet.ParquetValueWriter;
 import org.apache.iceberg.parquet.TripleWriter;
 import org.apache.parquet.column.ColumnWriteStore;
-import org.apache.parquet.schema.MessageType;
-
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-
-import static org.apache.hadoop.thirdparty.com.google.common.base.Preconditions.checkNotNull;
-import static org.apache.parquet.Preconditions.checkState;
 
 public class RwFileAppenderFactory implements FileAppenderFactory<SinkRow> {
     private final Schema schema;
@@ -34,12 +31,13 @@ public class RwFileAppenderFactory implements FileAppenderFactory<SinkRow> {
     private final Schema posDeleteRowSchema;
     private final Table table;
 
-    public RwFileAppenderFactory(Schema schema,
-                                 Map<String, String> props,
-                                 int[] equalityFieldIds,
-                                 Schema eqDeleteRowSchema,
-                                 Schema posDeleteRowSchema,
-                                 Table table) {
+    public RwFileAppenderFactory(
+            Schema schema,
+            Map<String, String> props,
+            int[] equalityFieldIds,
+            Schema eqDeleteRowSchema,
+            Schema posDeleteRowSchema,
+            Table table) {
         checkNotNull(table, "Table can't be null");
         this.schema = schema;
         this.props = props;
@@ -56,10 +54,11 @@ public class RwFileAppenderFactory implements FileAppenderFactory<SinkRow> {
             if (Objects.requireNonNull(fileFormat) == FileFormat.PARQUET) {
                 MetricsConfig metricsConfig = MetricsConfig.forTable(table);
                 return Parquet.write(outputFile)
-                        .createWriterFunc(msgType -> {
-                            var parquetWriter = GenericParquetWriter.buildWriter(msgType);
-                            return new RwParquetWriter(schema, parquetWriter);
-                        })
+                        .createWriterFunc(
+                                msgType -> {
+                                    var parquetWriter = GenericParquetWriter.buildWriter(msgType);
+                                    return new RwParquetWriter(schema, parquetWriter);
+                                })
                         .setAll(props)
                         .schema(schema)
                         .metricsConfig(metricsConfig)
@@ -72,9 +71,9 @@ public class RwFileAppenderFactory implements FileAppenderFactory<SinkRow> {
         }
     }
 
-
     @Override
-    public DataWriter<SinkRow> newDataWriter(EncryptedOutputFile file, FileFormat format, StructLike partition) {
+    public DataWriter<SinkRow> newDataWriter(
+            EncryptedOutputFile file, FileFormat format, StructLike partition) {
         return new DataWriter<>(
                 newAppender(file.encryptingOutputFile(), format),
                 format,
@@ -85,7 +84,8 @@ public class RwFileAppenderFactory implements FileAppenderFactory<SinkRow> {
     }
 
     @Override
-    public EqualityDeleteWriter<SinkRow> newEqDeleteWriter(EncryptedOutputFile outputFile, FileFormat format, StructLike partition) {
+    public EqualityDeleteWriter<SinkRow> newEqDeleteWriter(
+            EncryptedOutputFile outputFile, FileFormat format, StructLike partition) {
         checkState(
                 equalityFieldIds != null && equalityFieldIds.length > 0,
                 "Equality field ids shouldn't be null or empty when creating equality-delete writer");
@@ -97,10 +97,11 @@ public class RwFileAppenderFactory implements FileAppenderFactory<SinkRow> {
         try {
             if (Objects.requireNonNull(format) == FileFormat.PARQUET) {
                 return Parquet.writeDeletes(outputFile.encryptingOutputFile())
-                        .createWriterFunc(msgType -> {
-                            var parquetWriter = GenericParquetWriter.buildWriter(msgType);
-                            return new RwParquetWriter(eqDeleteRowSchema, parquetWriter);
-                        })
+                        .createWriterFunc(
+                                msgType -> {
+                                    var parquetWriter = GenericParquetWriter.buildWriter(msgType);
+                                    return new RwParquetWriter(eqDeleteRowSchema, parquetWriter);
+                                })
                         .withPartition(partition)
                         .overwrite()
                         .setAll(props)
@@ -119,16 +120,20 @@ public class RwFileAppenderFactory implements FileAppenderFactory<SinkRow> {
     }
 
     @Override
-    public PositionDeleteWriter<SinkRow> newPosDeleteWriter(EncryptedOutputFile outputFile, FileFormat format, StructLike partition) {
+    public PositionDeleteWriter<SinkRow> newPosDeleteWriter(
+            EncryptedOutputFile outputFile, FileFormat format, StructLike partition) {
         MetricsConfig metricsConfig = MetricsConfig.forPositionDelete(table);
         try {
             switch (format) {
                 case PARQUET:
                     return Parquet.writeDeletes(outputFile.encryptingOutputFile())
-                            .createWriterFunc(msgType -> {
-                                var parquetWriter = GenericParquetWriter.buildWriter(msgType);
-                                return new RwParquetWriter(posDeleteRowSchema, parquetWriter);
-                            })
+                            .createWriterFunc(
+                                    msgType -> {
+                                        var parquetWriter =
+                                                GenericParquetWriter.buildWriter(msgType);
+                                        return new RwParquetWriter(
+                                                posDeleteRowSchema, parquetWriter);
+                                    })
                             .withPartition(partition)
                             .overwrite()
                             .setAll(props)

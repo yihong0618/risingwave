@@ -15,14 +15,12 @@
 package com.risingwave.connector.api;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Collections2;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.risingwave.connector.api.sink.SinkRow;
 import com.risingwave.proto.ConnectorServiceProto;
 import com.risingwave.proto.Data.DataType.TypeName;
-
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -36,13 +34,12 @@ public class TableSchema {
 
     private final ImmutableList<String> primaryKeys;
 
-    @Deprecated
     public TableSchema(
             List<String> columnNames, List<TypeName> typeNames, List<String> primaryKeys) {
         this.columnNames = ImmutableList.copyOf(columnNames);
         this.primaryKeys = ImmutableList.copyOf(primaryKeys);
 
-        var columnsBuilder = ImmutableMap.<String, TypeName>builder() ;
+        var columnsBuilder = ImmutableMap.<String, TypeName>builder();
         var columnIndicesBuilder = ImmutableMap.<String, Integer>builder();
         for (int i = 0; i < columnNames.size(); i++) {
             columnsBuilder.put(columnNames.get(i), typeNames.get(i));
@@ -59,7 +56,7 @@ public class TableSchema {
 
         var columnTypes = builder.columnTypes.build();
 
-        var columnsBuilder = ImmutableMap.<String, TypeName>builder() ;
+        var columnsBuilder = ImmutableMap.<String, TypeName>builder();
         var columnIndicesBuilder = ImmutableMap.<String, Integer>builder();
         for (int i = 0; i < columnNames.size(); i++) {
             columnsBuilder.put(columnNames.get(i), columnTypes.get(i));

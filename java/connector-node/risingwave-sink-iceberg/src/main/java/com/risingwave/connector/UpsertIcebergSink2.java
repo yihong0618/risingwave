@@ -3,7 +3,6 @@ package com.risingwave.connector;
 import com.risingwave.connector.api.TableSchema;
 import com.risingwave.connector.api.sink.SinkBase;
 import com.risingwave.connector.api.sink.SinkRow;
-
 import java.io.IOException;
 import java.util.Iterator;
 

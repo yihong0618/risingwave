@@ -1,10 +1,17 @@
 package com.risingwave.connector;
 
+import static org.apache.hadoop.thirdparty.com.google.common.base.Preconditions.checkNotNull;
+
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.risingwave.connector.api.TableSchema;
 import com.risingwave.connector.api.sink.SinkRow;
 import com.risingwave.proto.Data;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.io.UnsupportedEncodingException;
+import java.util.List;
+import java.util.Map;
 import org.apache.commons.compress.utils.Lists;
 import org.apache.iceberg.*;
 import org.apache.iceberg.io.BaseTaskWriter;
@@ -14,14 +21,6 @@ import org.apache.iceberg.io.OutputFileFactory;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.util.Tasks;
-
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.io.UnsupportedEncodingException;
-import java.util.List;
-import java.util.Map;
-
-import static org.apache.hadoop.thirdparty.com.google.common.base.Preconditions.checkNotNull;
 
 public class UpsertIcebergTaskWriter extends BaseTaskWriter<SinkRow> {
     private final Schema schema;
@@ -37,15 +36,16 @@ public class UpsertIcebergTaskWriter extends BaseTaskWriter<SinkRow> {
 
     private final Map<PartitionKey, SinkRowUpsertWriter> writers = Maps.newHashMap();
 
-    public UpsertIcebergTaskWriter(PartitionSpec spec,
-                                   FileFormat format,
-                                   FileAppenderFactory<SinkRow> appenderFactory,
-                                   OutputFileFactory fileFactory,
-                                   FileIO io,
-                                   long targetFileSize,
-                                   Schema schema,
-                                   TableSchema rwSchema,
-                                   List<Integer> equalityFieldIds) {
+    public UpsertIcebergTaskWriter(
+            PartitionSpec spec,
+            FileFormat format,
+            FileAppenderFactory<SinkRow> appenderFactory,
+            OutputFileFactory fileFactory,
+            FileIO io,
+            long targetFileSize,
+            Schema schema,
+            TableSchema rwSchema,
+            List<Integer> equalityFieldIds) {
         super(spec, format, appenderFactory, fileFactory, io, targetFileSize);
         this.schema = schema;
         this.deleteSchema = TypeUtil.select(schema, Sets.newHashSet(equalityFieldIds));
@@ -55,7 +55,6 @@ public class UpsertIcebergTaskWriter extends BaseTaskWriter<SinkRow> {
 
         this.partitionKey = new PartitionKey(spec, schema);
     }
-
 
     @Override
     public void write(SinkRow row) throws IOException {
@@ -104,27 +103,39 @@ public class UpsertIcebergTaskWriter extends BaseTaskWriter<SinkRow> {
     private static TableSchema convert(Schema icebergSchema) {
         checkNotNull(icebergSchema, "Iceberg schema can't be null!");
         var rwSchemaBuilder = TableSchema.builder();
-        for (var field: icebergSchema.columns()) {
+        for (var field : icebergSchema.columns()) {
             var rwType = convert(field.type());
             rwSchemaBuilder.addColumn(field.name(), rwType);
         }
 
-        return rwSchemaBuilder.withPrimaryKey(Lists.newArrayList(icebergSchema.identifierFieldNames().iterator()))
+        return rwSchemaBuilder
+                .withPrimaryKey(Lists.newArrayList(icebergSchema.identifierFieldNames().iterator()))
                 .build();
     }
 
     private static Data.DataType.TypeName convert(Type icebergType) {
         switch (icebergType.typeId()) {
-            case BOOLEAN: return Data.DataType.TypeName.BOOLEAN;
-            case INTEGER: return Data.DataType.TypeName.INT32;
-            case LONG: return Data.DataType.TypeName.INT64;
-            case FLOAT: return Data.DataType.TypeName.FLOAT;
-            case DOUBLE: return Data.DataType.TypeName.DOUBLE;
-            case STRING: return Data.DataType.TypeName.VARCHAR;
-            case BINARY: return Data.DataType.TypeName.BYTEA;
-            case TIMESTAMP: return Data.DataType.TypeName.TIMESTAMP;
+            case BOOLEAN:
+                return Data.DataType.TypeName.BOOLEAN;
+            case INTEGER:
+                return Data.DataType.TypeName.INT32;
+            case LONG:
+                return Data.DataType.TypeName.INT64;
+            case FLOAT:
+                return Data.DataType.TypeName.FLOAT;
+            case DOUBLE:
+                return Data.DataType.TypeName.DOUBLE;
+            case STRING:
+                return Data.DataType.TypeName.VARCHAR;
+            case BINARY:
+                return Data.DataType.TypeName.BYTEA;
+            case TIMESTAMP:
+                return Data.DataType.TypeName.TIMESTAMP;
             default:
-                throw new IllegalArgumentException("Can't convert iceberg type " + icebergType.typeId().name() + " to risingwave type!");
+                throw new IllegalArgumentException(
+                        "Can't convert iceberg type "
+                                + icebergType.typeId().name()
+                                + " to risingwave type!");
         }
     }
 
