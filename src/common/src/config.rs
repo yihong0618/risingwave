@@ -232,12 +232,6 @@ pub struct MetaConfig {
     pub unrecognized: Unrecognized<Self>,
 }
 
-impl Default for MetaConfig {
-    fn default() -> Self {
-        toml::from_str("").unwrap()
-    }
-}
-
 /// The section `[server]` in `risingwave.toml`.
 #[derive(Clone, Debug, Serialize, Deserialize, DefaultFromSerde)]
 pub struct ServerConfig {
