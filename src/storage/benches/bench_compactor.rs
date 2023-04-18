@@ -186,6 +186,7 @@ async fn compact<I: HummockIterator<Direction = Forward>>(iter: I, sstable_store
         stats_target_table_ids: None,
         task_type: compact_task::TaskType::Dynamic,
         split_by_table: false,
+        split_by_vnode: false,
     };
     Compactor::compact_and_build_sst(
         &mut builder,

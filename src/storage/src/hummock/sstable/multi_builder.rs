@@ -188,7 +188,13 @@ where
         }
 
         if let Some(builder) = self.current_builder.as_ref() {
-            if is_new_user_key && (switch_builder || builder.reach_capacity()) {
+            switch_builder = if self.split_by_vnode {
+                switch_builder
+            } else {
+                switch_builder || builder.reach_capacity()
+            };
+
+            if is_new_user_key && switch_builder {
                 let delete_ranges = self
                     .del_agg
                     .get_tombstone_between(&self.last_sealed_key.as_ref(), &full_key.user_key);

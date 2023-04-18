@@ -69,8 +69,11 @@ impl CompactorRunner {
             right: Bytes::copy_from_slice(task.splits[split_index].get_right()),
             right_exclusive: true,
         };
-        let allow_split_by_vnode =
-            task.existing_table_ids.len() == 1 && task.table_options.len() == 1;
+
+        // only handle l0 compaction
+        let allow_split_by_vnode = task.existing_table_ids.len() == 1
+            && task.table_options.len() == 1
+            && task.input_ssts[0].level_idx == 0;
 
         let compactor = Compactor::new(
             context.clone(),

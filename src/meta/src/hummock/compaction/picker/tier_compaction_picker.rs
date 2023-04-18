@@ -355,7 +355,7 @@ impl TierCompactionPicker {
 
             let max_compaction_bytes = std::cmp::min(
                 self.config.max_compaction_bytes,
-                self.config.sub_level_max_compaction_bytes,
+                self.config.sub_level_max_compaction_bytes * 4,
             );
 
             let mut compaction_bytes = level.total_file_size;
@@ -397,7 +397,6 @@ impl TierCompactionPicker {
                 continue;
             }
             select_level_inputs.reverse();
-
             return Some(CompactionInput {
                 input_levels: select_level_inputs,
                 target_level: 0,

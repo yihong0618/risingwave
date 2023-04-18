@@ -889,7 +889,7 @@ where
             let (file_count, file_size) = {
                 let mut count = 0;
                 let mut size = 0;
-                for select_level in compact_task.input_ssts.iter() {
+                for select_level in &compact_task.input_ssts {
                     count += select_level.table_infos.len();
 
                     for sst in &select_level.table_infos {
@@ -902,9 +902,10 @@ where
 
             if compact_task.input_ssts[0].level_idx == 0 {
                 tracing::info!(
-                    "For compaction group {}: pick up {} sub_level in level {} file_count {} file_size {} to compact to target {}. cost time: {:?}",
+                    "For compaction group {}: pick up {} {} sub_level in level {} file_count {} file_size {} to compact to target {}. cost time: {:?}",
                     compaction_group_id,
                     compact_task.input_ssts.len(),
+                    compact_task.input_ssts[0].level_type().as_str_name(),
                     compact_task.input_ssts[0].level_idx,
                     file_count,
                     file_size,

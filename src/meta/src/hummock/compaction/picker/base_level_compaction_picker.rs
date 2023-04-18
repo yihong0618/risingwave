@@ -140,6 +140,7 @@ impl LevelCompactionPicker {
 
         let mut skip_by_pending = false;
         let mut skip_by_write_amp = false;
+        let mut skip_by_count = false;
         let (mut level_select_files, mut target_level_files): (
             Vec<Vec<SstableInfo>>,
             Vec<SstableInfo>,
@@ -181,6 +182,12 @@ impl LevelCompactionPicker {
                     continue;
                 }
 
+                if !target_level_ssts.is_empty() && level_select_table.len() < 3 {
+                    // not trivial move
+                    skip_by_count = true;
+                    continue;
+                }
+
                 let to_base_write_amp = target_level_size * 100 / total_select_size;
                 if to_base_write_amp > 100 * self.config.max_bytes_for_level_multiplier {
                     skip_by_write_amp = true;
@@ -201,6 +208,11 @@ impl LevelCompactionPicker {
             if skip_by_write_amp {
                 stats.skip_by_write_amp_limit += 1;
             }
+
+            if skip_by_count {
+                stats.skip_by_count_limit += 1;
+            }
+
             return None;
         }
 
