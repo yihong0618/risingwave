@@ -107,13 +107,13 @@
 - name: To many target columns
   sql: |
     create table t (v1 int, v2 int);
-    insert into t (v1, v2, v2) values (5, 6);
-  binder_error: 'Bind error: INSERT has more target columns than values'
+    insert into t (v1, v2) values (5);
+  binder_error: 'Bind error: INSERT has more target columns than expressions'
 - name: Not enough target columns
   sql: |
     create table t (v1 int, v2 int);
     insert into t (v1) values (5, 6);
-  binder_error: 'Bind error: INSERT has less target columns than values'
+  binder_error: 'Bind error: INSERT has more expressions than target columns'
 - name: insert literal null
   sql: |
     create table t(v1 int);
@@ -211,6 +211,19 @@
     └─BatchProject { exprs: [*VALUES*_0.column_0, *VALUES*_0.column_1, *VALUES*_0.column_0, (*VALUES*_0.column_0 + *VALUES*_0.column_1) as $expr1] }
       └─BatchInsert { table: t, returning: true }
         └─BatchValues { rows: [[0:Int32, 1:Int32], [1:Int32, 2:Int32]] }
+- name: insert with returning constant, should keep `Insert`
+  sql: |
+    create table t (v int);
+    insert into t values (114) returning 514;
+  logical_plan: |
+    LogicalProject { exprs: [514:Int32] }
+    └─LogicalInsert { table: t, returning: true }
+      └─LogicalValues { rows: [[114:Int32]], schema: Schema { fields: [*VALUES*_0.column_0:Int32] } }
+  batch_plan: |
+    BatchExchange { order: [], dist: Single }
+    └─BatchProject { exprs: [514:Int32] }
+      └─BatchInsert { table: t, returning: true }
+        └─BatchValues { rows: [[114:Int32]] }
 - name: insert with select and returning
   sql: |
     create table t (a int, b int);

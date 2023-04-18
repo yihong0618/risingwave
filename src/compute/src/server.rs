@@ -104,6 +104,7 @@ pub async fn compute_node_serve(
         WorkerType::ComputeNode,
         &advertise_addr,
         opts.parallelism,
+        &config.meta,
     )
     .await
     .unwrap();
@@ -372,7 +373,7 @@ pub async fn compute_node_serve(
     if config.server.telemetry_enabled && telemetry_env_enabled() {
         // if all configs are true, start reporting
         if telemetry_enabled {
-            telemetry_manager.start_telemetry_reporting();
+            telemetry_manager.start_telemetry_reporting().await;
         }
         // if config and env are true, starting watching
         sub_tasks.push(telemetry_manager.watch_params_change());

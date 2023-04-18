@@ -20,7 +20,6 @@ use std::sync::Arc;
 use itertools::Itertools;
 use minstant::Instant;
 use risingwave_common::constants::hummock::CompactionFilterFlag;
-use risingwave_hummock_sdk::filter_key_extractor::FilterKeyExtractorImpl;
 use risingwave_hummock_sdk::key::FullKey;
 use risingwave_hummock_sdk::key_range::KeyRange;
 use risingwave_hummock_sdk::prost_key_range::KeyRangeExt;
@@ -29,6 +28,7 @@ use risingwave_hummock_sdk::{HummockEpoch, KeyComparator};
 use risingwave_pb::hummock::{compact_task, CompactTask, KeyRange as KeyRange_vec, LevelType};
 
 pub use super::context::CompactorContext;
+use crate::filter_key_extractor::FilterKeyExtractorImpl;
 use crate::hummock::compactor::{
     MultiCompactionFilter, StateCleanUpCompactionFilter, TtlCompactionFilter,
 };
@@ -182,7 +182,10 @@ pub fn build_multi_compaction_filter(compact_task: &CompactTask) -> MultiCompact
     multi_filter
 }
 
-pub async fn generate_splits(compact_task: &mut CompactTask, context: Arc<CompactorContext>) {
+pub async fn generate_splits(
+    compact_task: &mut CompactTask,
+    context: Arc<CompactorContext>,
+) -> HummockResult<()> {
     let sstable_infos = compact_task
         .input_ssts
         .iter()
@@ -205,8 +208,7 @@ pub async fn generate_splits(compact_task: &mut CompactTask, context: Arc<Compac
                 context
                     .sstable_store
                     .sstable(sstable_info, &mut StoreLocalStatistic::default())
-                    .await
-                    .unwrap()
+                    .await?
                     .value()
                     .meta
                     .block_metas
@@ -255,4 +257,6 @@ pub async fn generate_splits(compact_task: &mut CompactTask, context: Arc<Compac
             compact_task.splits = splits;
         }
     }
+
+    Ok(())
 }
