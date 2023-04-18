@@ -390,12 +390,20 @@ impl TierCompactionPicker {
                 });
             }
 
-            if compact_file_count < self.config.level0_tier_compact_file_number
+            // if compact_file_count < self.config.level0_tier_compact_file_number
+            //     && waiting_enough_files
+            // {
+            //     stats.skip_by_count_limit += 1;
+            //     continue;
+            // }
+
+            if select_level_inputs.len() * 2 < self.config.level0_tier_compact_file_number as usize
                 && waiting_enough_files
             {
                 stats.skip_by_count_limit += 1;
                 continue;
             }
+
             select_level_inputs.reverse();
             return Some(CompactionInput {
                 input_levels: select_level_inputs,
