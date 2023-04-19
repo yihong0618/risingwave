@@ -3,22 +3,26 @@ package com.risingwave.connector;
 import com.risingwave.connector.api.TableSchema;
 import com.risingwave.connector.api.sink.SinkBase;
 import com.risingwave.connector.api.sink.SinkRow;
-import org.apache.iceberg.util.ThreadPools;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import com.risingwave.java.utils.Metrics;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.LongTaskTimer;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.TimeUnit;
+import org.apache.iceberg.util.ThreadPools;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class UpsertIcebergSink2 extends SinkBase {
-    private final Logger LOG = LoggerFactory.getLogger(UpsertIcebergSink2.class);
+    private static final Logger LOG = LoggerFactory.getLogger(UpsertIcebergSink2.class);
+    private static final Counter rowsWritten =
+            Counter.builder("iceberg.upsert.sink2.rows").register(Metrics.getRegistry());
+    private static final LongTaskTimer commitTimer =
+            LongTaskTimer.builder("iceberg.upsert.sink2.commit").register(Metrics.getRegistry());
+
     private final UpsertIcebergTaskWriterFactory factory;
-
     private UpsertIcebergTaskWriter taskWriter;
-
     private final ExecutorService workerPool;
 
     public UpsertIcebergSink2(UpsertIcebergTaskWriterFactory factory, TableSchema rwSchema) {
@@ -34,6 +38,7 @@ public class UpsertIcebergSink2 extends SinkBase {
             while (rows.hasNext()) {
                 var row = rows.next();
                 taskWriter.write(row);
+                rowsWritten.increment();
             }
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -42,7 +47,7 @@ public class UpsertIcebergSink2 extends SinkBase {
 
     @Override
     public void sync() {
-        flush();
+        commitTimer.record(this::flush);
         this.taskWriter = this.factory.create();
     }
 
@@ -61,16 +66,13 @@ public class UpsertIcebergSink2 extends SinkBase {
     private void flush() {
         if (this.taskWriter != null) {
             try {
-                long startNano = System.nanoTime();
                 var result = this.taskWriter.complete();
-                var rowDelta = this.factory.getTable().newRowDelta().scanManifestsWith(this.workerPool);
+                var rowDelta =
+                        this.factory.getTable().newRowDelta().scanManifestsWith(this.workerPool);
                 Arrays.stream(result.dataFiles()).forEach(rowDelta::addRows);
                 Arrays.stream(result.deleteFiles()).forEach(rowDelta::addDeletes);
 
                 rowDelta.commit(); // abort is automatically called if this fails.
-                long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNano);
-
-                LOG.info("Committed iceberg in {} ms", durationMs);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
