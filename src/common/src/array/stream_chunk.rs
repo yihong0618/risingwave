@@ -22,6 +22,7 @@ use super::{ArrayResult, DataChunkTestExt};
 use crate::array::column::Column;
 use crate::array::{DataChunk, Vis};
 use crate::buffer::Bitmap;
+use crate::catalog::Schema;
 use crate::estimate_size::EstimateSize;
 use crate::row::{OwnedRow, Row};
 use crate::types::to_text::ToText;
@@ -100,6 +101,15 @@ impl StreamChunk {
         };
         let data = DataChunk::new(columns, vis);
         StreamChunk { ops, data }
+    }
+
+    pub fn empty(schema: &Schema) -> Self {
+        let columns = schema
+            .create_array_builders(0)
+            .into_iter()
+            .map(|x| x.finish().into())
+            .collect_vec();
+        Self::new(vec![], columns, None)
     }
 
     /// Build a `StreamChunk` from rows.

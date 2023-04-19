@@ -18,7 +18,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures_async_stream::try_stream;
-use itertools::Itertools;
 use risingwave_common::array::{Op, StreamChunk};
 use risingwave_common::buffer::Bitmap;
 use risingwave_common::catalog::Schema;
@@ -41,7 +40,7 @@ pub trait TopNExecutorBase: Send + 'static {
     async fn apply_chunk(&mut self, chunk: StreamChunk) -> StreamExecutorResult<StreamChunk>;
 
     /// Flush the buffered chunk to the storage backend.
-    async fn flush_data(&mut self, epoch: EpochPair) -> StreamExecutorResult<()>;
+    async fn flush_data(&mut self, epoch: EpochPair) -> StreamExecutorResult<StreamChunk>;
 
     fn info(&self) -> &ExecutorInfo;
 
@@ -164,12 +163,7 @@ pub fn generate_output(
         let new_stream_chunk = StreamChunk::new(new_ops, new_data_chunk.columns().to_vec(), None);
         Ok(new_stream_chunk)
     } else {
-        let columns = schema
-            .create_array_builders(0)
-            .into_iter()
-            .map(|x| x.finish().into())
-            .collect_vec();
-        Ok(StreamChunk::new(vec![], columns, None))
+        Ok(StreamChunk::empty(schema))
     }
 }
 

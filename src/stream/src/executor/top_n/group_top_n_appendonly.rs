@@ -196,8 +196,9 @@ where
         generate_output(res_rows, res_ops, self.schema())
     }
 
-    async fn flush_data(&mut self, epoch: EpochPair) -> StreamExecutorResult<()> {
-        self.managed_state.flush(epoch).await
+    async fn flush_data(&mut self, epoch: EpochPair) -> StreamExecutorResult<StreamChunk> {
+        self.managed_state.flush(epoch).await?;
+        Ok(StreamChunk::empty(self.schema()))
     }
 
     fn info(&self) -> &ExecutorInfo {

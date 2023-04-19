@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashSet;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
@@ -20,6 +21,7 @@ use risingwave_common::array::{Op, StreamChunk};
 use risingwave_common::buffer::Bitmap;
 use risingwave_common::hash::HashKey;
 use risingwave_common::row::RowExt;
+use risingwave_common::types::ScalarImpl;
 use risingwave_common::util::epoch::EpochPair;
 use risingwave_common::util::iter_util::ZipEqDebug;
 use risingwave_common::util::sort_util::ColumnOrder;
@@ -32,6 +34,7 @@ use crate::cache::{new_unbounded, ManagedLruCache};
 use crate::common::table::state_table::StateTable;
 use crate::error::StreamResult;
 use crate::executor::error::StreamExecutorResult;
+use crate::executor::sort_buffer::SortBuffer;
 use crate::executor::{ActorContextRef, Executor, ExecutorInfo, PkIndices, Watermark};
 use crate::task::AtomicU64Ref;
 
@@ -91,6 +94,14 @@ pub struct InnerGroupTopNExecutor<K: HashKey, S: StateStore, const WITH_TIES: bo
 
     /// Used for serializing pk into CacheKey.
     cache_key_serde: CacheKeySerde,
+
+    emit_on_window_close: bool,
+    /// Changed group keys in the current epoch (before next flush).
+    group_change_set: HashSet<K>,
+    /// Buffer watermarks on group keys received since last barrier.
+    buffered_watermarks: Vec<Option<Watermark>>,
+    /// Latest watermark on window column.
+    window_watermark: Option<ScalarImpl>,
 }
 
 impl<K: HashKey, S: StateStore, const WITH_TIES: bool> InnerGroupTopNExecutor<K, S, WITH_TIES> {
@@ -126,6 +137,10 @@ impl<K: HashKey, S: StateStore, const WITH_TIES: bool> InnerGroupTopNExecutor<K,
             group_by,
             caches: GroupTopNCache::new(watermark_epoch),
             cache_key_serde,
+            emit_on_window_close: false,
+            group_change_set: HashSet::new(),
+            buffered_watermarks: Vec::new(),
+            window_watermark: None,
         })
     }
 }
@@ -209,11 +224,27 @@ where
             }
         }
 
-        generate_output(res_rows, res_ops, self.schema())
+        if self.emit_on_window_close {
+            self.group_change_set.extend(keys);
+            Ok(StreamChunk::empty(self.schema()))
+        } else {
+            generate_output(res_rows, res_ops, self.schema())
+        }
     }
 
-    async fn flush_data(&mut self, epoch: EpochPair) -> StreamExecutorResult<()> {
-        self.managed_state.flush(epoch).await
+    async fn flush_data(&mut self, epoch: EpochPair) -> StreamExecutorResult<StreamChunk> {
+        if self.emit_on_window_close {
+            let mut buffer = SortBuffer::new(0, &self.managed_state.state_table);
+            for key in self.group_change_set.drain() {
+                let mut cache = self.caches.get_mut(&key).unwrap();
+                // TODO:
+            }
+            self.managed_state.flush(epoch).await?;
+            Ok(StreamChunk::empty(self.schema()))
+        } else {
+            self.managed_state.flush(epoch).await?;
+            Ok(StreamChunk::empty(self.schema()))
+        }
     }
 
     fn info(&self) -> &ExecutorInfo {
