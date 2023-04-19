@@ -66,4 +66,8 @@ public class UpsertIcebergTaskWriterFactory {
                 rwSchema,
                 equalityFieldIds);
     }
+
+    public Table getTable() {
+        return this.table;
+    }
 }
