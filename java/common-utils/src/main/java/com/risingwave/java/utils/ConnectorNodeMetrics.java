@@ -80,10 +80,16 @@ public class ConnectorNodeMetrics {
                     .register();
 
     public static final Counter ICEBERG_UPSERT_SINK2_ROWS =
-            Counter.build().name("iceberg_upsert_sink2_rows").register();
+            Counter.build()
+                    .name("iceberg_upsert_sink2_rows")
+                    .help("Rows written by iceberg upsert sink2")
+                    .register();
 
     public static final Histogram ICEBER_UPSERT_SINK2_COMMIT_TIMER =
-            Histogram.build().name("iceberg_upsert_sink2_commit_time").register();
+            Histogram.build()
+                    .name("iceberg_upsert_sink2_commit_time")
+                    .help("Iceberg upsert sink2 commit time histogram")
+                    .register();
 
     static class PeriodicMetricsCollector extends Thread {
         private final int interval;
