@@ -15,7 +15,7 @@
 package com.risingwave.sourcenode;
 
 import com.risingwave.connector.api.source.SourceTypeE;
-import com.risingwave.metrics.ConnectorNodeMetrics;
+import com.risingwave.java.utils.ConnectorNodeMetrics;
 import com.risingwave.proto.ConnectorServiceProto;
 import com.risingwave.proto.Data.DataType;
 import com.risingwave.sourcenode.common.DbzConnectorConfig;

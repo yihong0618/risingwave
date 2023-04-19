@@ -14,7 +14,7 @@
 
 package com.risingwave.connector;
 
-import com.risingwave.metrics.ConnectorNodeMetrics;
+import com.risingwave.java.utils.ConnectorNodeMetrics;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import org.apache.commons.cli.*;

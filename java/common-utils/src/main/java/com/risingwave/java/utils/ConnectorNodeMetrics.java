@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package com.risingwave.metrics;
+package com.risingwave.java.utils;
 
 import static io.grpc.Status.INTERNAL;
 
@@ -20,6 +20,7 @@ import com.sun.management.OperatingSystemMXBean;
 import io.prometheus.client.CollectorRegistry;
 import io.prometheus.client.Counter;
 import io.prometheus.client.Gauge;
+import io.prometheus.client.Histogram;
 import io.prometheus.client.exporter.HTTPServer;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
@@ -78,6 +79,12 @@ public class ConnectorNodeMetrics {
                     .help("Number of errors")
                     .register();
 
+    public static final Counter ICEBERG_UPSERT_SINK2_ROWS =
+            Counter.build().name("iceberg_upsert_sink2_rows").register();
+
+    public static final Histogram ICEBER_UPSERT_SINK2_COMMIT_TIMER =
+            Histogram.build().name("iceberg_upsert_sink2_commit_time").register();
+
     static class PeriodicMetricsCollector extends Thread {
         private final int interval;
         private final OperatingSystemMXBean osBean;
@@ -119,6 +126,8 @@ public class ConnectorNodeMetrics {
         registry.register(sourceRowsReceived);
         registry.register(cpuUsage);
         registry.register(ramUsage);
+        registry.register(ICEBERG_UPSERT_SINK2_ROWS);
+        registry.register(ICEBER_UPSERT_SINK2_COMMIT_TIMER);
         PeriodicMetricsCollector collector = new PeriodicMetricsCollector(1000, "connector");
         collector.start();
         try {

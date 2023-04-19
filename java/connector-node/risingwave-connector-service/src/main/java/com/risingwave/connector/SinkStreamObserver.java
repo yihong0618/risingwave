@@ -19,7 +19,7 @@ import static io.grpc.Status.*;
 import com.risingwave.connector.api.TableSchema;
 import com.risingwave.connector.api.sink.*;
 import com.risingwave.connector.deserializer.StreamChunkDeserializer;
-import com.risingwave.metrics.ConnectorNodeMetrics;
+import com.risingwave.java.utils.ConnectorNodeMetrics;
 import com.risingwave.metrics.MonitoredRowIterator;
 import com.risingwave.proto.ConnectorServiceProto;
 import com.risingwave.proto.ConnectorServiceProto.SinkConfig;

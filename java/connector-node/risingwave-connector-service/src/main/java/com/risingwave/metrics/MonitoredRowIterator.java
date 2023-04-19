@@ -15,6 +15,7 @@
 package com.risingwave.metrics;
 
 import com.risingwave.connector.api.sink.SinkRow;
+import com.risingwave.java.utils.ConnectorNodeMetrics;
 import java.util.Iterator;
 
 public class MonitoredRowIterator implements Iterator<SinkRow> {
