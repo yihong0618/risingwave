@@ -10,11 +10,11 @@ SHELL ["/bin/bash", "-c"]
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --no-modify-path --default-toolchain none -y
 
-RUN mkdir -p /risingwave
-
-WORKDIR /risingwave
-
-COPY ./ /risingwave
+#RUN mkdir -p /risingwave
+#
+#WORKDIR /risingwave
+#
+#COPY ./ /risingwave
 
 ENV PATH /root/.cargo/bin/:$PATH
 

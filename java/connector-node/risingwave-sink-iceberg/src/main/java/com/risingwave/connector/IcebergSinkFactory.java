@@ -26,6 +26,7 @@ import com.risingwave.proto.Catalog.SinkType;
 import io.grpc.Status;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
 import org.apache.hadoop.conf.Configuration;
@@ -70,23 +71,22 @@ public class IcebergSinkFactory implements SinkFactory {
             if (sinkType.equals("append-only")) {
                 sink = new IcebergSink(tableSchema, hadoopCatalog, icebergTable, FILE_FORMAT);
             } else if (sinkType.equals("upsert")) {
-                sink =
-                        new UpsertIcebergSink(
-                                tableSchema, hadoopCatalog,
-                                icebergTable, FILE_FORMAT);
+                //                sink =
+                //                        new UpsertIcebergSink(
+                //                                tableSchema, hadoopCatalog,
+                //                                icebergTable, FILE_FORMAT);
 
-                //                var taskWriterFactory =
-                //                        new UpsertIcebergTaskWriterFactory(
-                //                                icebergTable,
-                //                                icebergTable
-                //                                        .schema()
-                //
-                // .select(Arrays.asList(tableSchema.getColumnNames())),
-                //                                tableSchema,
-                //                                10L * 1024 * 1024 * 1024,
-                //                                FILE_FORMAT);
-                //
-                //                sink = new UpsertIcebergSink2(taskWriterFactory, tableSchema);
+                var taskWriterFactory =
+                        new UpsertIcebergTaskWriterFactory(
+                                icebergTable,
+                                icebergTable
+                                        .schema()
+                                        .select(Arrays.asList(tableSchema.getColumnNames())),
+                                tableSchema,
+                                10L * 1024 * 1024 * 1024,
+                                FILE_FORMAT);
+
+                sink = new UpsertIcebergSink2(taskWriterFactory, tableSchema);
             }
         } catch (Exception e) {
             throw Status.FAILED_PRECONDITION
