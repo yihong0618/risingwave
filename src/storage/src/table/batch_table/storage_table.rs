@@ -464,16 +464,29 @@ impl<S: StateStore, SD: ValueRowSerde> StorageTableInner<S, SD> {
             )
         };
 
+        let enable_ttl: bool = std::env::var("ENABLE_TTL")
+            .unwrap_or("true".to_string())
+            .trim()
+            .to_ascii_lowercase()
+            .parse()
+            .unwrap();
+
         // For each key range, construct an iterator.
         let iterators: Vec<_> = try_join_all(raw_key_ranges.map(|raw_key_range| {
             let prefix_hint = prefix_hint.clone();
             let wait_epoch = wait_epoch;
             let read_backup = matches!(wait_epoch, HummockReadEpoch::Backup(_));
             async move {
+                let retention_seconds = if enable_ttl {
+                    self.table_option.retention_seconds
+                } else {
+                    None
+                };
+
                 let read_options = ReadOptions {
                     prefix_hint,
                     ignore_range_tombstone: false,
-                    retention_seconds: self.table_option.retention_seconds,
+                    retention_seconds,
                     table_id: self.table_id,
                     read_version_from_backup: read_backup,
                     prefetch_options,

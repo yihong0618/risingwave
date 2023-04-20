@@ -16,6 +16,7 @@ use std::cmp::Ordering;
 use std::collections::vec_deque::VecDeque;
 use std::collections::HashSet;
 use std::iter::once;
+use std::ops::Bound;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -154,6 +155,13 @@ impl StagingVersion {
         impl Iterator<Item = &ImmutableMemtable> + 'a,
         impl Iterator<Item = &SstableInfo> + 'a,
     ) {
+        let enable_prune_overlap: bool = std::env::var("ENABLE_PRUNE_OVERLAP")
+            .unwrap_or("true".to_string())
+            .trim()
+            .to_ascii_lowercase()
+            .parse()
+            .unwrap();
+
         let (ref left, ref right) = table_key_range;
         let left = left.as_ref().map(|key| TableKey(key.0.as_ref()));
         let right = right.as_ref().map(|key| TableKey(key.0.as_ref()));
@@ -163,10 +171,15 @@ impl StagingVersion {
             .chain(self.merged_imm.iter())
             .filter(move |imm| {
                 // retain imm which is overlapped with (min_epoch_exclusive, max_epoch_inclusive]
+                let range_overlap = if enable_prune_overlap {
+                    range_overlap(&(left, right), &imm.start_table_key(), &imm.end_table_key())
+                } else {
+                    true
+                };
                 imm.min_epoch() <= max_epoch_inclusive
                     && imm.table_id == table_id
                     && imm.min_epoch() > min_epoch_exclusive
-                    && range_overlap(&(left, right), &imm.start_table_key(), &imm.end_table_key())
+                    && range_overlap
             });
 
         // TODO: Remove duplicate sst based on sst id
@@ -188,7 +201,14 @@ impl StagingVersion {
                     .sstable_infos
                     .iter()
                     .map(|sstable| &sstable.sst_info)
-                    .filter(move |sstable| filter_single_sst(sstable, table_id, table_key_range))
+                    .filter(move |sstable| {
+                        let range_overlap = if enable_prune_overlap {
+                            filter_single_sst(sstable, table_id, table_key_range)
+                        } else {
+                            true
+                        };
+                        range_overlap
+                    })
             });
         (overlapped_imms, overlapped_ssts)
     }
@@ -706,13 +726,26 @@ impl HummockVersionReader {
         let mut overlapping_iters = Vec::new();
         let mut overlapping_iter_count = 0;
         let mut fetch_meta_reqs = vec![];
+        let enable_prune_sst: bool = std::env::var("ENABLE_PRUNE_SST")
+            .unwrap_or("true".to_string())
+            .trim()
+            .to_ascii_lowercase()
+            .parse()
+            .unwrap();
+
+        let table_key_range_ref = &table_key_range;
         for level in committed.levels(read_options.table_id) {
             if level.table_infos.is_empty() {
                 continue;
             }
 
             if level.level_type == LevelType::Nonoverlapping as i32 {
-                let table_infos = prune_nonoverlapping_ssts(&level.table_infos, user_key_range_ref);
+                let table_infos = if enable_prune_sst {
+                    prune_nonoverlapping_ssts(&level.table_infos, user_key_range_ref)
+                } else {
+                    let user_key_range_ref = (Bound::Unbounded, Bound::Unbounded);
+                    prune_nonoverlapping_ssts(&level.table_infos, user_key_range_ref)
+                };
 
                 let fetch_meta_req = table_infos
                     .filter(|sstable_info| {
@@ -724,11 +757,27 @@ impl HummockVersionReader {
                     .collect_vec();
                 fetch_meta_reqs.push((level.level_type, fetch_meta_req));
             } else {
-                let table_infos = prune_overlapping_ssts(
-                    &level.table_infos,
-                    read_options.table_id,
-                    &table_key_range,
-                );
+                // let table_infos = prune_overlapping_ssts(
+                //     &level.table_infos,
+                //     read_options.table_id,
+                //     &table_key_range,
+                // );
+
+                let table_infos = if enable_prune_sst {
+                    prune_overlapping_ssts(
+                        &level.table_infos,
+                        read_options.table_id,
+                        table_key_range_ref,
+                    )
+                } else {
+                    let table_key_range_ref = &(Bound::Unbounded, Bound::Unbounded);
+                    prune_overlapping_ssts(
+                        &level.table_infos,
+                        read_options.table_id,
+                        table_key_range_ref,
+                    )
+                };
+
                 // Overlapping
                 let fetch_meta_req = table_infos.rev().collect_vec();
                 if !fetch_meta_req.is_empty() {
