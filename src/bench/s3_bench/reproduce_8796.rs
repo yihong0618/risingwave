@@ -55,7 +55,6 @@ async fn main() {
     create_objects(&client).await;
     println!("{:#?}", args);
     for repeat_i in 0..args.repeat {
-        println!("start loop {repeat_i}");
         let mut futures = vec![];
         for i in 0..args.parallelism {
             let path = format!("{PATH_PREFIX}/{}", i % (PARTITION as u64));
@@ -65,7 +64,6 @@ async fn main() {
             }));
         }
         try_join_all(futures).await.unwrap();
-        println!("finish loop {repeat_i}");
         tokio::time::sleep(Duration::from_millis(args.interval_ms)).await;
     }
 }
