@@ -276,7 +276,6 @@ impl<S: StateStore, const T: JoinTypePrimitive> TemporalJoinExecutor<S, T> {
                     }
                 }
                 InternalMessage::Barrier(updates, barrier) => {
-                    self.right_table.cache.evict();
                     if let Some(vnodes) = barrier.as_update_vnode_bitmap(self.ctx.id) {
                         let prev_vnodes =
                             self.right_table.source.update_vnode_bitmap(vnodes.clone());
@@ -287,7 +286,8 @@ impl<S: StateStore, const T: JoinTypePrimitive> TemporalJoinExecutor<S, T> {
                     self.right_table.cache.update_epoch(barrier.epoch.curr);
                     self.right_table.update(updates, &self.right_join_keys);
                     prev_epoch = Some(barrier.epoch.curr);
-                    yield Message::Barrier(barrier)
+                    yield Message::Barrier(barrier);
+                    self.right_table.cache.evict();
                 }
             }
         }

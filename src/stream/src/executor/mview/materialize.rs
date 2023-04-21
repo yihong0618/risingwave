@@ -128,8 +128,8 @@ impl<S: StateStore, SD: ValueRowSerde> MaterializeExecutor<S, SD> {
         #[for_await]
         for msg in input {
             let msg = msg?;
-            yield match msg {
-                Message::Watermark(w) => Message::Watermark(w),
+            match msg {
+                Message::Watermark(w) => yield Message::Watermark(w),
                 Message::Chunk(chunk) => {
                     match self.conflict_behavior {
                         ConflictBehavior::Overwrite | ConflictBehavior::IgnoreConflict => {
@@ -160,7 +160,7 @@ impl<S: StateStore, SD: ValueRowSerde> MaterializeExecutor<S, SD> {
                             match generate_output(fixed_changes, data_types.clone())? {
                                 Some(output_chunk) => {
                                     self.state_table.write_chunk(output_chunk.clone());
-                                    Message::Chunk(output_chunk)
+                                    yield Message::Chunk(output_chunk)
                                 }
                                 None => continue,
                             }
@@ -168,7 +168,7 @@ impl<S: StateStore, SD: ValueRowSerde> MaterializeExecutor<S, SD> {
 
                         ConflictBehavior::NoCheck => {
                             self.state_table.write_chunk(chunk.clone());
-                            Message::Chunk(chunk)
+                            yield Message::Chunk(chunk)
                         }
                     }
                 }
@@ -184,8 +184,8 @@ impl<S: StateStore, SD: ValueRowSerde> MaterializeExecutor<S, SD> {
                             self.materialize_cache.data.clear();
                         }
                     }
+                    yield Message::Barrier(b);
                     self.materialize_cache.evict();
-                    Message::Barrier(b)
                 }
             }
         }

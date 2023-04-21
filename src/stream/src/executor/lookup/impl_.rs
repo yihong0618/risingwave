@@ -272,18 +272,15 @@ impl<S: StateStore> LookupExecutor<S> {
             let msg = msg?;
             match msg {
                 ArrangeMessage::Barrier(barrier) => {
-                    if self.arrangement.use_current_epoch {
-                        // If we are using current epoch, stream barrier should always come after
-                        // arrange barrier. So we flush now.
-                        self.lookup_cache.flush();
-                    }
-
                     self.process_barrier(&barrier);
 
                     if self.arrangement.use_current_epoch {
                         // When lookup this epoch, stream side barrier always come after arrangement
                         // ready, so we can forward barrier now.
                         yield Message::Barrier(barrier);
+                        // If we are using current epoch, stream barrier should always come after
+                        // arrange barrier. So we flush now.
+                        self.lookup_cache.flush();
                     }
                 }
                 ArrangeMessage::ArrangeReady(arrangement_chunks, barrier) => {
@@ -297,13 +294,12 @@ impl<S: StateStore> LookupExecutor<S> {
                     }
 
                     if !self.arrangement.use_current_epoch {
-                        // If we are using previous epoch, arrange barrier should always come after
-                        // stream barrier. So we flush now.
-                        self.lookup_cache.flush();
-
                         // When look prev epoch, arrange ready will always come after stream
                         // barrier. So we yield barrier now.
                         yield Message::Barrier(barrier);
+                        // If we are using previous epoch, arrange barrier should always come after
+                        // stream barrier. So we flush now.
+                        self.lookup_cache.flush();
                     }
                 }
                 ArrangeMessage::Stream(chunk) => {

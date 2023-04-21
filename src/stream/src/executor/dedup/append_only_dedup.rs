@@ -147,9 +147,8 @@ impl<S: StateStore> AppendOnlyDedupExecutor<S> {
                         }
                     }
 
-                    self.cache.evict();
-
                     yield Message::Barrier(barrier);
+                    self.cache.evict();
                 }
 
                 Message::Watermark(watermark) => {

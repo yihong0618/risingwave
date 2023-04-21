@@ -138,8 +138,8 @@ where
                     if let Some(vnode_bitmap) = barrier.as_update_vnode_bitmap(self.ctx.id) {
                         self.inner.update_vnode_bitmap(vnode_bitmap);
                     }
+                    yield Message::Barrier(barrier);
                     self.inner.evict();
-                    yield Message::Barrier(barrier)
                 }
             };
         }
