@@ -6,3 +6,4 @@ checkpoint_frequency = 60
 
 [meta]
 meta_leader_lease_secs = 1000
+backend = "mem"
