@@ -61,7 +61,7 @@ impl MemoryControl for JemallocMemoryControl {
         // This is a temporary solution to avoid OOM. It assumes `streaming_memory_usage` is
         // actually the total memory usage reported by jemalloc-stats. Please make sure to
         // delete these code if that assumption becomes invalid.
-        if prev_memory_stats.streaming_memory_usage > stream_memory_threshold_aggressive {
+        if jemalloc_allocated_mib > stream_memory_threshold_aggressive {
             batch_manager.kill_queries("total memory usage reaches aggressive limit".to_string());
         }
 
