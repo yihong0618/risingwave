@@ -61,9 +61,10 @@ impl CompactorRunner {
         };
 
         // only handle l0 compaction
-        let allow_split_by_vnode = task.existing_table_ids.len() == 1
-            && task.table_options.len() == 1
-            && task.input_ssts[0].level_idx == 0;
+        // let allow_split_by_vnode = task.existing_table_ids.len() == 1
+        //     && task.table_options.len() == 1
+        //     && task.input_ssts[0].level_idx == 0;
+        let allow_split_by_vnode = false;
 
         let compactor = Compactor::new(
             context.clone(),
