@@ -49,7 +49,7 @@ impl MemoryControl for JemallocMemoryControl {
         &self,
         interval_ms: u32,
         prev_memory_stats: MemoryControlStats,
-        _batch_manager: Arc<BatchManager>,
+        batch_manager: Arc<BatchManager>,
         _stream_manager: Arc<LocalStreamManager>,
         watermark_epoch: Arc<AtomicU64>,
     ) -> MemoryControlStats {
@@ -61,7 +61,8 @@ impl MemoryControl for JemallocMemoryControl {
         // This is a temporary solution to avoid OOM. It assumes `streaming_memory_usage` is
         // actually the total memory usage reported by jemalloc-stats. Please make sure to
         // delete these code if that assumption becomes invalid.
-        if jemalloc_allocated_mib > stream_memory_threshold_aggressive {
+        if jemalloc_allocated_mib > self.threshold_aggressive {
+            tracing::warn!("Killing batch queries due to aggressive eviction");
             batch_manager.kill_queries("total memory usage reaches aggressive limit".to_string());
         }
 
