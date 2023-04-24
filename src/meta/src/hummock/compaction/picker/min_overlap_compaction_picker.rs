@@ -549,6 +549,8 @@ impl NonOverlapSubLevelPicker {
         let mut scores = vec![];
         let select_tables = &l0[0].table_infos;
         for sst in select_tables {
+            println!("start select sst {}", sst.get_sst_id());
+
             if level_handler.is_pending_compact(&sst.sst_id) {
                 continue;
             }

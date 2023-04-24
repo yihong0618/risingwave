@@ -87,7 +87,8 @@ impl TierCompactionPicker {
                 l0_select_tables_vec.into_iter().enumerate()
             {
                 if plan_index == 0
-                    && level_select_sst.len() < self.config.level0_tier_compact_file_number as usize
+                    && level_select_sst.len()
+                        < self.config.level0_sub_level_compact_level_count as usize
                 {
                     // first plan level count smaller than limit
                     break;
@@ -621,12 +622,12 @@ pub mod tests {
                 vec![
                     generate_table(6, 1, 50, 99, 1),
                     generate_table(1, 1, 100, 200, 1),
-                    generate_table(2, 1, 150, 250, 1),
+                    generate_table(2, 1, 250, 300, 1),
                 ],
                 vec![generate_table(3, 1, 10, 90, 1)],
                 vec![
-                    generate_table(4, 1, 100, 200, 1),
-                    generate_table(5, 1, 50, 150, 1),
+                    generate_table(4, 1, 50, 99, 1),
+                    generate_table(5, 1, 100, 200, 1),
                 ],
             ]);
             let levels = Levels {
@@ -638,7 +639,7 @@ pub mod tests {
             let mut levels_handler = vec![LevelHandler::new(0)];
             let config = Arc::new(
                 CompactionConfigBuilder::new()
-                    .level0_tier_compact_file_number(0)
+                    .level0_sub_level_compact_level_count(1)
                     .build(),
             );
             let mut picker =
@@ -653,12 +654,8 @@ pub mod tests {
                     .iter()
                     .map(|i| i.table_infos.len())
                     .sum::<usize>(),
-                6
+                3
             );
-            // all pending
-            assert!(picker
-                .pick_compaction(&levels, &levels_handler, &mut local_stats)
-                .is_none());
         }
 
         {
@@ -684,7 +681,7 @@ pub mod tests {
             let mut levels_handler = vec![LevelHandler::new(0)];
             let config = Arc::new(
                 CompactionConfigBuilder::new()
-                    .level0_tier_compact_file_number(0)
+                    .level0_sub_level_compact_level_count(1)
                     .build(),
             );
             let mut picker =
@@ -721,19 +718,19 @@ pub mod tests {
             // will pick sst [1, 3, 4]
             let l0 = generate_l0_nonoverlapping_sublevels2(vec![
                 vec![
-                    generate_table(1, 1, 100, 150, 1),
-                    generate_table(6, 1, 150, 200, 1),
+                    generate_table(1, 1, 100, 149, 1),
+                    generate_table(6, 1, 150, 199, 1),
                     generate_table(7, 1, 200, 250, 1),
                     generate_table(2, 1, 300, 400, 1),
                 ],
                 vec![
-                    generate_table(3, 1, 100, 150, 1),
-                    generate_table(8, 1, 150, 200, 1),
+                    generate_table(3, 1, 100, 149, 1),
+                    generate_table(8, 1, 150, 199, 1),
                     generate_table(9, 1, 200, 250, 1),
                     generate_table(10, 1, 300, 400, 1),
                 ],
                 vec![
-                    generate_table(4, 1, 100, 200, 1),
+                    generate_table(4, 1, 100, 199, 1),
                     generate_table(11, 1, 200, 250, 1),
                     generate_table(5, 1, 300, 350, 1),
                 ],
@@ -747,7 +744,7 @@ pub mod tests {
             let mut levels_handler = vec![LevelHandler::new(0)];
             let config = Arc::new(
                 CompactionConfigBuilder::new()
-                    .level0_tier_compact_file_number(2)
+                    .level0_sub_level_compact_level_count(1)
                     .build(),
             );
             let mut picker =
@@ -765,7 +762,6 @@ pub mod tests {
                 3
             );
 
-            // will pick sst [1, 6, 7, 3, 8, 9, 4, 11]
             let ret2 = picker
                 .pick_compaction(&levels, &levels_handler, &mut local_stats)
                 .unwrap();
@@ -775,7 +771,7 @@ pub mod tests {
                     .iter()
                     .map(|i| i.table_infos.len())
                     .sum::<usize>(),
-                8
+                3
             );
         }
     }
