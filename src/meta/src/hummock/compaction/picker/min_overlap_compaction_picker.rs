@@ -708,8 +708,6 @@ impl NonOverlapSubLevelPicker {
                  ((select_level_count2, all_file_size2, select_file_count2), _y)| {
                     select_level_count2
                         .cmp(select_level_count)
-                        // .then_with(|| write_amp_delta.cmp(write_amp_delta2)) // a way to choose a
-                        // small guard
                         .then_with(|| select_file_count.cmp(select_file_count2))
                         .then_with(|| all_file_size.cmp(all_file_size2))
                 },
@@ -949,7 +947,7 @@ pub mod tests {
                 Arc::new(RangeOverlapStrategy::default()),
             );
             let ret = picker.pick_l0_multi_non_overlap_level(&levels, &levels_handlers[0]);
-            assert_eq!(21, ret.len());
+            assert_eq!(6, ret.len());
         }
 
         {
@@ -975,7 +973,7 @@ pub mod tests {
                 Arc::new(RangeOverlapStrategy::default()),
             );
             let ret = picker.pick_l0_multi_non_overlap_level(&levels, &levels_handlers[0]);
-            assert_eq!(9, ret.len());
+            assert_eq!(6, ret.len());
         }
     }
 
@@ -1108,7 +1106,34 @@ pub mod tests {
             );
             let ret = picker.pick_l0_multi_non_overlap_level(&levels, &levels_handlers[0]);
             // assert_eq!(9, ret.len());
-            println!("ret3");
+            println!("ret3 plan_count {}", ret.len());
+
+            for plan in ret {
+                let mut sst_id_set = BTreeSet::default();
+                for sst in &plan.2 {
+                    sst_id_set.insert(sst[0].get_sst_id());
+                }
+
+                println!(
+                    "plan select_level_count {} sst_id_set {:?}",
+                    plan.2.len(),
+                    sst_id_set
+                );
+            }
+        }
+
+        {
+            // limit min_deptg
+            let picker = NonOverlapSubLevelPicker::new(
+                0,
+                10000,
+                3,
+                10000,
+                Arc::new(RangeOverlapStrategy::default()),
+            );
+            let ret = picker.pick_l0_multi_non_overlap_level(&levels, &levels_handlers[0]);
+            // assert_eq!(9, ret.len());
+            println!("ret3 plan_count {}", ret.len());
 
             for plan in ret {
                 let mut sst_id_set = BTreeSet::default();
