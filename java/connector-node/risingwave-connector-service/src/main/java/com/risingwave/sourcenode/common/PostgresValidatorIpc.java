@@ -14,8 +14,8 @@
 
 package com.risingwave.sourcenode.common;
 
-import com.risingwave.connector.TableSchema;
 import com.risingwave.proto.Data;
+import com.risingwave.sourcenode.types.*;
 import io.grpc.Status;
 import io.grpc.StatusException;
 import java.sql.Connection;

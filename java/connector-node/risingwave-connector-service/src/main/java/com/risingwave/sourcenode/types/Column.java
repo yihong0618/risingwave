@@ -1,4 +1,4 @@
-package com.risingwave.connector;
+package com.risingwave.sourcenode.types;
 
 import com.risingwave.proto.Data;
 

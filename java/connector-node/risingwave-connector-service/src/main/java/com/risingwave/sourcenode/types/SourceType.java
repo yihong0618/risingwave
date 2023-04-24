@@ -1,4 +1,4 @@
-package com.risingwave.connector;
+package com.risingwave.sourcenode.types;
 
 public enum SourceType {
     Unspecified,

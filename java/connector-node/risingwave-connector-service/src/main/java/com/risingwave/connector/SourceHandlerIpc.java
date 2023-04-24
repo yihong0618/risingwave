@@ -3,6 +3,7 @@ package com.risingwave.connector;
 import com.risingwave.proto.Data;
 import com.risingwave.sourcenode.common.DbzConnectorConfig;
 import com.risingwave.sourcenode.common.PostgresValidatorIpc;
+import com.risingwave.sourcenode.types.*;
 import io.grpc.Status;
 import io.grpc.StatusException;
 import java.io.IOException;
