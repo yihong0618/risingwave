@@ -70,14 +70,9 @@ impl GlobalMemoryManager {
     ) {
         // Keep same interval with the barrier interval
         let mut tick_interval =
-            tokio::time::interval(Duration::from_millis(self.interval_ms as u64));
+            tokio::time::interval(Duration::from_millis((self.interval_ms / 10) as u64));
 
-        let mut memory_control_stats = MemoryControlStats {
-            jemalloc_allocated_mib: 0,
-            lru_watermark_step: 0,
-            lru_watermark_time_ms: Epoch::physical_now(),
-            lru_physical_now_ms: Epoch::physical_now(),
-        };
+        let mut memory_control_stats = MemoryControlStats::new();
 
         loop {
             // Wait for a while to check if need eviction.

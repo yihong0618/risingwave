@@ -66,6 +66,14 @@ impl MemoryControl for JemallocMemoryControl {
             batch_manager.kill_queries("total memory usage reaches aggressive limit".to_string());
         }
 
+        // Skip streaming memory control unless the count is times of 10
+        let count = prev_memory_stats.count + 1;
+        if count % 10 != 0 {
+            let mut cur_stats = prev_memory_stats.clone();
+            cur_stats.count = count;
+            return cur_stats;
+        }
+
         // Streaming memory control
         //
         // We calculate the watermark of the LRU cache, which provides hints for streaming executors
@@ -86,6 +94,7 @@ impl MemoryControl for JemallocMemoryControl {
             lru_watermark_step,
             lru_watermark_time_ms,
             lru_physical_now_ms: lru_physical_now,
+            count,
         }
     }
 }

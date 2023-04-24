@@ -46,12 +46,27 @@ pub const STORAGE_FILE_CACHE_MEMORY_PROPORTION: f64 = 0.1;
 pub const STORAGE_DEFAULT_HIGH_PRIORITY_BLOCK_CACHE_RATIO: usize = 70;
 
 /// `MemoryControlStats` contains the state from previous control loop
-#[derive(Default)]
+#[derive(Clone)]
 pub struct MemoryControlStats {
     pub jemalloc_allocated_mib: usize,
     pub lru_watermark_step: u64,
     pub lru_watermark_time_ms: u64,
     pub lru_physical_now_ms: u64,
+    ///  Counter of calling memory control policy
+    pub count: usize,
+}
+
+impl MemoryControlStats {
+    pub fn new() -> Self {
+        use risingwave_common::util::epoch::Epoch;
+        return Self {
+            jemalloc_allocated_mib: 0,
+            lru_watermark_step: 0,
+            lru_watermark_time_ms: Epoch::physical_now(),
+            lru_physical_now_ms: Epoch::physical_now(),
+            count: 0,
+        };
+    }
 }
 
 pub type MemoryControlRef = Box<dyn MemoryControl>;
@@ -96,7 +111,7 @@ impl MemoryControl for DummyPolicy {
         _stream_manager: Arc<LocalStreamManager>,
         _watermark_epoch: Arc<AtomicU64>,
     ) -> MemoryControlStats {
-        MemoryControlStats::default()
+        MemoryControlStats::new()
     }
 }
 
