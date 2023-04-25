@@ -16,13 +16,14 @@ use std::str::FromStr;
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use futures::{pin_mut, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt};
 use futures_async_stream::try_stream;
 use risingwave_common::util::addr::HostAddr;
-use risingwave_pb::connector_service::GetEventStreamResponse;
-use risingwave_rpc_client::ConnectorClient;
 
+// use risingwave_pb::connector_service::GetEventStreamResponse;
+// use risingwave_rpc_client::ConnectorClient;
 use crate::impl_common_split_reader_logic;
+use crate::jvm_utils::JvmWrapper;
 use crate::parser::ParserConfig;
 use crate::source::base::SourceMessage;
 use crate::source::cdc::CdcProperties;
@@ -42,6 +43,7 @@ pub struct CdcSplitReader {
     split_id: SplitId,
     parser_config: ParserConfig,
     source_ctx: SourceContextRef,
+    connector_jvm: JvmWrapper,
 }
 
 #[async_trait]
@@ -59,6 +61,8 @@ impl SplitReader for CdcSplitReader {
         assert!(splits.len() == 1);
         let split = splits.into_iter().next().unwrap();
         let split_id = split.id();
+        // TODO(j4rs): handle error properly
+        let connector_jvm = JvmWrapper::create_jvm().unwrap();
         match split {
             SplitImpl::MySqlCdc(split) | SplitImpl::PostgresCdc(split) => Ok(Self {
                 source_id: split.split_id as u64,
@@ -68,6 +72,7 @@ impl SplitReader for CdcSplitReader {
                 split_id,
                 parser_config,
                 source_ctx,
+                connector_jvm,
             }),
             SplitImpl::CitusCdc(split) => Ok(Self {
                 source_id: split.split_id as u64,
@@ -77,6 +82,7 @@ impl SplitReader for CdcSplitReader {
                 split_id,
                 parser_config,
                 source_ctx,
+                connector_jvm,
             }),
 
             _ => Err(anyhow!(
@@ -94,8 +100,9 @@ impl CdcSplitReader {
     #[try_stream(boxed, ok = Vec<SourceMessage>, error = anyhow::Error)]
     async fn into_data_stream(self) {
         tracing::debug!("cdc props: {:?}", self.conn_props);
-        let cdc_client =
-            ConnectorClient::new(HostAddr::from_str(&self.conn_props.connector_node_addr)?).await?;
+        // let cdc_client =
+        //     ConnectorClient::new(HostAddr::from_str(&self.conn_props.connector_node_addr)?).
+        // await?;
 
         // rewrite the hostname and port for the split
         let mut properties = self.conn_props.props.clone();
@@ -114,37 +121,46 @@ impl CdcSplitReader {
         }
 
         tracing::info!("cdc properties: {:?}", properties);
-        let cdc_stream = cdc_client
-            .start_source_stream(
-                self.source_id,
-                self.conn_props.get_source_type()?,
-                self.start_offset,
-                properties,
-            )
-            .await
-            .inspect_err(|err| tracing::error!("connector node start stream error: {}", err))?;
-        pin_mut!(cdc_stream);
-        #[for_await]
-        for event_res in cdc_stream {
-            match event_res {
-                Ok(GetEventStreamResponse { events, .. }) => {
-                    if events.is_empty() {
-                        continue;
-                    }
-                    let mut msgs = Vec::with_capacity(events.len());
-                    for event in events {
-                        msgs.push(SourceMessage::from(event));
-                    }
-                    yield msgs;
-                }
-                Err(e) => {
-                    return Err(anyhow!(
-                        "Cdc service error: code {}, msg {}",
-                        e.code(),
-                        e.message()
-                    ))
-                }
-            }
-        }
+        let dbz_handler = self.connector_jvm.get_source_stream_handler(
+            self.source_id,
+            self.conn_props.get_source_type()?,
+            self.start_offset.unwrap(),
+            properties,
+        );
+        self.connector_jvm.start_source(&dbz_handler);
+        let cdc_chunk = self.connector_jvm.get_cdc_chunk(&dbz_handler);
+        println!("Received chunk: {:#?}", cdc_chunk);
+        // let cdc_stream = cdc_client
+        //     .start_source_stream(
+        //         self.source_id,
+        //         self.conn_props.get_source_type()?,
+        //         self.start_offset,
+        //         properties,
+        //     )
+        //     .await
+        //     .inspect_err(|err| tracing::error!("connector node start stream error: {}", err))?;
+        // pin_mut!(cdc_stream);
+        // #[for_await]
+        // for event_res in cdc_stream {
+        //     match event_res {
+        //         Ok(GetEventStreamResponse { events, .. }) => {
+        //             if events.is_empty() {
+        //                 continue;
+        //             }
+        //             let mut msgs = Vec::with_capacity(events.len());
+        //             for event in events {
+        //                 msgs.push(SourceMessage::from(event));
+        //             }
+        //             yield msgs;
+        //         }
+        //         Err(e) => {
+        //             return Err(anyhow!(
+        //                 "Cdc service error: code {}, msg {}",
+        //                 e.code(),
+        //                 e.message()
+        //             ))
+        //         }
+        //     }
+        // }
     }
 }

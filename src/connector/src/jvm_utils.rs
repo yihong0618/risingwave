@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::fs;
 
 use itertools::Itertools;
-use j4rs::{ClasspathEntry, InvocationArg, JavaClass, Jvm, JvmBuilder};
-use risingwave_pb::connector_service::{SourceType, TableSchema};
+use j4rs::{ClasspathEntry, Instance, InvocationArg, JavaClass, Jvm, JvmBuilder};
+use risingwave_pb::connector_service::{GetEventStreamResponse, SourceType, TableSchema};
 
 pub struct JvmWrapper {
     jvm: Jvm,
@@ -44,6 +44,7 @@ impl JvmWrapper {
             .jvm
             .java_map(JavaClass::String, JavaClass::String, properties)
             .unwrap();
+        // TODO(j4rs): handle error correctly
         self.jvm
             .invoke_static(
                 "com.risingwave.connector.SourceHandlerIpc",
@@ -59,5 +60,52 @@ impl JvmWrapper {
                 .as_slice(),
             )
             .unwrap();
+    }
+
+    pub fn get_source_stream_handler(
+        &self,
+        source_id: u64,
+        source_type: SourceType,
+        start_offset: String,
+        properties: HashMap<String, String>,
+    ) -> Instance {
+        let properties_java = self
+            .jvm
+            .java_map(JavaClass::String, JavaClass::String, properties)
+            .unwrap();
+        // TODO(j4rs): handle error correctly
+        return self
+            .jvm
+            .invoke_static(
+                "com.risingwave.connector.SourceHandlerIpc",
+                "handleStart",
+                vec![
+                    InvocationArg::try_from(source_id as i64).unwrap(), /* TODO(j4rs): convert
+                                                                         * to java without
+                                                                         * casting */
+                    InvocationArg::new(&source_type, "com.risingwave.sourcenode.types.SourceType"),
+                    InvocationArg::try_from(start_offset).unwrap(),
+                    InvocationArg::try_from(properties_java).unwrap(),
+                ]
+                .as_slice(),
+            )
+            .unwrap();
+    }
+
+    pub fn start_source(&self, dbz_handler: &Instance) {
+        // TODO(j4rs): handle error correctly
+        self.jvm
+            .invoke(dbz_handler, "startSource", vec![].as_slice())
+            .unwrap();
+    }
+
+    pub fn get_cdc_chunk(&self, dbz_handler: &Instance) -> GetEventStreamResponse {
+        // TODO(j4rs): handle error correctly
+        let res_java = self
+            .jvm
+            .invoke(dbz_handler, "getChunk", vec![].as_slice())
+            .unwrap();
+        // TODO(j4rs): handle error correctly
+        self.jvm.to_rust(res_java).unwrap()
     }
 }

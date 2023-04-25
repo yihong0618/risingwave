@@ -19,8 +19,8 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use risingwave_common::util::addr::HostAddr;
 use risingwave_pb::connector_service::SourceType as PbSourceType;
-// use risingwave_rpc_client::ConnectorClient;
 
+// use risingwave_rpc_client::ConnectorClient;
 use crate::jvm_utils::JvmWrapper;
 use crate::source::cdc::{CdcProperties, CdcSplit};
 use crate::source::SplitEnumerator;
