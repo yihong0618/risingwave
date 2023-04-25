@@ -35,6 +35,7 @@ use serde::de;
 
 pub mod aws_utils;
 pub mod error;
+pub mod jvm_utils;
 mod macros;
 
 pub mod parser;

@@ -17,21 +17,23 @@ use std::str::FromStr;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use itertools::Itertools;
+use j4rs::Jvm;
 use risingwave_common::util::addr::HostAddr;
 use risingwave_pb::connector_service::SourceType as PbSourceType;
 use risingwave_rpc_client::ConnectorClient;
 
+use crate::jvm_utils::JvmWrapper;
 use crate::source::cdc::{CdcProperties, CdcSplit};
 use crate::source::SplitEnumerator;
 
 pub const DATABASE_SERVERS_KEY: &str = "database.servers";
 
-#[derive(Debug)]
 pub struct DebeziumSplitEnumerator {
     /// The source_id in the catalog
     source_id: u32,
     source_type: PbSourceType,
     worker_node_addrs: Vec<HostAddr>,
+    connector_jvm: JvmWrapper,
 }
 
 #[async_trait]
@@ -70,10 +72,13 @@ impl SplitEnumerator for DebeziumSplitEnumerator {
             .await?;
 
         tracing::debug!("validate properties success");
+        // TODO(j4rs): handle error correctly
+        let jvm = JvmWrapper::create_jvm().unwrap();
         Ok(Self {
             source_id: props.source_id,
             source_type,
             worker_node_addrs: server_addrs,
+            connector_jvm: jvm,
         })
     }
 
