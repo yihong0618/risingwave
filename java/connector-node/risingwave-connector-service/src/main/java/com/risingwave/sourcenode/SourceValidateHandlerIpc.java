@@ -44,10 +44,10 @@ public class SourceValidateHandlerIpc {
 
     private static String getJdbcPrefix(SourceType sourceType) {
         switch (sourceType) {
-            case Mysql:
+            case MYSQL:
                 return "jdbc:mysql";
-            case Postgres:
-            case Citus:
+            case POSTGRES:
+            case CITUS:
                 return "jdbc:postgresql";
             default:
                 throw new RuntimeException("unknown source type: " + sourceType);
@@ -87,7 +87,7 @@ public class SourceValidateHandlerIpc {
         String dbUser = props.get(DbzConnectorConfig.USER);
         String dbPassword = props.get(DbzConnectorConfig.PASSWORD);
         switch (sourceType) {
-            case Postgres:
+            case POSTGRES:
                 ensurePropNotNull(props, DbzConnectorConfig.PG_SCHEMA_NAME);
                 try (var validator =
                         new PostgresValidatorIpc(
@@ -96,7 +96,7 @@ public class SourceValidateHandlerIpc {
                 }
                 break;
 
-            case Citus:
+            case CITUS:
                 ensurePropNotNull(props, DbzConnectorConfig.PG_SCHEMA_NAME);
                 try (PostgresValidatorIpc coordinatorValidator =
                         new PostgresValidatorIpc(
@@ -132,7 +132,7 @@ public class SourceValidateHandlerIpc {
                 }
 
                 break;
-            case Mysql:
+            case MYSQL:
                 try (var conn =
                         DriverManager.getConnection(
                                 jdbcUrl,
