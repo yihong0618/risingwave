@@ -124,7 +124,7 @@ impl CdcSplitReader {
         let dbz_handler = self.connector_jvm.get_source_stream_handler(
             self.source_id,
             self.conn_props.get_source_type()?,
-            self.start_offset.unwrap_or(0),
+            self.start_offset.unwrap_or(String::new()),
             properties,
         );
         self.connector_jvm.start_source(&dbz_handler);
