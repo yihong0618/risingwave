@@ -3,18 +3,18 @@ package com.risingwave.sourcenode.types;
 import com.risingwave.connector.api.source.SourceTypeE;
 
 public enum SourceType {
-    Unspecified,
-    Mysql,
-    Postgres,
-    Citus;
+    UNSPECIFIED,
+    MYSQL,
+    POSTGRES,
+    CITUS;
 
     public static SourceTypeE toSourceTypeE(SourceType type) {
         switch (type) {
-            case Mysql:
+            case MYSQL:
                 return SourceTypeE.MYSQL;
-            case Postgres:
+            case POSTGRES:
                 return SourceTypeE.POSTGRES;
-            case Citus:
+            case CITUS:
                 return SourceTypeE.CITUS;
             default:
                 return SourceTypeE.INVALID;
