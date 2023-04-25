@@ -5,30 +5,30 @@ import java.util.List;
 
 public class CdcChunk {
     long sourceId;
-    List<CdcMessage> messages;
+    List<CdcMessage> events;
 
     public CdcChunk() {
         this.sourceId = 0;
-        this.messages = new ArrayList<CdcMessage>();
+        this.events = new ArrayList<CdcMessage>();
     }
 
     public long getSourceId() {
         return sourceId;
     }
 
-    public List<CdcMessage> getMessages() {
-        return messages;
+    public List<CdcMessage> getEvents() {
+        return events;
     }
 
     public void setSourceId(long sourceId) {
         this.sourceId = sourceId;
     }
 
-    public void setMessages(List<CdcMessage> messages) {
-        this.messages = messages;
+    public void setEvents(List<CdcMessage> events) {
+        this.events = events;
     }
 
-    public void addMessage(CdcMessage message) {
-        this.messages.add(message);
+    public void addEvent(CdcMessage event) {
+        this.events.add(event);
     }
 }

@@ -99,7 +99,7 @@ public class DbzCdcEventConsumerIpc
             CdcMessage message =
                     new CdcMessage(new String(payload), String.valueOf(sourceId), offsetStr);
             LOG.debug("record => {}", message.getPayload());
-            chunk.addMessage(message);
+            chunk.addEvent(message);
             committer.markProcessed(event);
         }
         chunk.setSourceId(sourceId);
