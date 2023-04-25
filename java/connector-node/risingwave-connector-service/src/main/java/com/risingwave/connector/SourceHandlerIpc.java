@@ -27,7 +27,7 @@ public final class SourceHandlerIpc {
 
     // returns handler on success, returns null on failure
     public static DbzSourceHandlerIpc handleStart(
-            long sourceId,
+            Long sourceId,
             SourceType sourceType,
             String startOffset,
             Map<String, String> properties) {
