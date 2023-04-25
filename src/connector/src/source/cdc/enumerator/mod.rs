@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use risingwave_common::util::addr::HostAddr;
 use risingwave_pb::connector_service::SourceType as PbSourceType;
-use risingwave_rpc_client::ConnectorClient;
+// use risingwave_rpc_client::ConnectorClient;
 
 use crate::jvm_utils::JvmWrapper;
 use crate::source::cdc::{CdcProperties, CdcSplit};
@@ -42,11 +42,11 @@ impl SplitEnumerator for DebeziumSplitEnumerator {
 
     async fn new(props: CdcProperties) -> anyhow::Result<DebeziumSplitEnumerator> {
         tracing::debug!("start validate cdc properties");
-        let connector_client = ConnectorClient::new(
-            HostAddr::from_str(&props.connector_node_addr)
-                .map_err(|e| anyhow!("parse connector node endpoint fail. {}", e))?,
-        )
-        .await?;
+        // let connector_client = ConnectorClient::new(
+        //     HostAddr::from_str(&props.connector_node_addr)
+        //         .map_err(|e| anyhow!("parse connector node endpoint fail. {}", e))?,
+        // )
+        // .await?;
 
         let server_addrs = props
             .props
@@ -61,18 +61,23 @@ impl SplitEnumerator for DebeziumSplitEnumerator {
 
         let source_type = props.get_source_type()?;
         // validate connector properties
-        connector_client
-            .validate_source_properties(
-                props.source_id as u64,
-                props.get_source_type()?,
-                props.props,
-                props.table_schema,
-            )
-            .await?;
+        let jvm = JvmWrapper::create_jvm().unwrap();
+        // connector_client
+        //     .validate_source_properties(
+        //         props.source_id as u64,
+        //         props.get_source_type()?,
+        //         props.props,
+        //
+        //     )
+        //     .await?;
+        jvm.validate_source_properties(
+            props.get_source_type()?,
+            props.props,
+            props.table_schema.unwrap(),
+        );
 
         tracing::debug!("validate properties success");
         // TODO(j4rs): handle error correctly
-        let jvm = JvmWrapper::create_jvm().unwrap();
         Ok(Self {
             source_id: props.source_id,
             source_type,
