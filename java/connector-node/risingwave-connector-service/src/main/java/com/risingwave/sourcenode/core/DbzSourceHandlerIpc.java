@@ -50,18 +50,23 @@ public class DbzSourceHandlerIpc {
         if (!runner.isRunning()) {
             return null;
         }
-        try {
-            if (Context.current().isCancelled()) {
-                LOG.info(
-                        "Engine#{}: Connection broken detected, stop the engine",
-                        config.getSourceId());
-                runner.stop();
+        while (true) {
+            try {
+                if (Context.current().isCancelled()) {
+                    LOG.info(
+                            "Engine#{}: Connection broken detected, stop the engine",
+                            config.getSourceId());
+                    runner.stop();
+                    return null;
+                }
+                var chunk = runner.getEngine().getOutputChannel().poll(500, TimeUnit.MILLISECONDS);
+                if (chunk != null) {
+                    return chunk;
+                }
+            } catch (Exception e) {
+                LOG.error("Poll engine output channel fail. ", e);
                 return null;
             }
-            return runner.getEngine().getOutputChannel().poll(500, TimeUnit.MILLISECONDS);
-        } catch (Exception e) {
-            LOG.error("Poll engine output channel fail. ", e);
-            return null;
         }
     }
 }
