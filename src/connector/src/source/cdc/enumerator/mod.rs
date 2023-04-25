@@ -17,7 +17,6 @@ use std::str::FromStr;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use itertools::Itertools;
-use j4rs::Jvm;
 use risingwave_common::util::addr::HostAddr;
 use risingwave_pb::connector_service::SourceType as PbSourceType;
 use risingwave_rpc_client::ConnectorClient;
