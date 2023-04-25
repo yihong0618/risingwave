@@ -80,9 +80,7 @@ impl JvmWrapper {
                 "com.risingwave.connector.SourceHandlerIpc",
                 "handleStart",
                 vec![
-                    InvocationArg::try_from(source_id as i64).unwrap(), /* TODO(j4rs): convert
-                                                                         * to java without
-                                                                         * casting */
+                    InvocationArg::new(&source_id, "java.lang.Long"),
                     InvocationArg::new(&source_type, "com.risingwave.sourcenode.types.SourceType"),
                     InvocationArg::try_from(start_offset).unwrap(),
                     InvocationArg::try_from(properties_java).unwrap(),

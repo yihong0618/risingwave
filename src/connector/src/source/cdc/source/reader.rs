@@ -128,8 +128,15 @@ impl CdcSplitReader {
             properties,
         );
         self.connector_jvm.start_source(&dbz_handler);
-        let cdc_chunk = self.connector_jvm.get_cdc_chunk(&dbz_handler);
-        println!("Received chunk: {:#?}", cdc_chunk);
+        loop {
+            let cdc_chunk = self.connector_jvm.get_cdc_chunk(&dbz_handler);
+            let mut msgs = Vec::with_capacity(cdc_chunk.events.len());
+
+            for event in cdc_chunk.events {
+                msgs.push(SourceMessage::from(event));
+            }
+            yield msgs;
+        }
         // let cdc_stream = cdc_client
         //     .start_source_stream(
         //         self.source_id,
