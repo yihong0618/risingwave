@@ -1,16 +1,24 @@
 use std::collections::HashMap;
 use std::fs;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use j4rs::{ClasspathEntry, Instance, InvocationArg, JavaClass, Jvm, JvmBuilder};
 use risingwave_pb::connector_service::{GetEventStreamResponse, SourceType, TableSchema};
 
 pub struct JvmWrapper {
-    jvm: Jvm,
+    pub inner: Jvm,
 }
 
 unsafe impl Send for JvmWrapper {}
 unsafe impl Sync for JvmWrapper {}
+
+pub struct InstanceWrapper {
+    pub inner: Instance,
+}
+
+unsafe impl Send for InstanceWrapper {}
+unsafe impl Sync for InstanceWrapper {}
 
 impl JvmWrapper {
     pub fn create_jvm() -> anyhow::Result<Self> {
@@ -31,7 +39,7 @@ impl JvmWrapper {
             .classpath_entries(classpath_entries)
             .build()
             .map_err(|e| anyhow::format_err!("cannot create jvm: {}", e.to_string()))?;
-        Ok(JvmWrapper { jvm })
+        Ok(JvmWrapper { inner: jvm })
     }
 
     pub fn validate_source_properties(
@@ -41,11 +49,11 @@ impl JvmWrapper {
         table_schema: TableSchema,
     ) {
         let properties_java = self
-            .jvm
+            .inner
             .java_map(JavaClass::String, JavaClass::String, properties)
             .unwrap();
         // TODO(j4rs): handle error correctly
-        self.jvm
+        self.inner
             .invoke_static(
                 "com.risingwave.connector.SourceHandlerIpc",
                 "handleValidate",
@@ -70,12 +78,12 @@ impl JvmWrapper {
         properties: HashMap<String, String>,
     ) -> Instance {
         let properties_java = self
-            .jvm
+            .inner
             .java_map(JavaClass::String, JavaClass::String, properties)
             .unwrap();
         // TODO(j4rs): handle error correctly
         return self
-            .jvm
+            .inner
             .invoke_static(
                 "com.risingwave.connector.SourceHandlerIpc",
                 "handleStart",
@@ -92,18 +100,28 @@ impl JvmWrapper {
 
     pub fn start_source(&self, dbz_handler: &Instance) {
         // TODO(j4rs): handle error correctly
-        self.jvm
+        self.inner
             .invoke(dbz_handler, "startSource", vec![].as_slice())
             .unwrap();
     }
 
-    pub fn get_cdc_chunk(&self, dbz_handler: &Instance) -> GetEventStreamResponse {
+    pub async fn get_cdc_chunk(
+        jvm: Arc<Self>,
+        dbz_handler: Arc<InstanceWrapper>,
+    ) -> GetEventStreamResponse {
         // TODO(j4rs): handle error correctly
-        let res_java = self
-            .jvm
-            .invoke(dbz_handler, "getChunk", vec![].as_slice())
-            .unwrap();
+        let jvm_clone = jvm.clone();
+        let res_java = tokio::task::spawn_blocking(move || {
+            jvm.inner
+                .invoke(&dbz_handler.inner, "getChunk", vec![].as_slice())
+                .unwrap()
+        })
+        .await
+        .unwrap();
         // TODO(j4rs): handle error correctly
-        self.jvm.to_rust(res_java).unwrap()
+        jvm_clone
+            .inner
+            .to_rust::<GetEventStreamResponse>(res_java)
+            .unwrap()
     }
 }

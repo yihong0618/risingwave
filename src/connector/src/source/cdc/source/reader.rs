@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::str::FromStr;
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -23,7 +24,7 @@ use risingwave_common::util::addr::HostAddr;
 // use risingwave_pb::connector_service::GetEventStreamResponse;
 // use risingwave_rpc_client::ConnectorClient;
 use crate::impl_common_split_reader_logic;
-use crate::jvm_utils::JvmWrapper;
+use crate::jvm_utils::{InstanceWrapper, JvmWrapper};
 use crate::parser::ParserConfig;
 use crate::source::base::SourceMessage;
 use crate::source::cdc::CdcProperties;
@@ -121,17 +122,21 @@ impl CdcSplitReader {
         }
 
         tracing::info!("cdc properties: {:?}", properties);
-        let dbz_handler = self.connector_jvm.get_source_stream_handler(
-            self.source_id,
-            self.conn_props.get_source_type()?,
-            self.start_offset.unwrap_or(String::new()),
-            properties,
-        );
-        self.connector_jvm.start_source(&dbz_handler);
+        let dbz_handler = InstanceWrapper {
+            inner: self.connector_jvm.get_source_stream_handler(
+                self.source_id,
+                self.conn_props.get_source_type()?,
+                self.start_offset.unwrap_or(String::new()),
+                properties,
+            ),
+        };
+        self.connector_jvm.start_source(&dbz_handler.inner);
+        let connector_jvm = Arc::new(self.connector_jvm);
+        let dbz_handler = Arc::new(dbz_handler);
         loop {
-            let cdc_chunk = self.connector_jvm.get_cdc_chunk(&dbz_handler);
+            let cdc_chunk =
+                JvmWrapper::get_cdc_chunk(connector_jvm.clone(), dbz_handler.clone()).await;
             let mut msgs = Vec::with_capacity(cdc_chunk.events.len());
-
             for event in cdc_chunk.events {
                 msgs.push(SourceMessage::from(event));
             }
