@@ -19,11 +19,12 @@ import com.risingwave.sourcenode.common.DbzConnectorConfig;
 import com.risingwave.sourcenode.types.CdcChunk;
 import io.grpc.Context;
 import java.util.concurrent.TimeUnit;
+import org.astonbitecode.j4rs.api.invocation.NativeCallbackToRustChannelSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** handler for starting a debezium source connectors api for rust */
-public class DbzSourceHandlerIpc {
+public class DbzSourceHandlerIpc extends NativeCallbackToRustChannelSupport {
     static final Logger LOG = LoggerFactory.getLogger(DbzSourceHandlerIpc.class);
 
     private final DbzConnectorConfig config;
@@ -71,6 +72,28 @@ public class DbzSourceHandlerIpc {
             } catch (Exception e) {
                 LOG.error("Poll engine output channel fail. ", e);
                 return null;
+            }
+        }
+    }
+
+    public void getCdcChunkChannel() {
+        while (true) {
+            if (!runner.isRunning()) {
+                return;
+            }
+            try {
+                CdcChunk chunk =
+                        runner.getEngine().getOutputChannel().poll(500, TimeUnit.MILLISECONDS);
+                if (chunk != null) {
+                    ConnectorNodeMetrics.incSourceRowsReceived(
+                            config.getSourceType().toString(),
+                            String.valueOf(config.getSourceId()),
+                            chunk.getEvents().size());
+                    doCallback(chunk);
+                }
+            } catch (Exception e) {
+                LOG.error("Poll engine output channel fail. ", e);
+                return;
             }
         }
     }

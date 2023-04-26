@@ -20,13 +20,18 @@ import static org.junit.Assert.*;
 
 import com.risingwave.proto.ConnectorServiceProto;
 import com.risingwave.proto.Data;
+import com.risingwave.sourcenode.core.DbzSourceHandlerIpc;
+import com.risingwave.sourcenode.types.CdcChunk;
+import com.risingwave.sourcenode.types.SourceType;
 import io.grpc.*;
 import java.io.IOException;
+import java.net.URI;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.*;
 import javax.sql.DataSource;
 import org.junit.*;
@@ -64,8 +69,8 @@ public class PostgresSourceTest {
         SourceTestClient.genOrdersTable(10000);
         // start connector server and postgres...
         try {
-            connectorServer.start();
-            LOG.info("connector service started");
+            //            connectorServer.start();
+            //            LOG.info("connector service started");
             pg.withCopyFileToContainer(
                     MountableFile.forClasspathResource("orders.tbl"), "/home/orders.tbl");
             pg.start();
@@ -149,6 +154,46 @@ public class PostgresSourceTest {
             query = "DROP TABLE orders";
             SourceTestClient.performQuery(connection, query);
             connection.close();
+        }
+    }
+
+    @Test
+    public void testLinesIpc() throws Exception {
+        Connection connection = SourceTestClient.connect(pgDataSource);
+        String query = testClient.sqlStmts.getProperty("tpch.create.orders");
+        SourceTestClient.performQuery(connection, query);
+        query = "COPY orders FROM '/home/orders.tbl' WITH DELIMITER '|'";
+        SourceTestClient.performQuery(connection, query);
+        var properties =
+                Map.of(
+                        "hostname",
+                        pg.getHost(),
+                        "port",
+                        String.valueOf(URI.create(pg.getJdbcUrl().substring(5)).getPort()),
+                        "username",
+                        pg.getUsername(),
+                        "password",
+                        pg.getPassword(),
+                        "database.name",
+                        "test",
+                        "schema.name",
+                        "public",
+                        "table.name",
+                        "orders",
+                        "slot.name",
+                        "orders");
+        DbzSourceHandlerIpc handle =
+                SourceHandlerIpc.handleStart(1L, SourceType.POSTGRES, "", properties);
+        assert handle != null;
+        handle.startSource();
+        long received = 0;
+        while (true) {
+            CdcChunk chunk = handle.getChunk();
+            received += chunk.getEvents().size();
+            System.out.printf("received: %d\n", received);
+            if (received >= 10000) {
+                break;
+            }
         }
     }
 

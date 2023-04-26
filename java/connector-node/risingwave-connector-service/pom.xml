@@ -33,6 +33,12 @@
             <groupId>com.risingwave.java</groupId>
             <artifactId>connector-api</artifactId>
         </dependency>
+        <dependency>
+            <groupId>io.github.astonbitecode</groupId>
+            <artifactId>j4rs</artifactId>
+            <version>0.15.3</version>
+            <scope>provided</scope>
+        </dependency>
 
         <!-- logging -->
         <dependency>

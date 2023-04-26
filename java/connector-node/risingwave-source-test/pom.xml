@@ -30,6 +30,12 @@
             <artifactId>log4j-core</artifactId>
         </dependency>
         <dependency>
+            <groupId>io.github.astonbitecode</groupId>
+            <artifactId>j4rs</artifactId>
+            <version>0.15.3</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
             <scope>test</scope>
