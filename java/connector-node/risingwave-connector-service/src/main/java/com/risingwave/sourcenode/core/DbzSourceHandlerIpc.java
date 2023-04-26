@@ -14,6 +14,7 @@
 
 package com.risingwave.sourcenode.core;
 
+import com.risingwave.metrics.ConnectorNodeMetrics;
 import com.risingwave.sourcenode.common.DbzConnectorConfig;
 import com.risingwave.sourcenode.types.CdcChunk;
 import io.grpc.Context;
@@ -61,6 +62,10 @@ public class DbzSourceHandlerIpc {
                 }
                 var chunk = runner.getEngine().getOutputChannel().poll(500, TimeUnit.MILLISECONDS);
                 if (chunk != null) {
+                    ConnectorNodeMetrics.incSourceRowsReceived(
+                            config.getSourceType().toString(),
+                            String.valueOf(config.getSourceId()),
+                            chunk.getEvents().size());
                     return chunk;
                 }
             } catch (Exception e) {
