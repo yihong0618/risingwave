@@ -19,6 +19,7 @@ use async_trait::async_trait;
 use futures::{StreamExt, TryStreamExt};
 use futures_async_stream::try_stream;
 use risingwave_common::util::addr::HostAddr;
+use risingwave_pb::connector_service::GetEventStreamResponse;
 
 // use risingwave_pb::connector_service::GetEventStreamResponse;
 // use risingwave_rpc_client::ConnectorClient;
@@ -128,8 +129,15 @@ impl CdcSplitReader {
             properties,
         );
         self.connector_jvm.start_source(&dbz_handler);
+        let cdc_channel = self.connector_jvm.get_cdc_chunk_channel(&dbz_handler);
         loop {
-            let cdc_chunk = self.connector_jvm.get_cdc_chunk(&dbz_handler);
+            // TODO(j4rs): handle error correctly
+            let cdc_chunk_java = cdc_channel.rx().recv().unwrap();
+            let cdc_chunk = self
+                .connector_jvm
+                .inner
+                .to_rust::<GetEventStreamResponse>(cdc_chunk_java)
+                .unwrap();
             let mut msgs = Vec::with_capacity(cdc_chunk.events.len());
 
             for event in cdc_chunk.events {

@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::fs;
 
 use itertools::Itertools;
-use j4rs::{ClasspathEntry, Instance, InvocationArg, JavaClass, Jvm, JvmBuilder};
+use j4rs::{ClasspathEntry, Instance, InstanceReceiver, InvocationArg, JavaClass, Jvm, JvmBuilder};
 use risingwave_pb::connector_service::{GetEventStreamResponse, SourceType, TableSchema};
 
 pub struct JvmWrapper {
-    jvm: Jvm,
+    pub inner: Jvm,
 }
 
 unsafe impl Send for JvmWrapper {}
@@ -31,7 +31,7 @@ impl JvmWrapper {
             .classpath_entries(classpath_entries)
             .build()
             .map_err(|e| anyhow::format_err!("cannot create jvm: {}", e.to_string()))?;
-        Ok(JvmWrapper { jvm })
+        Ok(JvmWrapper { inner: jvm })
     }
 
     pub fn validate_source_properties(
@@ -41,11 +41,11 @@ impl JvmWrapper {
         table_schema: TableSchema,
     ) {
         let properties_java = self
-            .jvm
+            .inner
             .java_map(JavaClass::String, JavaClass::String, properties)
             .unwrap();
         // TODO(j4rs): handle error correctly
-        self.jvm
+        self.inner
             .invoke_static(
                 "com.risingwave.connector.SourceHandlerIpc",
                 "handleValidate",
@@ -70,12 +70,12 @@ impl JvmWrapper {
         properties: HashMap<String, String>,
     ) -> Instance {
         let properties_java = self
-            .jvm
+            .inner
             .java_map(JavaClass::String, JavaClass::String, properties)
             .unwrap();
         // TODO(j4rs): handle error correctly
         return self
-            .jvm
+            .inner
             .invoke_static(
                 "com.risingwave.connector.SourceHandlerIpc",
                 "handleStart",
@@ -92,7 +92,7 @@ impl JvmWrapper {
 
     pub fn start_source(&self, dbz_handler: &Instance) {
         // TODO(j4rs): handle error correctly
-        self.jvm
+        self.inner
             .invoke(dbz_handler, "startSource", vec![].as_slice())
             .unwrap();
     }
@@ -100,10 +100,16 @@ impl JvmWrapper {
     pub fn get_cdc_chunk(&self, dbz_handler: &Instance) -> GetEventStreamResponse {
         // TODO(j4rs): handle error correctly
         let res_java = self
-            .jvm
+            .inner
             .invoke(dbz_handler, "getChunk", vec![].as_slice())
             .unwrap();
         // TODO(j4rs): handle error correctly
-        self.jvm.to_rust(res_java).unwrap()
+        self.inner.to_rust(res_java).unwrap()
+    }
+
+    pub fn get_cdc_chunk_channel(&self, dbz_handler: &Instance) -> InstanceReceiver {
+        self.inner
+            .invoke_to_channel(dbz_handler, "getCdcChunkChannel", vec![].as_slice())
+            .unwrap()
     }
 }
