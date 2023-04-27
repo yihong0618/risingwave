@@ -94,7 +94,7 @@ public class DbzSourceHandlerIpc extends NativeCallbackToRustChannelSupport {
                                                 String.valueOf(config.getSourceId()),
                                                 chunk.getEvents().size());
                                         LOG.info("chunk size: {}", chunk.getEvents().size());
-                                        doCallback("hello");
+                                        doCallback(chunk);
                                     }
                                 } catch (Exception e) {
                                     LOG.error("Poll engine output channel fail. ", e);
