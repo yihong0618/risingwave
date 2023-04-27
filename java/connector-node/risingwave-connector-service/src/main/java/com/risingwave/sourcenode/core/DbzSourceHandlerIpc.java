@@ -77,24 +77,31 @@ public class DbzSourceHandlerIpc extends NativeCallbackToRustChannelSupport {
     }
 
     public void getCdcChunkChannel() {
-        while (true) {
-            if (!runner.isRunning()) {
-                return;
-            }
-            try {
-                CdcChunk chunk =
-                        runner.getEngine().getOutputChannel().poll(500, TimeUnit.MILLISECONDS);
-                if (chunk != null) {
-                    ConnectorNodeMetrics.incSourceRowsReceived(
-                            config.getSourceType().toString(),
-                            String.valueOf(config.getSourceId()),
-                            chunk.getEvents().size());
-                    doCallback(chunk);
-                }
-            } catch (Exception e) {
-                LOG.error("Poll engine output channel fail. ", e);
-                return;
-            }
-        }
+        new Thread(
+                        () -> {
+                            while (true) {
+                                if (!runner.isRunning()) {
+                                    return;
+                                }
+                                try {
+                                    CdcChunk chunk =
+                                            runner.getEngine()
+                                                    .getOutputChannel()
+                                                    .poll(500, TimeUnit.MILLISECONDS);
+                                    if (chunk != null) {
+                                        ConnectorNodeMetrics.incSourceRowsReceived(
+                                                config.getSourceType().toString(),
+                                                String.valueOf(config.getSourceId()),
+                                                chunk.getEvents().size());
+                                        LOG.info("chunk size: {}", chunk.getEvents().size());
+                                        doCallback("hello");
+                                    }
+                                } catch (Exception e) {
+                                    LOG.error("Poll engine output channel fail. ", e);
+                                    return;
+                                }
+                            }
+                        })
+                .start();
     }
 }
