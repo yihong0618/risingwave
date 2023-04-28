@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 
 use itertools::Itertools;
-use j4rs::{ClasspathEntry, Instance, InstanceReceiver, InvocationArg, JavaClass, Jvm, JvmBuilder};
+use j4rs::{ClasspathEntry, Instance, InvocationArg, JavaClass, Jvm, JvmBuilder};
 use risingwave_pb::connector_service::{GetEventStreamResponse, SourceType, TableSchema};
 
 pub struct JvmWrapper {
@@ -97,19 +97,16 @@ impl JvmWrapper {
             .unwrap();
     }
 
-    pub fn get_cdc_chunk(&self, dbz_handler: &Instance) -> GetEventStreamResponse {
-        // TODO(j4rs): handle error correctly
+    pub fn get_cdc_chunk(&self, handler_id: i64) -> GetEventStreamResponse {
         let res_java = self
             .inner
-            .invoke(dbz_handler, "getChunk", vec![].as_slice())
+            .invoke_static(
+                "com.risingwave.sourcenode.core.SourceHandlerManager",
+                "getChunk",
+                vec![InvocationArg::new(&handler_id, "java.lang.Long")].as_slice(),
+            )
             .unwrap();
         // TODO(j4rs): handle error correctly
         self.inner.to_rust(res_java).unwrap()
-    }
-
-    pub fn get_cdc_chunk_channel(&self, dbz_handler: &Instance) -> InstanceReceiver {
-        self.inner
-            .invoke_to_channel(dbz_handler, "getCdcChunkChannel", vec![].as_slice())
-            .unwrap()
     }
 }

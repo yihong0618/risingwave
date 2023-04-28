@@ -20,10 +20,6 @@ use async_trait::async_trait;
 use futures::{StreamExt, TryStreamExt};
 use futures_async_stream::try_stream;
 use risingwave_common::util::addr::HostAddr;
-use risingwave_pb::connector_service::GetEventStreamResponse;
-
-// use risingwave_pb::connector_service::GetEventStreamResponse;
-// use risingwave_rpc_client::ConnectorClient;
 use crate::impl_common_split_reader_logic;
 use crate::jvm_utils::JvmWrapper;
 use crate::parser::ParserConfig;
@@ -123,27 +119,24 @@ impl CdcSplitReader {
         }
 
         tracing::info!("cdc properties: {:?}", properties);
-        let dbz_handler = self.connector_jvm.get_source_stream_handler(
+        let handler_id_java = self.connector_jvm.get_source_stream_handler(
             self.source_id,
             self.conn_props.get_source_type()?,
             self.start_offset.unwrap_or(String::new()),
             properties,
         );
-        self.connector_jvm.start_source(&dbz_handler);
-        let cdc_channel = Arc::new(Mutex::new(
-            self.connector_jvm.get_cdc_chunk_channel(&dbz_handler),
-        ));
-        let jvm = Arc::new(self.connector_jvm);
+        let handler_id = self
+            .connector_jvm
+            .inner
+            .to_rust::<i64>(handler_id_java)
+            .unwrap();
+        tracing::info!("received handler id: {}", handler_id);
+        let jvm = Arc::new(Mutex::new(self.connector_jvm));
         loop {
             // TODO(j4rs): handle error correctly
-            let cdc_channel_ref = cdc_channel.clone();
             let jvm_ref = jvm.clone();
             let join_handle = tokio::task::spawn_blocking(move || {
-                let cdc_chunk_java = cdc_channel_ref.lock().unwrap().rx().recv().unwrap();
-                jvm_ref
-                    .inner
-                    .to_rust::<GetEventStreamResponse>(cdc_chunk_java)
-                    .unwrap()
+                jvm_ref.lock().unwrap().get_cdc_chunk(handler_id)
             });
             let cdc_chunk = join_handle.await?;
             let mut msgs = Vec::with_capacity(cdc_chunk.events.len());
