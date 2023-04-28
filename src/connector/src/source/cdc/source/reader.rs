@@ -13,12 +13,15 @@
 // limitations under the License.
 
 use std::str::FromStr;
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use futures::{StreamExt, TryStreamExt};
 use futures_async_stream::try_stream;
+use j4rs::Jvm;
 use risingwave_common::util::addr::HostAddr;
+use risingwave_pb::connector_service::GetEventStreamResponse;
 
 // use risingwave_pb::connector_service::GetEventStreamResponse;
 // use risingwave_rpc_client::ConnectorClient;
@@ -43,7 +46,7 @@ pub struct CdcSplitReader {
     split_id: SplitId,
     parser_config: ParserConfig,
     source_ctx: SourceContextRef,
-    connector_jvm: JvmWrapper,
+    connector_jvm: Arc<JvmWrapper>,
 }
 
 #[async_trait]
@@ -62,7 +65,7 @@ impl SplitReader for CdcSplitReader {
         let split = splits.into_iter().next().unwrap();
         let split_id = split.id();
         // TODO(j4rs): handle error properly
-        let connector_jvm = JvmWrapper::create_jvm().unwrap();
+        let connector_jvm = Arc::new(JvmWrapper::create_jvm()?);
         match split {
             SplitImpl::MySqlCdc(split) | SplitImpl::PostgresCdc(split) => Ok(Self {
                 source_id: split.split_id as u64,
@@ -97,7 +100,7 @@ impl SplitReader for CdcSplitReader {
 }
 
 impl CdcSplitReader {
-    #[try_stream(boxed, ok = Vec<SourceMessage>, error = anyhow::Error)]
+    // #[try_stream(boxed, ok = Vec<SourceMessage>, error = anyhow::Error)]
     async fn into_data_stream(self) {
         tracing::debug!("cdc props: {:?}", self.conn_props);
         // let cdc_client =
@@ -128,6 +131,21 @@ impl CdcSplitReader {
             properties,
         );
         self.connector_jvm.start_source(&dbz_handler);
+
+        loop {
+            let fut = async { self.connector_jvm.get_cdc_chunk(&dbz_handler) };
+            let GetEventStreamResponse { events, .. } = fut.await;
+            if events.is_empty() {
+                continue;
+            }
+
+            let mut msgs = Vec::with_capacity(events.len());
+            for event in events {
+                msgs.push(SourceMessage::from(event));
+            }
+            yield msgs;
+        }
+
         let cdc_chunk = self.connector_jvm.get_cdc_chunk(&dbz_handler);
         println!("Received chunk: {:#?}", cdc_chunk);
         // let cdc_stream = cdc_client

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::str::FromStr;
+use std::sync::Arc;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
@@ -32,7 +33,7 @@ pub struct DebeziumSplitEnumerator {
     source_id: u32,
     source_type: PbSourceType,
     worker_node_addrs: Vec<HostAddr>,
-    connector_jvm: JvmWrapper,
+    connector_jvm: Arc<JvmWrapper>,
 }
 
 #[async_trait]
@@ -61,7 +62,7 @@ impl SplitEnumerator for DebeziumSplitEnumerator {
 
         let source_type = props.get_source_type()?;
         // validate connector properties
-        let jvm = JvmWrapper::create_jvm().unwrap();
+        let jvm = Arc::new(JvmWrapper::create_jvm()?);
         // connector_client
         //     .validate_source_properties(
         //         props.source_id as u64,
