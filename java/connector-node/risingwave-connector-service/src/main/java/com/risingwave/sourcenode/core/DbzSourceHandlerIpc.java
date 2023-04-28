@@ -33,9 +33,6 @@ public class DbzSourceHandlerIpc extends NativeCallbackToRustChannelSupport {
     public DbzSourceHandlerIpc(DbzConnectorConfig config) throws Exception {
         this.config = config;
         this.runner = DbzCdcEngineRunnerIpc.newCdcEngineRunnerIpc(config);
-    }
-
-    public void startSource() {
         if (runner == null) {
             return;
         }

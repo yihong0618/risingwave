@@ -20,7 +20,7 @@ import static org.junit.Assert.*;
 
 import com.risingwave.proto.ConnectorServiceProto;
 import com.risingwave.proto.Data;
-import com.risingwave.sourcenode.core.DbzSourceHandlerIpc;
+import com.risingwave.sourcenode.core.SourceHandlerManager;
 import com.risingwave.sourcenode.types.CdcChunk;
 import com.risingwave.sourcenode.types.SourceType;
 import io.grpc.*;
@@ -182,13 +182,11 @@ public class PostgresSourceTest {
                         "orders",
                         "slot.name",
                         "orders");
-        DbzSourceHandlerIpc handle =
-                SourceHandlerIpc.handleStart(1L, SourceType.POSTGRES, "", properties);
-        assert handle != null;
-        handle.startSource();
+        Long handlerId = SourceHandlerIpc.handleStart(1L, SourceType.POSTGRES, "", properties);
+        assert handlerId > 0;
         long received = 0;
         while (true) {
-            CdcChunk chunk = handle.getChunk();
+            CdcChunk chunk = SourceHandlerManager.getChunk(handlerId);
             received += chunk.getEvents().size();
             System.out.printf("received: %d\n", received);
             if (received >= 10000) {
