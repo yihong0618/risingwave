@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -129,15 +130,22 @@ impl CdcSplitReader {
             properties,
         );
         self.connector_jvm.start_source(&dbz_handler);
-        let cdc_channel = self.connector_jvm.get_cdc_chunk_channel(&dbz_handler);
+        let cdc_channel = Arc::new(Mutex::new(
+            self.connector_jvm.get_cdc_chunk_channel(&dbz_handler),
+        ));
+        let jvm = Arc::new(self.connector_jvm);
         loop {
             // TODO(j4rs): handle error correctly
-            let cdc_chunk_java = cdc_channel.rx().recv().unwrap();
-            let cdc_chunk = self
-                .connector_jvm
-                .inner
-                .to_rust::<GetEventStreamResponse>(cdc_chunk_java)
-                .unwrap();
+            let cdc_channel_ref = cdc_channel.clone();
+            let jvm_ref = jvm.clone();
+            let join_handle = tokio::task::spawn_blocking(move || {
+                let cdc_chunk_java = cdc_channel_ref.lock().unwrap().rx().recv().unwrap();
+                jvm_ref
+                    .inner
+                    .to_rust::<GetEventStreamResponse>(cdc_chunk_java)
+                    .unwrap()
+            });
+            let cdc_chunk = join_handle.await?;
             let mut msgs = Vec::with_capacity(cdc_chunk.events.len());
 
             for event in cdc_chunk.events {

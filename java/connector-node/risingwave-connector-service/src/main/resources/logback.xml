@@ -1,0 +1,1 @@
+<logger name="org.hibernate.engine.jdbc.spi.SqlExceptionHelper" level="OFF"/>
