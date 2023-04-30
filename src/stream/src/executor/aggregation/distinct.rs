@@ -151,7 +151,10 @@ impl<S: StateStore> ColumnDeduplicater<S> {
                 dedup_table.update(key.chain(old_counts), key.chain(new_counts));
             });
 
-        for (vis, vis_mask_inv) in visibilities.iter_mut().zip_eq(vis_masks_inv.into_iter()) {
+        for (vis, vis_mask_inv) in visibilities
+            .iter_mut()
+            .zip_eq_fast(vis_masks_inv.into_iter())
+        {
             let mask = !vis_mask_inv.finish();
             if !mask.all() {
                 // update visibility if needed
