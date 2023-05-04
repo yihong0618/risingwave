@@ -5541,6 +5541,7 @@ dependencies = [
  "async-recursion",
  "async-stream",
  "async-trait",
+ "chrono",
  "criterion",
  "either",
  "fixedbitset",
@@ -7859,6 +7860,7 @@ dependencies = [
  "futures-core",
  "madsim-tokio",
  "pin-project-lite",
+ "tokio-util",
 ]
 
 [[package]]

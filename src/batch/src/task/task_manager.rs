@@ -267,6 +267,9 @@ impl BatchManager {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use futures::StreamExt;
     use risingwave_common::config::BatchConfig;
     use risingwave_hummock_sdk::to_committed_batch_query_epoch;
     use risingwave_pb::batch_plan::exchange_info::DistributionMode;
@@ -274,6 +277,9 @@ mod tests {
     use risingwave_pb::batch_plan::{
         ExchangeInfo, PbTaskId, PbTaskOutputId, PlanFragment, PlanNode, ValuesNode,
     };
+    use tokio::sync::watch;
+    use tokio::time::sleep;
+    use tokio_stream::wrappers::WatchStream;
     use tonic::Code;
 
     use crate::monitor::BatchManagerMetrics;
@@ -497,6 +503,8 @@ mod tests {
             .await
             .unwrap();
         let task_id = TaskId::from(&task_id);
+        sleep(Duration::from_millis(1000)).await;
+        println!("Sleep done!");
         manager
             .tasks
             .lock()
@@ -504,5 +512,26 @@ mod tests {
             .unwrap()
             .abort("Abort Test".to_owned());
         assert!(manager.wait_until_task_aborted(&task_id).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_watch() {
+        let (tx, rx) = watch::channel("hello");
+
+        let mut rx1 = rx.clone();
+        let handle1 = tokio::spawn(async move {
+            let mut s = WatchStream::new(rx1);
+            println!("Rx1: {:?}", s.next().await.unwrap());
+        });
+
+        let mut rx2 = rx.clone();
+        let handle2 = tokio::spawn(async move {
+            let mut s = WatchStream::new(rx2);
+            println!("Rx2: {:?}", s.next().await.unwrap());
+        });
+
+        tx.send("shit").unwrap();
+        handle1.await.unwrap();
+        handle2.await.unwrap();
     }
 }

@@ -14,11 +14,14 @@
 
 use async_stream::stream;
 use futures::stream::StreamExt;
+use futures::stream_select;
 use minitrace::prelude::*;
 use risingwave_common::catalog::Schema;
 use risingwave_common::error::ErrorCode;
 use tokio::select;
 use tokio::sync::watch::Receiver;
+use tokio_stream::wrappers::WatchStream;
+use tonic::codegen::Body;
 
 use crate::executor::{BoxedDataChunkStream, BoxedExecutor, Executor};
 use crate::task::ShutdownMsg;
@@ -57,64 +60,26 @@ impl Executor for ManagedExecutor {
     }
 
     fn execute(mut self: Box<Self>) -> BoxedDataChunkStream {
-        stream! {
-            let input_desc = self.input_desc.as_str();
-            let span_name = format!("{input_desc}_next");
-            let mut child_stream = self.child.execute();
+        let input_desc = self.input_desc.as_str();
+        let span_name = format!("{input_desc}_next");
 
-            let span = || {
-                let mut span = Span::enter_with_local_parent("next");
-                span.add_property(|| ("otel.name", span_name.to_string()));
-                span.add_property(|| ("next", input_desc.to_string()));
-                span
-            };
+        let span = || {
+            let mut span = Span::enter_with_local_parent("next");
+            span.add_property(|| ("otel.name", span_name.to_string()));
+            span.add_property(|| ("next", input_desc.to_string()));
+            span
+        };
 
-            loop {
-                select! {
-                    // We prioritize abort signal over normal data chunks.
-                    biased;
-                    res = self.shutdown_rx.changed() => {
-                        match res {
-                            Ok(_) => {
-                                let msg = self.shutdown_rx.borrow().clone();
-                                match msg {
-                                    ShutdownMsg::Abort(reason) => {
-                                        yield Err(ErrorCode::BatchError(reason.into()).into());
-                                    }
-                                    ShutdownMsg::Cancel => {
-                                        yield Err(ErrorCode::BatchError("".into()).into());
-                                    }
-                                    ShutdownMsg::Init => {
-                                        unreachable!("Never receive Init message");
-                                    }
-                                }
-                            },
-                            Err(_) => {
-                                panic!("shutdown_rx should not drop before task finish");
-                            }
-                        }
-                    }
-                    res = child_stream.next().in_span(span()) => {
-                        if self.shutdown_rx.has_changed().unwrap() {
-                           yield Err(ErrorCode::BatchError("aborted".into()).into());
-                        }
-                        if let Some(chunk) = res {
-                            match chunk {
-                                Ok(chunk) => {
-                                    event!(tracing::Level::TRACE, prev = %input_desc, msg = "chunk", "input = \n{:#?}",chunk);
-                                    yield Ok(chunk);
-                                },
-                                Err(error) => {
-                                    yield Err(ErrorCode::BatchError(error.into()).into());
-                                }
-                            }
-                        } else {
-                            return;
-                        }
-                    }
-                }
+        let mut child_stream = self.child.execute();
+
+        let shutdown_stream = WatchStream::from_changes(self.shutdown_rx).map(|msg| match msg {
+            ShutdownMsg::Abort(reason) => Err(ErrorCode::BatchError(reason.into()).into()),
+            ShutdownMsg::Cancel => Err(ErrorCode::BatchError("".into()).into()),
+            ShutdownMsg::Init => {
+                unreachable!("Never receive Init message");
             }
-        }
-        .boxed()
+        });
+
+        stream_select!(shutdown_stream, child_stream).boxed()
     }
 }

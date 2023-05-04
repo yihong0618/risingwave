@@ -14,11 +14,14 @@
 
 use std::collections::VecDeque;
 use std::future::Future;
+use std::time::Duration;
 
 use assert_matches::assert_matches;
+use chrono::Local;
 use futures::StreamExt;
 use futures_async_stream::{for_await, try_stream};
 use itertools::Itertools;
+use rand::random;
 use risingwave_common::array::column::Column;
 use risingwave_common::array::{DataChunk, DataChunkTestExt};
 use risingwave_common::catalog::Schema;
@@ -29,6 +32,7 @@ use risingwave_common::types::{DataType, Datum, ToOwnedDatum};
 use risingwave_common::util::iter_util::{ZipEqDebug, ZipEqFast};
 use risingwave_expr::expr::BoxedExpression;
 use risingwave_pb::batch_plan::PbExchangeSource;
+use tokio::time::sleep;
 
 use super::{BoxedExecutorBuilder, ExecutorBuilder};
 use crate::exchange_source::{ExchangeSource, ExchangeSourceImpl};
@@ -375,7 +379,15 @@ impl BlockExecutor {
     async fn do_execute(self) {
         // infinite loop to block
         #[allow(clippy::empty_loop)]
-        loop {}
+        loop {
+            let mut v = 0f64;
+            for i in 0..10000000 {
+                v = random::<f64>().sqrt();
+            }
+            // sleep(Duration::from_millis(10)).await;
+            let date = Local::now();
+            println!("time: {}, value: {}", date.format("%Y-%m-%d][%H:%M:%S"), v);
+        }
     }
 }
 

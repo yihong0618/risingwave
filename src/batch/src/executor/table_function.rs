@@ -19,6 +19,7 @@ use risingwave_common::error::{Result, RwError};
 use risingwave_common::types::DataType;
 use risingwave_expr::table_function::{build_from_prost, BoxedTableFunction};
 use risingwave_pb::batch_plan::plan_node::NodeBody;
+use tokio::task::yield_now;
 
 use super::{BoxedExecutor, BoxedExecutorBuilder};
 use crate::executor::{BoxedDataChunkStream, Executor, ExecutorBuilder};
@@ -63,6 +64,7 @@ impl TableFunctionExecutor {
             ArrayImpl::Struct(s) => DataChunk::from(s),
             array => DataChunk::new(vec![array.into()], len),
         };
+        yield_now().await;
     }
 }
 

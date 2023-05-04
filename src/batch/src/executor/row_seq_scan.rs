@@ -36,6 +36,7 @@ use risingwave_storage::store::PrefetchOptions;
 use risingwave_storage::table::batch_table::storage_table::StorageTable;
 use risingwave_storage::table::{Distribution, TableIter};
 use risingwave_storage::{dispatch_state_store, StateStore};
+use tokio::task::yield_now;
 
 use crate::executor::{
     BoxedDataChunkStream, BoxedExecutor, BoxedExecutorBuilder, Executor, ExecutorBuilder,
@@ -328,6 +329,7 @@ impl<S: StateStore> RowSeqScanExecutor<S> {
         let mut data_chunk_builder = DataChunkBuilder::new(table.schema().data_types(), chunk_size);
         // Point Get
         for point_get in point_gets {
+            yield_now().await;
             let table = table.clone();
             let histogram = histogram.clone();
             if let Some(row) =
@@ -358,6 +360,7 @@ impl<S: StateStore> RowSeqScanExecutor<S> {
         #[for_await]
         for chunk in range_scans {
             yield chunk?;
+            yield_now().await;
         }
     }
 

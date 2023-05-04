@@ -24,6 +24,7 @@ use risingwave_pb::batch_plan::plan_node::NodeBody;
 use risingwave_pb::batch_plan::PbExchangeSource;
 use risingwave_pb::plan_common::Field as NodeField;
 use risingwave_rpc_client::ComputeClientPoolRef;
+use tokio::task::yield_now;
 
 use crate::exchange_source::ExchangeSourceImpl;
 use crate::execution::grpc_exchange::GrpcExchangeSource;
@@ -210,6 +211,7 @@ impl<CS: 'static + Send + CreateSource, C: BatchTaskContext> GenericExchangeExec
         });
 
         loop {
+            yield_now().await;
             if let Some(res) = source.take_data().await? {
                 if res.cardinality() == 0 {
                     debug!("Exchange source {:?} output empty chunk.", source);
