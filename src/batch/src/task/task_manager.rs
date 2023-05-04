@@ -227,7 +227,9 @@ impl BatchManager {
         let guard = self.tasks.lock();
         for (t_id, t) in guard.iter() {
             warn!("Aborting task {:?}", t_id);
-            t.abort(reason.clone());
+            if !t.is_end() {
+                t.abort(reason.clone());
+            }
         }
         // for (t_id, t) in guard.iter() {
         //     // If the task has been stopped, we should not count this.
