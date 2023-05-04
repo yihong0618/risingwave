@@ -62,14 +62,14 @@ impl TableFunctionExecutor {
         for array in self.table_function.eval(&dummy_chunk).await? {
             len += array.len();
             builder.append_array(&array);
+            if self.shutdown_rx.has_changed().unwrap() {
+                return Err(BatchError::Aborted("aborted".into()).into());
+            }
         }
         yield match builder.finish() {
             ArrayImpl::Struct(s) => DataChunk::from(s),
             array => DataChunk::new(vec![array.into()], len),
         };
-        if self.shutdown_rx.has_changed().unwrap() {
-            return Err(BatchError::Aborted("aborted".into()).into());
-        }
     }
 }
 
