@@ -533,13 +533,13 @@ impl<C: BatchTaskContext> BatchTaskExecution<C> {
                         break;
                     }
                     ShutdownMsg::Abort(_) => {
-                        warn!("Batch task aborted: {:?}", e);
+                        warn!("Batch task {:?} aborted: {:?}", self.task_id, e);
                         error = Some(BatchError::from(e));
                         state = TaskStatus::Aborted;
                         break;
                     }
                     ShutdownMsg::Cancel => {
-                        warn!("Batch task cancelled: {:?}", e);
+                        warn!("Batch task {:?} cancelled: {:?}", self.task_id, e);
                         state = TaskStatus::Cancelled;
                         break;
                     }
