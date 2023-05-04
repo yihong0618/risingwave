@@ -226,24 +226,28 @@ impl BatchManager {
         let mut max_mem = usize::MIN;
         let guard = self.tasks.lock();
         for (t_id, t) in guard.iter() {
-            // If the task has been stopped, we should not count this.
-            if t.is_end() {
-                continue;
-            }
-            // Alternatively, we can use a bool flag to indicate end of execution.
-            // Now we use only store 0 bytes in Context after execution ends.
-            let mem_usage = t.mem_usage();
-            if mem_usage > max_mem {
-                max_mem = mem_usage;
-                max_mem_task_id = Some(t_id.clone());
-            }
+            warn!("Aborting task {t_id}");
+            t.abort(reason.clone());
         }
-        if let Some(id) = max_mem_task_id {
-            let t = guard.get(&id).unwrap();
-            // FIXME: `Abort` will not report error but truncated results to user. We should
-            // consider throw error.
-            t.abort(reason);
-        }
+        // for (t_id, t) in guard.iter() {
+        //     // If the task has been stopped, we should not count this.
+        //     if t.is_end() {
+        //         continue;
+        //     }
+        //     // Alternatively, we can use a bool flag to indicate end of execution.
+        //     // Now we use only store 0 bytes in Context after execution ends.
+        //     let mem_usage = t.mem_usage();
+        //     if mem_usage > max_mem {
+        //         max_mem = mem_usage;
+        //         max_mem_task_id = Some(t_id.clone());
+        //     }
+        // }
+        // if let Some(id) = max_mem_task_id {
+        //     let t = guard.get(&id).unwrap();
+        //     // FIXME: `Abort` will not report error but truncated results to user. We should
+        //     // consider throw error.
+        //     t.abort(reason);
+        // }
     }
 
     /// Called by global memory manager for total usage of batch tasks. This op is designed to be
