@@ -504,6 +504,12 @@ impl<C: BatchTaskContext> BatchTaskExecution<C> {
         loop {
             match data_chunk_stream.next().await {
                 Some(Ok(data_chunk)) => {
+                    if self.shutdown_rx.has_changed().unwrap() {
+                        warn!("Batch task {:?} aborted: {:?}", self.task_id, e);
+                        error = Some(BatchError::from(e));
+                        state = TaskStatus::Aborted;
+                        break;
+                    }
                     if let Err(e) = sender.send(data_chunk).await {
                         match e {
                             BatchError::SenderError => {

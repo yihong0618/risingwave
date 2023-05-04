@@ -226,8 +226,8 @@ impl BatchManager {
         // let mut max_mem = usize::MIN;
         let guard = self.tasks.lock();
         for (t_id, t) in guard.iter() {
-            warn!("Aborting task {:?}", t_id);
             if !t.is_end() {
+                warn!("Aborting task {:?}", t_id);
                 t.abort(reason.clone());
             }
         }
