@@ -222,11 +222,11 @@ impl BatchManager {
     /// Kill batch queries with larges memory consumption per task. Required to maintain task level
     /// memory usage in the struct. Will be called by global memory manager.
     pub fn kill_queries(&self, reason: String) {
-        let mut max_mem_task_id = None;
-        let mut max_mem = usize::MIN;
+        // let mut max_mem_task_id = None;
+        // let mut max_mem = usize::MIN;
         let guard = self.tasks.lock();
         for (t_id, t) in guard.iter() {
-            warn!("Aborting task {t_id}");
+            warn!("Aborting task {:?}", t_id);
             t.abort(reason.clone());
         }
         // for (t_id, t) in guard.iter() {
