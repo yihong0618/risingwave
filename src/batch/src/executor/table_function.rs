@@ -19,17 +19,20 @@ use risingwave_common::error::{Result, RwError};
 use risingwave_common::types::DataType;
 use risingwave_expr::table_function::{build_from_prost, BoxedTableFunction};
 use risingwave_pb::batch_plan::plan_node::NodeBody;
+use tokio::sync::watch::Receiver;
 use tokio::task::yield_now;
 
 use super::{BoxedExecutor, BoxedExecutorBuilder};
+use crate::error::BatchError;
 use crate::executor::{BoxedDataChunkStream, Executor, ExecutorBuilder};
-use crate::task::BatchTaskContext;
+use crate::task::{BatchTaskContext, ShutdownMsg};
 
 pub struct TableFunctionExecutor {
     schema: Schema,
     identity: String,
     table_function: BoxedTableFunction,
     chunk_size: usize,
+    shutdown_rx: Receiver<ShutdownMsg>,
 }
 
 impl Executor for TableFunctionExecutor {
@@ -64,7 +67,9 @@ impl TableFunctionExecutor {
             ArrayImpl::Struct(s) => DataChunk::from(s),
             array => DataChunk::new(vec![array.into()], len),
         };
-        yield_now().await;
+        if self.shutdown_rx.has_changed().unwrap() {
+            return Err(BatchError::Aborted("aborted".into()).into());
+        }
     }
 }
 
@@ -107,6 +112,7 @@ impl BoxedExecutorBuilder for TableFunctionExecutorBuilder {
             identity,
             table_function,
             chunk_size,
+            shutdown_rx: source.shutdown_rx.clone(),
         }))
     }
 }

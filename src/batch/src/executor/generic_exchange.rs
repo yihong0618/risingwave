@@ -24,13 +24,15 @@ use risingwave_pb::batch_plan::plan_node::NodeBody;
 use risingwave_pb::batch_plan::PbExchangeSource;
 use risingwave_pb::plan_common::Field as NodeField;
 use risingwave_rpc_client::ComputeClientPoolRef;
+use tokio::sync::watch::Receiver;
 use tokio::task::yield_now;
 
+use crate::error::BatchError;
 use crate::exchange_source::ExchangeSourceImpl;
 use crate::execution::grpc_exchange::GrpcExchangeSource;
 use crate::execution::local_exchange::LocalExchangeSource;
 use crate::executor::ExecutorBuilder;
-use crate::task::{BatchTaskContext, TaskId};
+use crate::task::{BatchTaskContext, ShutdownMsg, TaskId};
 
 pub type ExchangeExecutor<C> = GenericExchangeExecutor<DefaultCreateSource, C>;
 use crate::executor::{BoxedDataChunkStream, BoxedExecutor, BoxedExecutorBuilder, Executor};
@@ -49,6 +51,8 @@ pub struct GenericExchangeExecutor<CS, C> {
     /// Batch metrics.
     /// None: Local mode don't record mertics.
     metrics: Option<BatchMetricsWithTaskLabels>,
+
+    shutdown_rx: Receiver<ShutdownMsg>,
 }
 
 /// `CreateSource` determines the right type of `ExchangeSource` to create.
@@ -142,6 +146,7 @@ impl BoxedExecutorBuilder for GenericExchangeExecutorBuilder {
             task_id: source.task_id.clone(),
             identity: source.plan_node().get_identity().clone(),
             metrics: source.context().batch_metrics(),
+            shutdown_rx: source.shutdown_rx.clone(),
         }))
     }
 }
@@ -184,7 +189,11 @@ impl<CS: 'static + Send + CreateSource, C: BatchTaskContext> GenericExchangeExec
 
         while let Some(data_chunk) = stream.next().await {
             let data_chunk = data_chunk?;
-            yield data_chunk
+            yield data_chunk;
+
+            if self.shutdown_rx.has_changed().unwrap() {
+                return Err(BatchError::Aborted("aborted".into()).into());
+            }
         }
     }
 
@@ -211,7 +220,6 @@ impl<CS: 'static + Send + CreateSource, C: BatchTaskContext> GenericExchangeExec
         });
 
         loop {
-            yield_now().await;
             if let Some(res) = source.take_data().await? {
                 if res.cardinality() == 0 {
                     debug!("Exchange source {:?} output empty chunk.", source);
@@ -237,10 +245,13 @@ mod tests {
     use risingwave_common::array::{DataChunk, I32Array};
     use risingwave_common::array_nonnull;
     use risingwave_common::types::DataType;
+    use tokio::sync::watch::channel;
 
     use super::*;
     use crate::executor::test_utils::{FakeCreateSource, FakeExchangeSource};
     use crate::task::ComputeNodeContext;
+    use crate::task::ShutdownMsg::Init;
+
     #[tokio::test]
     async fn test_exchange_multiple_sources() {
         let context = ComputeNodeContext::for_test();
@@ -268,6 +279,7 @@ mod tests {
                 },
                 task_id: TaskId::default(),
                 identity: "GenericExchangeExecutor2".to_string(),
+                shutdown_rx: channel(Init).1,
             },
         );
 
