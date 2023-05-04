@@ -53,7 +53,7 @@ impl MemoryControl for JemallocMemoryControl {
         &self,
         interval_ms: u32,
         prev_memory_stats: MemoryControlStats,
-        _batch_manager: Arc<BatchManager>,
+        batch_manager: Arc<BatchManager>,
         _stream_manager: Arc<LocalStreamManager>,
         watermark_epoch: Arc<AtomicU64>,
     ) -> MemoryControlStats {
