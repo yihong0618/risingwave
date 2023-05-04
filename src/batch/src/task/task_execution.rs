@@ -587,17 +587,21 @@ impl<C: BatchTaskContext> BatchTaskExecution<C> {
     pub fn abort(&self, err_msg: String) {
         // No need to set state to be Aborted here cuz it will be set by shutdown receiver.
         // Stop task execution.
-        if self.shutdown_tx.send(ShutdownMsg::Abort(err_msg)).is_err() {
-            debug!("The task has already died before this request.")
-        } else {
-            info!("Abort task {:?} done", self.task_id);
-        }
+        // if self.shutdown_tx.send_replace(ShutdownMsg::Abort(err_msg)).is_err() {
+        //     debug!("The task has already died before this request.")
+        // } else {
+        //     info!("Abort task {:?} done", self.task_id);
+        // }
+        self.shutdown_tx.send_replace(ShutdownMsg::Abort(err_msg));
+        info!("Abort task {:?} done", self.task_id);
     }
 
     pub fn cancel(&self) {
-        if self.shutdown_tx.send(ShutdownMsg::Cancel).is_err() {
-            debug!("The task has already died before this request.");
-        }
+        // if self.shutdown_tx.send_replace(ShutdownMsg::Cancel).is_err() {
+        //     debug!("The task has already died before this request.");
+        // }
+        self.shutdown_tx.send_replace(ShutdownMsg::Cancel);
+        debug!("The task has already died before this request.");
     }
 
     pub fn get_task_output(&self, output_id: &PbTaskOutputId) -> Result<TaskOutput> {
