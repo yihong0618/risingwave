@@ -19,6 +19,7 @@ use risingwave_common::catalog::Schema;
 use risingwave_common::error::ErrorCode;
 use tokio::select;
 use tokio::sync::watch::Receiver;
+use tokio::task::yield_now;
 
 use crate::executor::{BoxedDataChunkStream, BoxedExecutor, Executor};
 use crate::task::ShutdownMsg;
@@ -95,6 +96,7 @@ impl Executor for ManagedExecutor {
                         }
                     }
                     res = child_stream.next().in_span(span()) => {
+                        yield_now().await;
                         if let Some(chunk) = res {
                             match chunk {
                                 Ok(chunk) => {
