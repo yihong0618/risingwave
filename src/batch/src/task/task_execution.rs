@@ -20,7 +20,7 @@ use std::sync::Arc;
 #[cfg(enable_task_local_alloc)]
 use std::time::Duration;
 
-use futures::{FutureExt, StreamExt};
+use futures::{stream_select, FutureExt, StreamExt};
 use minitrace::prelude::*;
 use parking_lot::Mutex;
 use risingwave_common::array::DataChunk;
@@ -31,6 +31,7 @@ use risingwave_pb::common::BatchQueryEpoch;
 use risingwave_pb::task_service::task_info_response::TaskStatus;
 use risingwave_pb::task_service::{GetDataResponse, TaskInfoResponse};
 use tokio_metrics::TaskMonitor;
+use tokio_stream::wrappers::WatchStream;
 
 use crate::error::BatchError::SenderError;
 use crate::error::{to_rw_error, BatchError, Result as BatchResult};
@@ -500,17 +501,16 @@ impl<C: BatchTaskContext> BatchTaskExecution<C> {
         state_tx: Option<&mut StateReporter>,
     ) {
         let mut data_chunk_stream = root.execute();
+        let shutdown_stream = WatchStream::from_changes(self.shutdown_rx.clone())
+            .map(|s| Err(BatchError::Aborted("aborted".into()).into()));
+
+        let mut stream = stream_select!(shutdown_stream, data_chunk_stream).boxed();
+
         let mut state;
         let mut error = None;
         loop {
-            match data_chunk_stream.next().await {
+            match stream.next().await {
                 Some(Ok(data_chunk)) => {
-                    if self.shutdown_rx.has_changed().unwrap() {
-                        warn!("Batch task {:?} aborted", self.task_id);
-                        error = Some(BatchError::Aborted("aborted".into()));
-                        state = TaskStatus::Aborted;
-                        break;
-                    }
                     if let Err(e) = sender.send(data_chunk).await {
                         match e {
                             BatchError::SenderError => {

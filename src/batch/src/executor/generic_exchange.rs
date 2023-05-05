@@ -188,12 +188,12 @@ impl<CS: 'static + Send + CreateSource, C: BatchTaskContext> GenericExchangeExec
         .boxed();
 
         while let Some(data_chunk) = stream.next().await {
-            let data_chunk = data_chunk?;
-            yield data_chunk;
-
             if self.shutdown_rx.has_changed().unwrap() {
                 return Err(BatchError::Aborted("aborted".into()).into());
             }
+
+            let data_chunk = data_chunk?;
+            yield data_chunk;
         }
     }
 

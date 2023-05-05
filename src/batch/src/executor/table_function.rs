@@ -69,10 +69,10 @@ impl TableFunctionExecutor {
             for data_chunk in
                 builder.append_chunk(DataChunk::new(vec![Column::new(array)], Vis::from(len)))
             {
-                yield data_chunk;
                 if self.shutdown_rx.has_changed().unwrap() {
                     return Err(BatchError::Aborted("aborted".into()).into());
                 }
+                yield data_chunk;
             }
         }
 
