@@ -18,10 +18,13 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use risingwave_batch::executor::hash_join::HashJoinExecutor;
 use risingwave_batch::executor::test_utils::{gen_projected_data, MockExecutor};
 use risingwave_batch::executor::{BoxedExecutor, JoinType};
+use risingwave_batch::task::ShutdownMsg;
+use risingwave_batch::task::ShutdownMsg::Init;
 use risingwave_common::catalog::schema_test_utils::field_n;
 use risingwave_common::types::DataType;
 use risingwave_common::{enable_jemalloc_on_unix, hash};
 use risingwave_expr::expr::build_from_pretty;
+use tokio::sync::watch;
 use utils::bench_join;
 
 enable_jemalloc_on_unix!();
@@ -72,6 +75,7 @@ fn create_hash_join_executor(
         cond,
         "HashJoinExecutor".into(),
         CHUNK_SIZE,
+        watch::channel(Init).1,
     ))
 }
 
