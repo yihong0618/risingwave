@@ -63,9 +63,9 @@ impl TableFunctionExecutor {
 
         let mut builder =
             DataChunkBuilder::new(vec![self.table_function.return_type()], self.chunk_size);
-        let mut len = 0;
+        // let mut len = 0;
         for array in self.table_function.eval(&dummy_chunk).await? {
-            len += array.len();
+            let len = array.len();
             for data_chunk in
                 builder.append_chunk(DataChunk::new(vec![Column::new(array)], Vis::from(len)))
             {
