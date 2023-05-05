@@ -463,6 +463,8 @@ mod tests {
             .await
             .unwrap();
         let task_id = TaskId::from(&task_id);
+        sleep(Duration::from_millis(1000)).await;
+        println!("Sleep done!");
         manager
             .tasks
             .lock()

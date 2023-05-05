@@ -70,17 +70,17 @@ impl Executor for ManagedExecutor {
             span
         };
 
-        // let mut child_stream = self.child.execute();
-        //
-        // let shutdown_stream = WatchStream::from_changes(self.shutdown_rx).map(|msg| match msg {
-        //     ShutdownMsg::Abort(reason) => Err(ErrorCode::BatchError(reason.into()).into()),
-        //     ShutdownMsg::Cancel => Err(ErrorCode::BatchError("".into()).into()),
-        //     ShutdownMsg::Init => {
-        //         unreachable!("Never receive Init message");
-        //     }
-        // });
-        //
-        // stream_select!(shutdown_stream, child_stream).boxed()
-        self.child.execute()
+        let mut child_stream = self.child.execute();
+
+        let shutdown_stream = WatchStream::from_changes(self.shutdown_rx).map(|msg| match msg {
+            ShutdownMsg::Abort(reason) => Err(ErrorCode::BatchError(reason.into()).into()),
+            ShutdownMsg::Cancel => Err(ErrorCode::BatchError("".into()).into()),
+            ShutdownMsg::Init => {
+                unreachable!("Never receive Init message");
+            }
+        });
+
+        stream_select!(shutdown_stream, child_stream).boxed()
+        // self.child.execute()
     }
 }
