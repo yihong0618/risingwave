@@ -117,7 +117,7 @@ fn advance_jemalloc_epoch(
         }),
         jemalloc_resident_mib.read().unwrap_or_else(|e| {
             tracing::warn!("Jemalloc read resident failed! {:?}", e);
-            prev_jemalloc_active_mib
+            prev_jemalloc_resident_mib
         }),
     )
 }
