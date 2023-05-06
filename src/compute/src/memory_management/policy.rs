@@ -95,7 +95,7 @@ fn advance_jemalloc_epoch(
     prev_jemalloc_allocated_mib: usize,
     prev_jemalloc_active_mib: usize,
     prev_jemalloc_resident_mib: usize,
-) -> (usize, usize) {
+) -> (usize, usize, usize) {
     use tikv_jemalloc_ctl::{epoch as jemalloc_epoch, stats as jemalloc_stats};
 
     let jemalloc_epoch_mib = jemalloc_epoch::mib().unwrap();
