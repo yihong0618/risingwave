@@ -734,7 +734,7 @@ mod default {
         }
 
         pub fn async_stack_trace() -> AsyncStackTraceOption {
-            AsyncStackTraceOption::On
+            AsyncStackTraceOption::Verbose
         }
 
         pub fn unique_user_stream_errors() -> usize {
