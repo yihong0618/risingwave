@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use prometheus::core::{AtomicF64, AtomicI64, AtomicU64, GenericCounterVec, GenericGaugeVec};
+use prometheus::core::{
+    AtomicF64, AtomicI64, AtomicU64, Collector, GenericCounterVec, GenericGaugeVec,
+};
 use prometheus::{
     exponential_buckets, histogram_opts, register_gauge_vec_with_registry,
     register_histogram_vec_with_registry, register_histogram_with_registry,
@@ -59,11 +61,11 @@ pub struct StreamingMetrics {
     pub join_cached_estimated_size: GenericGaugeVec<AtomicI64>,
 
     // Streaming Aggregation
-    pub agg_lookup_miss_count: GenericCounterVec<AtomicU64>,
-    pub agg_total_lookup_count: GenericCounterVec<AtomicU64>,
-    pub agg_cached_keys: GenericGaugeVec<AtomicI64>,
-    pub agg_chunk_lookup_miss_count: GenericCounterVec<AtomicU64>,
-    pub agg_chunk_total_lookup_count: GenericCounterVec<AtomicU64>,
+    // pub agg_lookup_miss_count: GenericCounterVec<AtomicU64>,
+    // pub agg_total_lookup_count: GenericCounterVec<AtomicU64>,
+    // pub agg_cached_keys: GenericGaugeVec<AtomicI64>,
+    // pub agg_chunk_lookup_miss_count: GenericCounterVec<AtomicU64>,
+    // pub agg_chunk_total_lookup_count: GenericCounterVec<AtomicU64>,
 
     // Backfill
     pub backfill_snapshot_read_row_count: GenericCounterVec<AtomicU64>,
@@ -340,45 +342,45 @@ impl StreamingMetrics {
         )
         .unwrap();
 
-        let agg_lookup_miss_count = register_int_counter_vec_with_registry!(
-            "stream_agg_lookup_miss_count",
-            "Aggregation executor lookup miss duration",
-            &["table_id", "actor_id"],
-            registry
-        )
-        .unwrap();
+        // let agg_lookup_miss_count = register_int_counter_vec_with_registry!(
+        //     "stream_agg_lookup_miss_count",
+        //     "Aggregation executor lookup miss duration",
+        //     &["table_id", "actor_id"],
+        //     registry
+        // )
+        // .unwrap();
 
-        let agg_total_lookup_count = register_int_counter_vec_with_registry!(
-            "stream_agg_lookup_total_count",
-            "Aggregation executor lookup total operation",
-            &["table_id", "actor_id"],
-            registry
-        )
-        .unwrap();
+        // let agg_total_lookup_count = register_int_counter_vec_with_registry!(
+        //     "stream_agg_lookup_total_count",
+        //     "Aggregation executor lookup total operation",
+        //     &["table_id", "actor_id"],
+        //     registry
+        // )
+        // .unwrap();
 
-        let agg_cached_keys = register_int_gauge_vec_with_registry!(
-            "stream_agg_cached_keys",
-            "Number of cached keys in streaming aggregation operators",
-            &["table_id", "actor_id"],
-            registry
-        )
-        .unwrap();
+        // let agg_cached_keys = register_int_gauge_vec_with_registry!(
+        //     "stream_agg_cached_keys",
+        //     "Number of cached keys in streaming aggregation operators",
+        //     &["table_id", "actor_id"],
+        //     registry
+        // )
+        // .unwrap();
 
-        let agg_chunk_lookup_miss_count = register_int_counter_vec_with_registry!(
-            "stream_agg_chunk_lookup_miss_count",
-            "Aggregation executor chunk-level lookup miss duration",
-            &["table_id", "actor_id"],
-            registry
-        )
-        .unwrap();
+        // let agg_chunk_lookup_miss_count = register_int_counter_vec_with_registry!(
+        //     "stream_agg_chunk_lookup_miss_count",
+        //     "Aggregation executor chunk-level lookup miss duration",
+        //     &["table_id", "actor_id"],
+        //     registry
+        // )
+        // .unwrap();
 
-        let agg_chunk_total_lookup_count = register_int_counter_vec_with_registry!(
-            "stream_agg_chunk_lookup_total_count",
-            "Aggregation executor chunk-level lookup total operation",
-            &["table_id", "actor_id"],
-            registry
-        )
-        .unwrap();
+        // let agg_chunk_total_lookup_count = register_int_counter_vec_with_registry!(
+        //     "stream_agg_chunk_lookup_total_count",
+        //     "Aggregation executor chunk-level lookup total operation",
+        //     &["table_id", "actor_id"],
+        //     registry
+        // )
+        // .unwrap();
 
         let backfill_snapshot_read_row_count = register_int_counter_vec_with_registry!(
             "stream_backfill_snapshot_read_row_count",
@@ -522,11 +524,11 @@ impl StreamingMetrics {
             join_cached_entries,
             join_cached_rows,
             join_cached_estimated_size,
-            agg_lookup_miss_count,
-            agg_total_lookup_count,
-            agg_cached_keys,
-            agg_chunk_lookup_miss_count,
-            agg_chunk_total_lookup_count,
+            // agg_lookup_miss_count,
+            // agg_total_lookup_count,
+            // agg_cached_keys,
+            // agg_chunk_lookup_miss_count,
+            // agg_chunk_total_lookup_count,
             backfill_snapshot_read_row_count,
             backfill_upstream_output_row_count,
             barrier_inflight_latency,
@@ -548,5 +550,226 @@ impl StreamingMetrics {
     /// Create a new `StreamingMetrics` instance used in tests or other places.
     pub fn unused() -> Self {
         Self::new(prometheus::Registry::new())
+    }
+}
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use itertools::Itertools;
+use parking_lot::Mutex;
+use paste::paste;
+use prometheus::core::{Desc, GenericCounter, GenericGauge};
+use prometheus::{opts, IntCounterVec, IntGaugeVec};
+
+use crate::task::ActorId;
+
+macro_rules! for_all_actor_metrics {
+        ($macro:ident) => {
+            $macro! {
+                // Streaming Aggregation
+                { agg_lookup_miss_count, GenericCounterVec<AtomicU64>, GenericCounter<AtomicU64> },
+                { agg_total_lookup_count, GenericCounterVec<AtomicU64>, GenericCounter<AtomicU64> },
+                { agg_cached_keys, GenericGaugeVec<AtomicI64>, GenericGauge<AtomicI64> },
+                { agg_chunk_lookup_miss_count, GenericCounterVec<AtomicU64>, GenericCounter<AtomicU64> },
+                { agg_chunk_total_lookup_count, GenericCounterVec<AtomicU64>, GenericCounter<AtomicU64> },
+            }
+        };
+    }
+
+macro_rules! def_actor_metrics {
+        ($({ $metric:ident, $type:ty, $_collector_type:ty},)*) => {
+            #[derive(Clone)]
+            pub struct ActorMetrics {
+                descs: Vec<Desc>,
+                delete_actor: Arc<Mutex<Vec<ActorId>>>,
+                register_labels: Arc<Mutex<HashMap<ActorId, Vec<Box<dyn Fn() + Send>>>>>,
+
+                $( pub $metric: $type, )*
+            }
+        };
+    }
+
+for_all_actor_metrics!(def_actor_metrics);
+
+impl ActorMetrics {
+    pub fn new(registry: Registry) -> Self {
+        let mut descs = Vec::with_capacity(16);
+
+        let agg_lookup_miss_count = IntCounterVec::new(
+            opts!(
+                "stream_agg_lookup_miss_count",
+                "Aggregation executor lookup miss duration",
+            ),
+            &["table_id", "actor_id"],
+        )
+        .unwrap();
+        descs.extend(agg_lookup_miss_count.desc().into_iter().cloned());
+
+        let agg_total_lookup_count = IntCounterVec::new(
+            opts!(
+                "stream_agg_lookup_total_count",
+                "Aggregation executor lookup total operation",
+            ),
+            &["table_id", "actor_id"],
+        )
+        .unwrap();
+        descs.extend(agg_total_lookup_count.desc().into_iter().cloned());
+
+        let agg_cached_keys = IntGaugeVec::new(
+            opts!(
+                "stream_agg_cached_keys",
+                "Number of cached keys in streaming aggregation operators",
+            ),
+            &["table_id", "actor_id"],
+        )
+        .unwrap();
+        descs.extend(agg_cached_keys.desc().into_iter().cloned());
+
+        let agg_chunk_lookup_miss_count = IntCounterVec::new(
+            opts!(
+                "stream_agg_chunk_lookup_miss_count",
+                "Aggregation executor chunk-level lookup miss duration",
+            ),
+            &["table_id", "actor_id"],
+        )
+        .unwrap();
+        descs.extend(agg_chunk_lookup_miss_count.desc().into_iter().cloned());
+
+        let agg_chunk_total_lookup_count = IntCounterVec::new(
+            opts!(
+                "stream_agg_chunk_lookup_total_count",
+                "Aggregation executor chunk-level lookup total operation",
+            ),
+            &["table_id", "actor_id"],
+        )
+        .unwrap();
+        descs.extend(agg_chunk_total_lookup_count.desc().into_iter().cloned());
+
+        let metrics = Self {
+            descs,
+            delete_actor: Arc::new(Mutex::new(Vec::new())),
+            register_labels: Arc::new(Mutex::new(HashMap::new())),
+            agg_lookup_miss_count,
+            agg_total_lookup_count,
+            agg_cached_keys,
+            agg_chunk_lookup_miss_count,
+            agg_chunk_total_lookup_count,
+        };
+        registry.register(Box::new(metrics.clone())).unwrap();
+        metrics
+    }
+
+    pub fn for_test() -> Self {
+        Self::new(prometheus::Registry::new())
+    }
+
+    fn clean_metrics(&self) {
+        let delete_actor: Vec<ActorId> = {
+            let mut delete_actor = self.delete_actor.lock();
+            if delete_actor.is_empty() {
+                return;
+            }
+            std::mem::take(delete_actor.as_mut())
+        };
+        let delete_labels = {
+            let mut register_labels = self.register_labels.lock();
+            let mut delete_labels = Vec::with_capacity(delete_actor.len());
+            for id in delete_actor {
+                if let Some(callback) = register_labels.remove(&id) {
+                    delete_labels.push(callback);
+                }
+            }
+            delete_labels
+        };
+        delete_labels
+            .into_iter()
+            .for_each(|delete_labels| delete_labels.into_iter().for_each(|callback| callback()));
+    }
+
+    pub fn add_delete_actor(&self, actor_id: ActorId) {
+        self.delete_actor.lock().push(actor_id);
+    }
+}
+
+macro_rules! impl_collector_trait_for_actor_metrics {
+        ($({ $metric:ident, $_type:ty, $_collector_type:ty},)*) => {
+            impl Collector for ActorMetrics {
+                fn desc(&self) -> Vec<&Desc> {
+                    self.descs.iter().collect()
+                }
+
+                fn collect(&self) -> Vec<prometheus::proto::MetricFamily> {
+                    let mut mfs = Vec::with_capacity(16);
+
+                    $( mfs.extend(self.$metric.collect()); )*
+
+                    self.clean_metrics();
+
+                    mfs
+                }
+            }
+        };
+    }
+
+for_all_actor_metrics!(impl_collector_trait_for_actor_metrics);
+
+pub type ActorMetricsWithLabels = Arc<ActorMetricsWithLabelsInner>;
+
+pub struct ActorMetricsWithLabelsInner {
+    actor_metrics: Arc<ActorMetrics>,
+    actor_id: ActorId,
+    labels: Vec<String>,
+}
+
+macro_rules! def_create_actor_collector {
+        ($({ $metric:ident, $type:ty, $collector_type:ty },)*) => {
+            paste! {
+                $(
+                    pub fn [<create_collector_for_$metric>](&self, executor_label: Vec<String>) -> $collector_type {
+                        let mut owned_task_labels = self.labels.clone();
+                        owned_task_labels.extend(executor_label);
+                        let task_labels = owned_task_labels.iter().map(String::as_str).collect_vec();
+
+                        let collector = self
+                            .actor_metrics
+                            .$metric
+                            .with_label_values(&task_labels);
+
+                        let metrics = self.actor_metrics.$metric.clone();
+
+                        self.actor_metrics
+                            .register_labels
+                            .lock()
+                            .entry(self.actor_id.clone())
+                            .or_default()
+                            .push(Box::new(move || {
+                                metrics.remove_label_values(
+                                    &owned_task_labels.iter().map(String::as_str).collect_vec(),
+                                ).expect("Collector with same label only can be created once. It should never have case of duplicate remove");
+                            }));
+
+                        collector
+                    }
+                )*
+            }
+        };
+    }
+
+impl ActorMetricsWithLabelsInner {
+    for_all_actor_metrics!(def_create_actor_collector);
+
+    pub fn new(actor_id: ActorId, actor_metrics: Arc<ActorMetrics>) -> Self {
+        Self {
+            actor_metrics,
+            actor_id,
+            labels: vec![],
+        }
+    }
+}
+
+impl Drop for ActorMetricsWithLabelsInner {
+    fn drop(&mut self) {
+        self.actor_metrics.delete_actor.lock().push(self.actor_id);
     }
 }

@@ -341,12 +341,12 @@ macro_rules! def_create_executor_collector {
     ($( { $metric:ident, $type:ty, $collector_type:ty }, )*) => {
         paste! {
             $(
-                pub fn [<create_collector_for_ $metric>](&self,executor_label: Vec<String>) -> $collector_type {
+                pub fn [<create_collector_for_ $metric>](&self, executor_label: Vec<String>) -> $collector_type {
                     let mut owned_task_labels = self.task_labels.clone();
                     owned_task_labels.extend(executor_label);
-                    let task_labels = owned_task_labels.iter().map(|s| s.as_str()).collect_vec();
+                    let task_labels = owned_task_labels.iter().map(String::as_str).collect_vec();
 
-                    let collecter = self
+                    let collector = self
                         .executor_metrics
                         .$metric
                         .with_label_values(&task_labels);
@@ -360,11 +360,11 @@ macro_rules! def_create_executor_collector {
                         .or_default()
                         .push(Box::new(move || {
                             metrics.remove_label_values(
-                                &owned_task_labels.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                                &owned_task_labels.iter().map(String::as_str).collect_vec(),
                             ).expect("Collector with same label only can be created once. It should never have case of duplicate remove");
                         }));
 
-                    collecter
+                    collector
                 }
             )*
         }
