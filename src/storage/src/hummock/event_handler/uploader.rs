@@ -675,7 +675,7 @@ impl HummockUploader {
 
     pub(crate) fn start_merge_imms(&mut self, sealed_epoch: HummockEpoch) {
         // skip merging if merge threshold is 1
-        if self.context.imm_merge_threshold <= 1 {
+        if self.context.imm_merge_threshold <= usize::MAX {
             return;
         }
 
