@@ -716,7 +716,7 @@ mod default {
         }
 
         pub fn max_preload_wait_time_mill() -> u64 {
-            10
+            0 // disable meta refill
         }
     }
 
