@@ -727,6 +727,9 @@ impl HummockVersionReader {
         }
         local_stats.overlapping_iter_count = overlapping_iter_count;
         local_stats.non_overlapping_iter_count = non_overlapping_iters.len() as u64;
+        if local_stats.overlapping_iter_count > 0 || local_stats.non_overlapping_iter_count > 0 {
+            local_stats.cache_touch = 1;
+        }
 
         // 3. build user_iterator
         let merge_iter = UnorderedMergeIteratorInner::new(

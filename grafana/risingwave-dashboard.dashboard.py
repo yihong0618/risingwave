@@ -1711,6 +1711,7 @@ def section_hummock(panels):
     meta_total_filter = "type='meta_total'"
     data_miss_filter = "type='data_miss'"
     data_total_filter = "type='data_total'"
+    touch_filter = "type='touch'"
     file_cache_get_filter = "op='get'"
     return [
         panels.row("Hummock"),
@@ -1921,6 +1922,16 @@ def section_hummock(panels):
                 panels.target(
                     f"sum(rate({metric('state_store_iter_scan_key_counts')}[$__rate_interval])) by (instance, type, table_id)",
                     "iter keys flow - {{table_id}} @ {{type}} @ {{instance}} ",
+                ),
+            ],
+        ),
+        panels.timeseries_count(
+            "Cache Touch Count - Iter",
+            "",
+            [
+                panels.target(
+                    f"sum(rate({metric('state_store_sst_store_block_request_counts', touch_filter)}[$__rate_interval])) by (job,instance,table_id)",
+                    "cache touch count - {{table_id}} @ {{job}} @ {{instance}}",
                 ),
             ],
         ),
