@@ -990,6 +990,20 @@ def section_streaming(panels):
                 )
             ],
         ),
+        panels.timeseries_percentage(
+            "Partition Input Blocking Time Ratio",
+            "",
+            [
+                panels.target(
+                    f"rate({metric('partition_input_waiting_duration_ns')}[$__rate_interval]) / 1000000000",
+                    "actor={{actor_id}} source={{source_id}} partition={{partition}}",
+                ),
+                panels.target(
+                    f"rate({metric('partition_output_waiting_duration_ns')}[$__rate_interval]) / 1000000000",
+                    "actor={{actor_id}} source={{source_id}} partition={{partition}}",
+                ),
+            ],
+        ),
         panels.timeseries_bytesps(
             "Source Throughput(bytes) Per Partition",
             "",

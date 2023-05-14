@@ -6061,6 +6061,7 @@ dependencies = [
  "madsim-tokio",
  "madsim-tonic",
  "maplit",
+ "minstant",
  "moka",
  "nexmark",
  "num-traits",

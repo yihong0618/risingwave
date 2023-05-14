@@ -20,6 +20,8 @@ pub struct SourceMetrics {
     pub registry: Registry,
     pub partition_input_count: GenericCounterVec<AtomicU64>,
     pub partition_input_bytes: GenericCounterVec<AtomicU64>,
+    pub partition_input_waiting_duration_ns: GenericCounterVec<AtomicU64>,
+    pub partition_output_waiting_duration_ns: GenericCounterVec<AtomicU64>,
     /// User error reporting
     pub user_source_error_count: GenericCounterVec<AtomicU64>,
 }
@@ -36,6 +38,20 @@ impl SourceMetrics {
         let partition_input_bytes = register_int_counter_vec_with_registry!(
             "partition_input_bytes",
             "Total bytes that have been input from specific partition",
+            &["actor_id", "source_id", "partition"],
+            registry
+        )
+        .unwrap();
+        let partition_input_waiting_duration_ns = register_int_counter_vec_with_registry!(
+            "partition_input_waiting_duration_ns",
+            "Total waiting duration (ns) of input buffer of source partition",
+            &["actor_id", "source_id", "partition"],
+            registry
+        )
+        .unwrap();
+        let partition_output_waiting_duration_ns = register_int_counter_vec_with_registry!(
+            "partition_output_waiting_duration_ns",
+            "Total waiting duration (ns) of output buffer of source partition",
             &["actor_id", "source_id", "partition"],
             registry
         )
@@ -57,6 +73,8 @@ impl SourceMetrics {
             registry,
             partition_input_count,
             partition_input_bytes,
+            partition_input_waiting_duration_ns,
+            partition_output_waiting_duration_ns,
             user_source_error_count,
         }
     }
