@@ -1,0 +1,56 @@
+// Copyright 2023 RisingWave Labs
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use risingwave_common::types::JsonbVal;
+
+use crate::source::cdc_parallel::base::CdcSplit;
+use crate::source::{SplitId, SplitMetaData};
+
+// pub(crate) struct CdcSnapshotSplit {}
+// impl SplitMetaData for CdcSnapshotSplit {
+//     fn id(&self) -> SplitId {
+//         todo!()
+//     }
+//
+//     fn encode_to_json(&self) -> JsonbVal {
+//         todo!()
+//     }
+//
+//     fn restore_from_json(value: JsonbVal) -> anyhow::Result<Self> {
+//         todo!()
+//     }
+// }
+//
+// pub(crate) struct CdcStreamSplit {}
+// impl SplitMetaData for CdcStreamSplit {
+//     fn id(&self) -> SplitId {
+//         todo!()
+//     }
+//
+//     fn encode_to_json(&self) -> JsonbVal {
+//         todo!()
+//     }
+//
+//     fn restore_from_json(value: JsonbVal) -> anyhow::Result<Self> {
+//         todo!()
+//     }
+// }
+//
+// impl CdcSplit for CdcSnapshotSplit {
+//     // todo
+// }
+//
+// impl CdcSplit for CdcStreamSplit {
+//     // todo
+// }
