@@ -18,7 +18,7 @@ import com.risingwave.metrics.ConnectorNodeMetrics;
 import com.risingwave.sourcenode.common.DbzConnectorConfig;
 import com.risingwave.sourcenode.types.CdcChunk;
 import io.grpc.Context;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import org.astonbitecode.j4rs.api.invocation.NativeCallbackToRustChannelSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +29,8 @@ public class DbzSourceHandlerIpc extends NativeCallbackToRustChannelSupport {
 
     private final DbzConnectorConfig config;
     private final DbzCdcEngineRunnerIpc runner;
+
+    private static ExecutorService executor = Executors.newSingleThreadExecutor();
 
     public DbzSourceHandlerIpc(DbzConnectorConfig config) throws Exception {
         this.config = config;
@@ -65,6 +67,40 @@ public class DbzSourceHandlerIpc extends NativeCallbackToRustChannelSupport {
                             String.valueOf(config.getSourceId()),
                             chunk.getEvents().size());
                     return chunk;
+                }
+            } catch (Exception e) {
+                LOG.error("Poll engine output channel fail. ", e);
+                return null;
+            }
+        }
+    }
+
+    public Future<CdcChunk> getChunkAsync() {
+        if (!runner.isRunning()) {
+            return null;
+        }
+        CompletableFuture<CdcChunk> completableFuture = new CompletableFuture<>();
+        while (true) {
+            try {
+                if (Context.current().isCancelled()) {
+                    LOG.info(
+                            "Engine#{}: Connection broken detected, stop the engine",
+                            config.getSourceId());
+                    runner.stop();
+                    return null;
+                }
+                var chunk = runner.getEngine().getOutputChannel().poll(500, TimeUnit.MILLISECONDS);
+                if (chunk != null) {
+                    ConnectorNodeMetrics.incSourceRowsReceived(
+                            config.getSourceType().toString(),
+                            String.valueOf(config.getSourceId()),
+                            chunk.getEvents().size());
+                    executor.submit(
+                            () -> {
+                                completableFuture.complete(chunk);
+                                return null;
+                            });
+                    return completableFuture;
                 }
             } catch (Exception e) {
                 LOG.error("Poll engine output channel fail. ", e);

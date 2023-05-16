@@ -23,15 +23,12 @@ import org.slf4j.LoggerFactory;
 public abstract class SourceHandlerFactoryIpc {
     static final Logger LOG = LoggerFactory.getLogger(SourceHandlerFactoryIpc.class);
 
-    public static Long createSourceHandler(
+    public static DbzSourceHandlerIpc createSourceHandler(
             SourceTypeE source, long sourceId, String startOffset, Map<String, String> userProps)
             throws Exception {
         var config = new DbzConnectorConfig(source, sourceId, startOffset, userProps);
         LOG.info("resolved config for source#{}: {}", sourceId, config.getResolvedDebeziumProps());
         DbzSourceHandlerIpc handler = new DbzSourceHandlerIpc(config);
-        if (handler == null) {
-            return -1L;
-        }
-        return SourceHandlerManager.insertHandler(handler);
+        return handler;
     }
 }

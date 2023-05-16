@@ -1,6 +1,7 @@
 package com.risingwave.connector;
 
 import com.risingwave.sourcenode.SourceValidateHandlerIpc;
+import com.risingwave.sourcenode.core.DbzSourceHandlerIpc;
 import com.risingwave.sourcenode.core.SourceHandlerFactoryIpc;
 import com.risingwave.sourcenode.types.*;
 import java.util.*;
@@ -24,8 +25,8 @@ public final class SourceHandlerIpc {
         return "";
     }
 
-    // returns handler id on success, returns null on failure
-    public static Long handleStart(
+    // returns id on success, returns null on failure
+    public static DbzSourceHandlerIpc handleStart(
             Long sourceId,
             SourceType sourceType,
             String startOffset,
