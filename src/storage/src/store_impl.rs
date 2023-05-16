@@ -592,13 +592,14 @@ impl StateStoreImpl {
                     remote_object_store
                 };
 
-                let sstable_store = Arc::new(SstableStore::new(
+                let sstable_store = Arc::new(SstableStore::new_with_meta_listener(
                     Arc::new(object_store),
                     opts.data_directory.to_string(),
                     opts.block_cache_capacity_mb * (1 << 20),
                     opts.meta_cache_capacity_mb * (1 << 20),
                     opts.high_priority_ratio,
                     tiered_cache,
+                    state_store_metrics.clone()
                 ));
                 let notification_client =
                     RpcNotificationClient::new(hummock_meta_client.get_inner().clone());

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use std::clone::Clone;
+use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -38,7 +39,7 @@ use crate::hummock::multi_builder::UploadJoinHandle;
 use crate::hummock::{
     BlockHolder, CacheableEntry, HummockError, HummockResult, LruCache, MemoryLimiter,
 };
-use crate::monitor::{MemoryCollector, StoreLocalStatistic};
+use crate::monitor::{HummockStateStoreMetrics, MemoryCollector, StoreLocalStatistic};
 
 const MAX_META_CACHE_SHARD_BITS: usize = 2;
 const MAX_CACHE_SHARD_BITS: usize = 6; // It means that there will be 64 shards lru-cache to avoid lock conflict.
@@ -124,6 +125,31 @@ pub struct SstableStore {
     tiered_cache: TieredCache<(HummockSstableObjectId, u64), Box<Block>>,
 }
 
+pub struct MetaCacheEventListener {
+    metrics: Arc<HummockStateStoreMetrics>,
+}
+
+impl LruCacheEventListener for MetaCacheEventListener {
+    type K = HummockSstableObjectId;
+    type T = Box<Sstable>;
+
+    fn on_release(&self, _key: Self::K, value: Self::T) {
+        let table_ids: HashSet<u32> = value
+            .as_ref()
+            .meta
+            .block_metas
+            .iter()
+            .map(|b| b.table_id().table_id.clone())
+            .collect();
+        for tid in table_ids {
+            self.metrics
+                .sst_store_block_request_counts
+                .with_label_values(&[tid.to_string().as_str(), "meta_evicg"])
+                .inc();
+        }
+    }
+}
+
 impl SstableStore {
     pub fn new(
         store: ObjectStoreRef,
@@ -139,7 +165,46 @@ impl SstableStore {
         while (meta_cache_capacity >> shard_bits) < MIN_BUFFER_SIZE_PER_SHARD && shard_bits > 0 {
             shard_bits -= 1;
         }
-        let meta_cache = Arc::new(LruCache::new(shard_bits, meta_cache_capacity, 0));
+        let lru = LruCache::new(shard_bits, meta_cache_capacity, 0);
+        let meta_cache = Arc::new(lru);
+        let listener = Arc::new(BlockCacheEventListener {
+            tiered_cache: tiered_cache.clone(),
+        });
+
+        Self {
+            path,
+            store,
+            block_cache: BlockCache::with_event_listener(
+                block_cache_capacity,
+                MAX_CACHE_SHARD_BITS,
+                high_priority_ratio,
+                listener,
+            ),
+            meta_cache,
+            tiered_cache,
+        }
+    }
+
+    pub fn new_with_meta_listener(
+        store: ObjectStoreRef,
+        path: String,
+        block_cache_capacity: usize,
+        meta_cache_capacity: usize,
+        high_priority_ratio: usize,
+        tiered_cache: TieredCache<(HummockSstableObjectId, u64), Box<Block>>,
+        state_store_metrics: Arc<HummockStateStoreMetrics>,
+    ) -> Self {
+        // TODO: We should validate path early. Otherwise object store won't report invalid path
+        // error until first write attempt.
+        let mut shard_bits = MAX_META_CACHE_SHARD_BITS;
+        while (meta_cache_capacity >> shard_bits) < MIN_BUFFER_SIZE_PER_SHARD && shard_bits > 0 {
+            shard_bits -= 1;
+        }
+        let listener = Arc::new(MetaCacheEventListener {
+            metrics: state_store_metrics,
+        });
+        let lru = LruCache::with_event_listener(shard_bits, meta_cache_capacity, 0, listener);
+        let meta_cache = Arc::new(lru);
         let listener = Arc::new(BlockCacheEventListener {
             tiered_cache: tiered_cache.clone(),
         });
