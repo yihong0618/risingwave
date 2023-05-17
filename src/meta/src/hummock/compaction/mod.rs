@@ -333,7 +333,7 @@ pub fn create_compaction_task(
     compaction_task_type: compact_task::TaskType,
 ) -> CompactionTask {
     let target_file_size = if input.target_level == 0 {
-        compaction_config.target_file_size_base
+        compaction_config.target_file_size_base * 2
     } else {
         assert!(input.target_level >= base_level);
         let step = (input.target_level - base_level) / 2;
