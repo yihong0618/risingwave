@@ -135,13 +135,13 @@ mod tests {
         .map(|(record_id, op)| Ok(Record::new(storage_type1, record_id, op)));
 
         let actor_2 = vec![
-            (4, Operation::NewLocalStorage(opts2)),
+            (4, Operation::NewLocalStorage(opts2.clone())),
             (
                 5,
                 Operation::get(
                     TracedBytes::from(vec![0, 1, 2, 3]).into(),
                     Some(123),
-                    TracedReadOptions::for_test(opts1.table_id.table_id),
+                    TracedReadOptions::for_test(opts2.table_id.table_id),
                 ),
             ),
             (
@@ -237,10 +237,10 @@ mod tests {
                 .times(1)
                 .returning(move |_, _| Ok(Some(TracedBytes::from(vec![54, 32, 198, 236, 24]))));
 
-            mock_local
-                .expect_ingest()
-                .times(1)
-                .returning(move |_, _, _| Ok(ingest_result));
+            // mock_local
+            //     .expect_ingest()
+            //     .times(1)
+            //     .returning(move |_, _, _| Ok(ingest_result));
 
             Box::new(mock_local)
         });

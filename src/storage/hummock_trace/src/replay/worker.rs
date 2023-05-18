@@ -265,7 +265,14 @@ impl ReplayWorker {
                         .unwrap();
                 }
             }
-            _ => unreachable!(),
+            Operation::Delete { key, old_val } => {}
+            Operation::Insert {
+                key,
+                new_val,
+                old_val,
+            } => {}
+            Operation::Finish => {}
+            Operation::Result(_) => todo!(),
         }
     }
 }
@@ -371,12 +378,15 @@ mod tests {
         let mut iters_map = HashMap::new();
         let mut local_storages = LocalStorages::new();
         let (res_tx, mut res_rx) = unbounded_channel();
-
-        let read_options = TracedReadOptions::for_test(12);
-        let iter_read_options = TracedReadOptions::for_test(123);
+        let get_table_id = 12;
+        let iter_table_id = 14654;
+        let read_options = TracedReadOptions::for_test(get_table_id);
+        let iter_read_options = TracedReadOptions::for_test(iter_table_id);
         let op = Operation::get(Bytes::from(vec![123]), Some(123), read_options);
 
-        let new_local_opts = TracedNewLocalOptions::for_test(0);
+        let new_local_opts = TracedNewLocalOptions::for_test(get_table_id);
+
+        let iter_local_opts = TracedNewLocalOptions::for_test(iter_table_id);
         let mut should_exit = false;
         let get_storage_type = StorageType::Local(0, new_local_opts.table_id);
         let record = Record::new(get_storage_type, 1, op);
@@ -456,13 +466,13 @@ mod tests {
             read_options: iter_read_options,
         };
 
-        let iter_storage_type = StorageType::Local(0, new_local_opts.table_id);
+        let iter_storage_type = StorageType::Local(0, iter_local_opts.table_id);
 
         ReplayWorker::handle_record(
             Record::new(
                 iter_storage_type,
                 2,
-                Operation::NewLocalStorage(new_local_opts),
+                Operation::NewLocalStorage(iter_local_opts),
             ),
             &replay,
             &mut res_rx,
