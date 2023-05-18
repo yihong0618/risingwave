@@ -54,7 +54,7 @@ impl From<TracedCachePriority> for CachePriority {
     }
 }
 
-#[derive(Encode, Decode, PartialEq, Eq, Debug, Clone)]
+#[derive(Copy, Encode, Decode, PartialEq, Eq, Debug, Clone, Hash)]
 pub struct TracedTableId {
     pub table_id: u32,
 }
@@ -133,4 +133,16 @@ pub struct TracedNewLocalOptions {
     pub table_id: TracedTableId,
     pub is_consistent_op: bool,
     pub table_option: TracedTableOption,
+}
+
+impl TracedNewLocalOptions {
+    pub(crate) fn for_test(table_id: u32) -> Self {
+        Self {
+            table_id: TracedTableId { table_id },
+            is_consistent_op: true,
+            table_option: TracedTableOption {
+                retention_seconds: None,
+            },
+        }
+    }
 }

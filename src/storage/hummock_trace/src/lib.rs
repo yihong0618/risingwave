@@ -23,6 +23,7 @@ mod error;
 mod opts;
 mod read;
 mod record;
+mod replay;
 mod write;
 use std::future::Future;
 

@@ -57,9 +57,9 @@ impl<T: UniqueId> UniqueIdGenerator<T> {
 
 #[derive(Encode, Decode, Debug, PartialEq, Clone)]
 pub struct Record {
-    storage_type: StorageType,
-    record_id: RecordId,
-    operation: Operation,
+    pub storage_type: StorageType,
+    pub record_id: RecordId,
+    pub operation: Operation,
 }
 
 impl Record {

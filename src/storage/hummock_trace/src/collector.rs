@@ -307,7 +307,7 @@ impl Drop for TraceSpan {
 pub type RecordMsg = Option<Record>;
 pub type ConcurrentId = u64;
 
-#[derive(Clone, Debug, Encode, Decode, PartialEq)]
+#[derive(Copy, Clone, Debug, Encode, Decode, PartialEq)]
 pub enum StorageType {
     Global,
     Local(ConcurrentId, TracedTableId),
