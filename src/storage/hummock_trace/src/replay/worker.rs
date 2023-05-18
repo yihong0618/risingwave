@@ -18,9 +18,11 @@ use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 
-use super::{GlobalReplay, LocalReplay, ReplayIter, ReplayRequest, WorkerId, WorkerResponse};
+use super::{
+    GlobalReplay, LocalReplay, ReplayIter, ReplayRequest, ReplayWrite, WorkerId, WorkerResponse,
+};
 use crate::{
-    Operation, OperationResult, Record, RecordId, StorageType, TraceResult, TracedTableId,
+    Operation, OperationResult, Record, RecordId, Result, StorageType, TraceResult, TracedTableId,
 };
 
 #[async_trait::async_trait]
@@ -189,8 +191,41 @@ impl ReplayWorker {
                         s.get(key, read_options).await
                     }
                 };
+
                 let res = res_rx.recv().await.expect("recv result failed");
                 if let OperationResult::Get(expected) = res {
+                    assert_eq!(TraceResult::from(actual), expected, "get result wrong");
+                } else {
+                    panic!("unexpected operation result");
+                }
+            }
+            Operation::Insert {
+                key,
+                new_val,
+                old_val,
+            } => {
+                let table_id = match storage_type {
+                    StorageType::Global => panic!("Global Storage cannot insert"),
+                    StorageType::Local(_, table_id) => table_id,
+                };
+                let local_storage = local_storages.get_mut(&table_id).unwrap();
+                let actual = local_storage.insert(key, new_val, old_val);
+
+                let expected = res_rx.recv().await.expect("recv result failed");
+                if let OperationResult::Insert(expected) = expected {
+                    assert_eq!(TraceResult::from(actual), expected, "get result wrong");
+                }
+            }
+            Operation::Delete { key, old_val } => {
+                let table_id = match storage_type {
+                    StorageType::Global => panic!("Global Storage cannot delete"),
+                    StorageType::Local(_, table_id) => table_id,
+                };
+                let local_storage = local_storages.get_mut(&table_id).unwrap();
+                let actual = local_storage.delete(key, old_val);
+
+                let expected = res_rx.recv().await.expect("recv result failed");
+                if let OperationResult::Delete(expected) = expected {
                     assert_eq!(TraceResult::from(actual), expected, "get result wrong");
                 }
             }
@@ -265,12 +300,6 @@ impl ReplayWorker {
                         .unwrap();
                 }
             }
-            Operation::Delete { key, old_val } => {}
-            Operation::Insert {
-                key,
-                new_val,
-                old_val,
-            } => {}
             Operation::Finish => {}
             Operation::Result(_) => todo!(),
         }

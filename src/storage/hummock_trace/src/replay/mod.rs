@@ -25,7 +25,7 @@ pub use runner::*;
 pub(crate) use worker::*;
 
 use crate::error::Result;
-use crate::{Record, TracedBytes, TracedReadOptions, TracedWriteOptions};
+use crate::{Record, TracedBytes, TracedReadOptions};
 
 type ReplayGroup = Record;
 
@@ -80,12 +80,13 @@ pub trait ReplayRead {
 #[cfg_attr(test, automock)]
 #[async_trait::async_trait]
 pub trait ReplayWrite {
-    async fn ingest(
-        &self,
-        kv_pairs: Vec<(TracedBytes, Option<TracedBytes>)>,
-        delete_ranges: Vec<(TracedBytes, TracedBytes)>,
-        write_options: TracedWriteOptions,
-    ) -> Result<usize>;
+    fn insert(
+        &mut self,
+        key: TracedBytes,
+        new_val: TracedBytes,
+        old_val: Option<TracedBytes>,
+    ) -> Result<()>;
+    fn delete(&mut self, key: TracedBytes, old_val: TracedBytes) -> Result<()>;
 }
 
 #[cfg_attr(test, automock)]
@@ -104,6 +105,7 @@ pub trait ReplayIter: Send + Sync {
 }
 
 // define mock trait for replay interfaces
+// We need to do this since the mockall crate does not support async_trait
 #[cfg(test)]
 mock! {
     pub GlobalReplayInterface{}
@@ -122,15 +124,10 @@ mock! {
             read_options: TracedReadOptions,
         ) -> Result<Option<TracedBytes>>;
     }
-    #[async_trait::async_trait]
-    impl ReplayWrite for GlobalReplayInterface{
-        async fn ingest(
-            &self,
-            kv_pairs: Vec<(TracedBytes, Option<TracedBytes>)>,
-            delete_ranges: Vec<(TracedBytes, TracedBytes)>,
-            write_options: TracedWriteOptions,
-        ) -> Result<usize>;
-    }
+    // #[async_trait::async_trait]
+    // impl ReplayWrite for GlobalReplayInterface{
+    //     fn insert(&mut self, key: TracedBytes, new_val: TracedBytes, old_val: Option<TracedBytes>)-> Result<()>;
+    // }
     #[async_trait::async_trait]
     impl ReplayStateStore for GlobalReplayInterface{
         async fn sync(&self, id: u64) -> Result<usize>;
@@ -161,12 +158,8 @@ mock! {
     }
     #[async_trait::async_trait]
     impl ReplayWrite for LocalReplayInterface{
-        async fn ingest(
-            &self,
-            kv_pairs: Vec<(TracedBytes, Option<TracedBytes>)>,
-            delete_ranges: Vec<(TracedBytes, TracedBytes)>,
-            write_options: TracedWriteOptions,
-        ) -> Result<usize>;
+        fn insert(&mut self, key: TracedBytes, new_val: TracedBytes, old_val: Option<TracedBytes>) -> Result<()>;
+        fn delete(&mut self, key: TracedBytes, old_val: TracedBytes) -> Result<()>;
     }
     impl LocalReplay for LocalReplayInterface{}
 }

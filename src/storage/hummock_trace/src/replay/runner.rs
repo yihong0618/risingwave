@@ -237,10 +237,10 @@ mod tests {
                 .times(1)
                 .returning(move |_, _| Ok(Some(TracedBytes::from(vec![54, 32, 198, 236, 24]))));
 
-            // mock_local
-            //     .expect_ingest()
-            //     .times(1)
-            //     .returning(move |_, _, _| Ok(ingest_result));
+            mock_local
+                .expect_insert()
+                .times(1)
+                .returning(move |_, _, _| Ok(()));
 
             Box::new(mock_local)
         });
