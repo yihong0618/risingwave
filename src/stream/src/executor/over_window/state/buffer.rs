@@ -16,7 +16,7 @@ use std::collections::VecDeque;
 use std::ops::Range;
 
 use either::Either;
-use risingwave_expr::function::window::{Frame, FrameBounds, FrameExclusion};
+use risingwave_expr::function::window::{Frame, FrameBound, FrameBounds, FrameExclusion};
 
 /// Actually with `VecDeque` as internal buffer, we don't need split key and value here. Just in
 /// case we want to switch to `BTreeMap` later, so that the general version of `OverWindow` executor
@@ -78,6 +78,10 @@ impl<K: Ord, V> StreamWindowBuffer<K, V> {
                         false // unbounded frame start, never preceding-saturated
                     }
                 }
+                FrameBounds::Session(_) => {
+                    // Session window is always preceding-saturated.
+                    true
+                }
             }
     }
 
@@ -100,6 +104,7 @@ impl<K: Ord, V> StreamWindowBuffer<K, V> {
                         false // unbounded frame end, never following-saturated
                     }
                 }
+                FrameBounds::Session(_) => self.right_excl_idx < self.buffer.len(),
             }
     }
 
@@ -141,51 +146,17 @@ impl<K: Ord, V> StreamWindowBuffer<K, V> {
         )
     }
 
-    fn recalculate_left_right(&mut self) {
-        // TODO(rc): For the sake of simplicity, we just recalculate the left and right indices from
-        // `curr_idx`, rather than trying to update them incrementally. The complexity is O(n) for
-        // `Frame::Range` where n is the length of the buffer, for now it doesn't matter.
-
-        if self.buffer.is_empty() {
-            self.left_idx = 0;
-            self.right_excl_idx = 0;
-        }
-
-        match &self.frame.bounds {
-            FrameBounds::Rows(start, end) => {
-                let start_off = start.to_offset();
-                let end_off = end.to_offset();
-                if let Some(start_off) = start_off {
-                    let logical_left_idx = self.curr_idx as isize + start_off;
-                    if logical_left_idx >= 0 {
-                        self.left_idx = std::cmp::min(logical_left_idx as usize, self.buffer.len());
-                    } else {
-                        self.left_idx = 0;
-                    }
-                } else {
-                    // unbounded start
-                    self.left_idx = 0;
-                }
-                if let Some(end_off) = end_off {
-                    let logical_right_excl_idx = self.curr_idx as isize + end_off + 1;
-                    if logical_right_excl_idx >= 0 {
-                        self.right_excl_idx =
-                            std::cmp::min(logical_right_excl_idx as usize, self.buffer.len());
-                    } else {
-                        self.right_excl_idx = 0;
-                    }
-                } else {
-                    // unbounded end
-                    self.right_excl_idx = self.buffer.len();
-                }
-            }
-        }
-    }
-
     /// Append a key-value pair to the buffer.
     pub fn append(&mut self, key: K, value: V) {
         self.buffer.push_back(Entry { key, value });
-        self.recalculate_left_right()
+
+        match &self.frame.bounds {
+            FrameBounds::Rows(start, end) => {
+                (self.left_idx, self.right_excl_idx) =
+                    rows_frame_recalculate_left_right(start, end, &self.buffer, self.curr_idx);
+            }
+            FrameBounds::Session(_) => todo!(),
+        }
     }
 
     /// Get the smallest key that is still kept in the buffer.
@@ -198,7 +169,15 @@ impl<K: Ord, V> StreamWindowBuffer<K, V> {
     /// Returns the keys that are removed from the buffer.
     pub fn slide(&mut self) -> impl Iterator<Item = (K, V)> + '_ {
         self.curr_idx += 1;
-        self.recalculate_left_right();
+
+        match &self.frame.bounds {
+            FrameBounds::Rows(start, end) => {
+                (self.left_idx, self.right_excl_idx) =
+                    rows_frame_recalculate_left_right(start, end, &self.buffer, self.curr_idx);
+            }
+            FrameBounds::Session(_) => todo!(),
+        }
+
         let min_needed_idx = std::cmp::min(self.left_idx, self.curr_idx);
         self.curr_idx -= min_needed_idx;
         self.left_idx -= min_needed_idx;
@@ -207,6 +186,46 @@ impl<K: Ord, V> StreamWindowBuffer<K, V> {
             .drain(0..min_needed_idx)
             .map(|Entry { key, value }| (key, value))
     }
+}
+
+fn rows_frame_recalculate_left_right<K: Ord, V>(
+    start: &FrameBound<usize>,
+    end: &FrameBound<usize>,
+    buffer: &VecDeque<Entry<K, V>>,
+    curr_idx: usize,
+) -> (usize, usize) {
+    if buffer.is_empty() {
+        return (0, 0);
+    }
+
+    let left_idx;
+    let right_excl_idx;
+    let start_off = start.to_offset();
+    let end_off = end.to_offset();
+    if let Some(start_off) = start_off {
+        let logical_left_idx = curr_idx as isize + start_off;
+        if logical_left_idx >= 0 {
+            left_idx = std::cmp::min(logical_left_idx as usize, buffer.len());
+        } else {
+            left_idx = 0;
+        }
+    } else {
+        // unbounded start
+        left_idx = 0;
+    }
+    if let Some(end_off) = end_off {
+        let logical_right_excl_idx = curr_idx as isize + end_off + 1;
+        if logical_right_excl_idx >= 0 {
+            right_excl_idx = std::cmp::min(logical_right_excl_idx as usize, buffer.len());
+        } else {
+            right_excl_idx = 0;
+        }
+    } else {
+        // unbounded end
+        right_excl_idx = buffer.len();
+    }
+
+    (left_idx, right_excl_idx)
 }
 
 /// Calculate range (A - B), the result might be the union of two ranges when B is totally included

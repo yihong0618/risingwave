@@ -16,7 +16,7 @@ use std::cmp::Ordering;
 use std::fmt::Display;
 
 use risingwave_common::bail;
-use risingwave_common::types::DataType;
+use risingwave_common::types::{DataType, Interval};
 use risingwave_pb::expr::window_frame::{PbBound, PbExclusion};
 use risingwave_pb::expr::{PbWindowFrame, PbWindowFunction};
 
@@ -105,6 +105,7 @@ impl Frame {
                 end: Some(end.to_protobuf()),
                 exclusion,
             },
+            FrameBounds::Session(_) => todo!(),
         }
     }
 }
@@ -113,18 +114,21 @@ impl FrameBounds {
     pub fn is_valid(&self) -> bool {
         match self {
             Self::Rows(start, end) => start.partial_cmp(end).map(|o| o.is_le()).unwrap_or(false),
+            Self::Session(interval) => interval.epoch_in_micros() >= 0,
         }
     }
 
     pub fn start_is_unbounded(&self) -> bool {
         match self {
             Self::Rows(start, _) => matches!(start, FrameBound::UnboundedPreceding),
+            Self::Session(_) => false,
         }
     }
 
     pub fn end_is_unbounded(&self) -> bool {
         match self {
             Self::Rows(_, end) => matches!(end, FrameBound::UnboundedFollowing),
+            Self::Session(_) => false,
         }
     }
 }
@@ -134,6 +138,9 @@ impl Display for FrameBounds {
         match self {
             Self::Rows(start, end) => {
                 write!(f, "ROWS BETWEEN {} AND {}", start, end)?;
+            }
+            Self::Session(interval) => {
+                write!(f, "SESSION {}", interval)?;
             }
         }
         Ok(())
@@ -145,6 +152,7 @@ pub enum FrameBounds {
     Rows(FrameBound<usize>, FrameBound<usize>),
     // Groups(FrameBound<usize>, FrameBound<usize>),
     // Range(FrameBound<ScalarImpl>, FrameBound<ScalarImpl>),
+    Session(Interval),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
