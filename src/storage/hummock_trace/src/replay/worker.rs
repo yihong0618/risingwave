@@ -18,11 +18,9 @@ use std::sync::Arc;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 
-use super::{
-    GlobalReplay, LocalReplay, ReplayIter, ReplayRequest, ReplayWrite, WorkerId, WorkerResponse,
-};
+use super::{GlobalReplay, LocalReplay, ReplayIter, ReplayRequest, WorkerId, WorkerResponse};
 use crate::{
-    Operation, OperationResult, Record, RecordId, Result, StorageType, TraceResult, TracedTableId,
+    Operation, OperationResult, Record, RecordId, StorageType, TraceResult, TracedTableId,
 };
 
 #[async_trait::async_trait]

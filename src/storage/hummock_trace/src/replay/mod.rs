@@ -17,6 +17,7 @@ mod worker;
 
 use std::ops::Bound;
 
+use futures::Stream;
 #[cfg(test)]
 use mockall::{automock, mock};
 use risingwave_common::catalog::TableId;
@@ -26,6 +27,9 @@ pub(crate) use worker::*;
 
 use crate::error::Result;
 use crate::{Record, TracedBytes, TracedReadOptions};
+
+pub type ReplayItem = (TracedBytes, TracedBytes);
+pub trait ReplayItemStream = Stream<Item = ReplayItem>;
 
 type ReplayGroup = Record;
 
@@ -52,7 +56,7 @@ pub trait LocalReplayRead {
         &self,
         key_range: (Bound<TracedBytes>, Bound<TracedBytes>),
         read_options: TracedReadOptions,
-    ) -> Result<Box<dyn ReplayIter>>;
+    ) -> Result<Box<dyn ReplayItemStream>>;
     async fn get(
         &self,
         key: TracedBytes,
@@ -68,7 +72,7 @@ pub trait ReplayRead {
         key_range: (Bound<TracedBytes>, Bound<TracedBytes>),
         epoch: u64,
         read_options: TracedReadOptions,
-    ) -> Result<Box<dyn ReplayIter>>;
+    ) -> Result<Box<dyn ReplayItemStream>>;
     async fn get(
         &self,
         key: TracedBytes,
@@ -116,7 +120,7 @@ mock! {
             key_range: (Bound<TracedBytes>, Bound<TracedBytes>),
             epoch: u64,
             read_options: TracedReadOptions,
-        ) -> Result<Box<dyn ReplayIter>>;
+        ) -> Result<Box<dyn ReplayItemStream>>;
         async fn get(
             &self,
             key: TracedBytes,
@@ -149,7 +153,7 @@ mock! {
             &self,
             key_range: (Bound<TracedBytes>, Bound<TracedBytes>),
             read_options: TracedReadOptions,
-        ) -> Result<Box<dyn ReplayIter>>;
+        ) -> Result<Box<dyn ReplayItemStream>>;
         async fn get(
             &self,
             key: TracedBytes,
