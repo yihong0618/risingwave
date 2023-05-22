@@ -17,10 +17,10 @@ services:
     extends:
       file: ../../docker/docker-compose.yml
       service: frontend-node-0
-  grafana-0:
-    extends:
-      file: ../../docker/docker-compose.yml
-      service: grafana-0
+#  grafana-0:
+#    extends:
+#      file: ../../docker/docker-compose.yml
+#      service: grafana-0
   meta-node-0:
     extends:
       file: ../../docker/docker-compose.yml
@@ -29,10 +29,10 @@ services:
     extends:
       file: ../../docker/docker-compose.yml
       service: minio-0
-  prometheus-0:
-    extends:
-      file: ../../docker/docker-compose.yml
-      service: prometheus-0
+#  prometheus-0:
+#    extends:
+#      file: ../../docker/docker-compose.yml
+#      service: prometheus-0
   message_queue:
     extends:
       file: ../../docker/docker-compose.yml
