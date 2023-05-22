@@ -25,8 +25,8 @@ shift $((OPTIND -1))
 echo "--- ghcr login"
 echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 
-#echo "--- install postgresql"
-#sudo yum install -y postgresql
+#echo "--- install docker"
+wget -qO- get.docker.com | bash
 
 cd integration_tests/scripts
 
