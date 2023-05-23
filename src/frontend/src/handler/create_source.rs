@@ -304,12 +304,12 @@ pub(crate) async fn resolve_source_schema(
 
         SourceSchema::UpsertJson => {
             // return err if user has not specified a pk
-            if row_id_index.is_some() {
-                return Err(RwError::from(ProtocolError(
-                    "Primary key must be specified when creating source with row format upsert_json."
-                        .to_string(),
-                )));
-            }
+            // if row_id_index.is_some() {
+            //     return Err(RwError::from(ProtocolError(
+            //         "Primary key must be specified when creating source with row format upsert_json."
+            //             .to_string(),
+            //     )));
+            // }
 
             StreamSourceInfo {
                 row_format: RowFormatType::UpsertJson as i32,

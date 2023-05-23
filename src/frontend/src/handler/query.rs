@@ -30,7 +30,7 @@ use risingwave_sqlparser::ast::{SetExpr, Statement};
 
 use super::extended_handle::{PortalResult, PrepareStatement, PreparedResult};
 use super::{PgResponseStream, RwPgResponse};
-use crate::binder::{Binder, BoundStatement};
+use crate::binder::{Binder, BoundStatement, BoundSetExpr, Relation};
 use crate::catalog::TableId;
 use crate::handler::flush::do_flush;
 use crate::handler::privilege::resolve_privileges;
@@ -119,6 +119,55 @@ pub struct BoundResult {
     pub(crate) dependent_relations: HashSet<TableId>,
 }
 
+fn check_cdc_source_rel(rel: &Relation) -> Result<()> {
+    match rel {
+        Relation::Source(source) => {
+            let format = source.catalog.info.row_format;
+            match format {
+                // DebeziumJson, Avro, Maxwell, DebeziumAvro, UpsertJson, UpsertAvro, DebeziumMongoJson
+                3 | 4 | 5 | 9 | 10 | 11 | 12 =>
+                    Err(RwError::from(ErrorCode::ProtocolError("Batch query on source is not allowed".to_string()))),
+                _ => Ok(())
+            }
+        }
+        Relation::Subquery(subquery) =>
+            check_cdc_source_expr(&subquery.query.body),
+        Relation::Join(join) => {
+            check_cdc_source_rel(&join.left)?;
+            check_cdc_source_rel(&join.right)
+        }
+        Relation::WindowTableFunction(window) => check_cdc_source_rel(&window.input),
+        Relation::Watermark(water) => check_cdc_source_rel(&water.input),
+        Relation::Share(share) => check_cdc_source_rel(&share.input),
+        _ => Ok(())
+    }
+}
+
+fn check_cdc_source_expr(expr: &BoundSetExpr) -> Result<()> {
+    match expr {
+        BoundSetExpr::Select(select) => {
+            match &select.from {
+                Some(rel) => check_cdc_source_rel(rel),
+                _ => Ok(())
+            }
+        }
+        BoundSetExpr::Query(query) => check_cdc_source_expr(&query.body),
+        BoundSetExpr::SetOperation{left, right, ..} => {
+            check_cdc_source_expr(left)?;
+            check_cdc_source_expr(right)
+        }
+        _ => Ok(())
+    }
+}
+
+fn check_cdc_source(query: &BoundStatement) -> Result<()> {
+    if let BoundStatement::Query(bound_query) = query {
+        check_cdc_source_expr(&bound_query.body)
+    } else {
+        Ok(())
+    }
+}
+
 fn gen_bound(
     session: &SessionImpl,
     stmt: Statement,
@@ -130,6 +179,8 @@ fn gen_bound(
 
     let mut binder = Binder::new_with_param_types(session, specific_param_types);
     let bound = binder.bind(stmt)?;
+
+    check_cdc_source(&bound)?;
 
     let check_items = resolve_privileges(&bound);
     session.check_privileges(&check_items)?;
