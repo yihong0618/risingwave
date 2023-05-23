@@ -204,65 +204,104 @@ public class MySQLSourceTest {
     // generates test cases for the risingwave debezium parser
     @Ignore
     @Test
-    public void getTestJson() throws InterruptedException, SQLException {
-        Connection connection = SourceTestClient.connect(mysqlDataSource);
-        String query =
-                "CREATE TABLE IF NOT EXISTS orders ("
-                        + "O_KEY BIGINT NOT NULL, "
-                        + "O_BOOL BOOLEAN, "
-                        + "O_TINY TINYINT, "
-                        + "O_INT INT, "
-                        + "O_REAL REAL, "
-                        + "O_DOUBLE DOUBLE, "
-                        + "O_DECIMAL DECIMAL(15, 2), "
-                        + "O_CHAR CHAR(15), "
-                        + "O_DATE DATE, "
-                        + "O_TIME TIME, "
-                        + "O_DATETIME DATETIME, "
-                        + "O_TIMESTAMP TIMESTAMP, "
-                        + "O_JSON JSON, "
-                        + "PRIMARY KEY (O_KEY))";
-        SourceTestClient.performQuery(connection, query);
-        Iterator<GetEventStreamResponse> eventStream =
-                testClient.getEventStreamStart(mysql, SourceType.MYSQL, "test", "orders");
-        Thread t1 =
-                new Thread(
-                        () -> {
-                            while (eventStream.hasNext()) {
-                                List<CdcMessage> messages = eventStream.next().getEventsList();
-                                for (CdcMessage msg : messages) {
-                                    LOG.info("{}", msg.getPayload());
-                                }
+    public void getTestJson() throws InterruptedException, SQLException, ExecutionException {
+        try (Connection connection = SourceTestClient.connect(mysqlDataSource)) {
+            ExecutorService executorService = Executors.newFixedThreadPool(1);
+            String query =
+                    "CREATE TABLE IF NOT EXISTS orders ("
+                            + "O_KEY BIGINT NOT NULL, "
+                            + "O_BOOL BOOLEAN, "
+                            + "O_TINY TINYINT, "
+                            + "O_INT INT, "
+                            + "O_REAL REAL, "
+                            + "O_DOUBLE DOUBLE, "
+                            + "O_DECIMAL DECIMAL(15, 2), "
+                            + "O_CHAR CHAR(15), "
+                            + "O_DATE DATE, "
+                            + "O_TIME TIME, "
+                            + "O_DATETIME DATETIME, "
+                            + "O_TIMESTAMP TIMESTAMP, "
+                            + "O_JSON JSON, "
+                            + "PRIMARY KEY (O_KEY))";
+            SourceTestClient.performQuery(connection, query);
+            Iterator<GetEventStreamResponse> eventStream =
+                    testClient.getEventStreamStart(mysql, SourceType.MYSQL, "test", "orders");
+            Callable<Void> getCdcMsgTask =
+                    () -> {
+                        int i = 0;
+                        if (eventStream.hasNext()) {
+                            List<CdcMessage> messages = eventStream.next().getEventsList();
+                            for (CdcMessage msg : messages) {
+                                System.out.printf("CDC Message %d:\n%s\n", i, msg.getPayload());
+                                i++;
                             }
-                        });
-        Thread.sleep(3000);
-        t1.start();
-        Thread.sleep(3000);
-        // Q1: ordinary insert
-        query =
-                "INSERT INTO orders (O_KEY, O_BOOL, O_TINY, O_INT, O_REAL, O_DOUBLE, O_DECIMAL, O_CHAR, O_DATE, O_TIME, O_DATETIME, O_TIMESTAMP, O_JSON)"
-                        + "VALUES(111, TRUE, -1, -1111, -11.11, -111.11111, -111.11, 'yes please', '1000-01-01', '00:00:00', '1970-01-01 00:00:00', '1970-01-01 00:00:01.000000', '{\"k1\": \"v1\", \"k2\": 11}')";
-        SourceTestClient.performQuery(connection, query);
-        // Q2: update value of Q1 (value -> new value)
-        query =
-                "UPDATE orders SET O_BOOL = FALSE, "
-                        + "O_TINY = 3, "
-                        + "O_INT = 3333, "
-                        + "O_REAL = 33.33, "
-                        + "O_DOUBLE = 333.33333, "
-                        + "O_DECIMAL = 333.33, "
-                        + "O_CHAR = 'no thanks', "
-                        + "O_DATE = '9999-12-31', "
-                        + "O_TIME = '23:59:59', "
-                        + "O_DATETIME = '5138-11-16 09:46:39', "
-                        + "O_TIMESTAMP = '2038-01-09 03:14:07', "
-                        + "O_JSON = '{\"k1\": \"v1_updated\", \"k2\": 33}' "
-                        + "WHERE orders.O_KEY = 111";
-        SourceTestClient.performQuery(connection, query);
-        // Q3: delete value from Q1
-        query = "DELETE FROM orders WHERE orders.O_KEY = 111";
-        SourceTestClient.performQuery(connection, query);
-        Thread.sleep(5000);
-        connection.close();
+                        }
+                        return null;
+                    };
+            Future<Void> printResult = executorService.submit(getCdcMsgTask);
+            Thread.sleep(3000);
+            // Q1: ordinary insert
+            query =
+                    "INSERT INTO orders (O_KEY, O_BOOL, O_TINY, O_INT, O_REAL, O_DOUBLE, O_DECIMAL, O_CHAR, O_DATE, O_TIME, O_DATETIME, O_TIMESTAMP, O_JSON)"
+                            + "VALUES(111, TRUE, -1, -1111, -11.11, -111.11111, -111.11, 'yes please', '1000-01-01', '00:00:00', '1970-01-01 00:00:00', '1970-01-01 00:00:01.000000', '{\"k1\": \"v1\", \"k2\": 11}')";
+            SourceTestClient.performQuery(connection, query);
+            // Q2: update value of Q1 (value -> new value)
+            query =
+                    "UPDATE orders SET O_BOOL = FALSE, "
+                            + "O_TINY = 3, "
+                            + "O_INT = 3333, "
+                            + "O_REAL = 33.33, "
+                            + "O_DOUBLE = 333.33333, "
+                            + "O_DECIMAL = 333.33, "
+                            + "O_CHAR = 'no thanks', "
+                            + "O_DATE = '9999-12-31', "
+                            + "O_TIME = '23:59:59', "
+                            + "O_DATETIME = '5138-11-16 09:46:39', "
+                            + "O_TIMESTAMP = '2038-01-09 03:14:07', "
+                            + "O_JSON = '{\"k1\": \"v1_updated\", \"k2\": 33}' "
+                            + "WHERE orders.O_KEY = 111";
+            SourceTestClient.performQuery(connection, query);
+            // Q3: delete value from Q1
+            query = "DELETE FROM orders WHERE orders.O_KEY = 111";
+            SourceTestClient.performQuery(connection, query);
+            printResult.get();
+        }
+    }
+
+    @Ignore
+    @Test
+    public void getTestJsonTypeTest()
+            throws InterruptedException, SQLException, ExecutionException {
+        try (Connection connection = SourceTestClient.connect(mysqlDataSource)) {
+            String query =
+                    "CREATE TABLE orders("
+                            + "o_key integer,"
+                            + "o_bit bit,"
+                            + "o_float float,"
+                            + "o_float_6_3 float(6, 3),"
+                            + "o_varchar varchar(3),"
+                            + "o_binary binary,"
+                            + "o_varbinary varbinary(3),"
+                            + "o_blob blob,"
+                            + "o_text text,"
+                            + "o_enum enum('polar', 'brown', 'panda'),"
+                            + "o_year year,"
+                            + "o_datetime_0 datetime(0),"
+                            + "o_datetime_6 datetime(6),"
+                            + "o_decimal decimal(4,3),"
+                            + "PRIMARY KEY (o_key))";
+            SourceTestClient.performQuery(connection, query);
+            Iterator<GetEventStreamResponse> eventStream =
+                    testClient.getEventStreamStart(mysql, SourceType.MYSQL, "test", "orders");
+            query =
+                    "insert into orders values (1, b'1', 2.222, 333.333, 'hhh', 0xaa, 0xabcdef, 0xbb, 'haha', 'polar', 2023, '2023-05-23 16:16:16', '2023-05-23 16:16:16.123456', 2.222);";
+            SourceTestClient.performQuery(connection, query);
+            if (eventStream.hasNext()) {
+                List<CdcMessage> messages = eventStream.next().getEventsList();
+                for (CdcMessage msg : messages) {
+                    System.out.printf("%s\n", msg.getPayload());
+                }
+            }
+        }
     }
 }

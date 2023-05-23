@@ -372,6 +372,7 @@ mod tests {
     //     O_JSON JSON,
     //     PRIMARY KEY (O_KEY));
     // test2 also covers overflow tests on basic types
+    // test2 also covers datatype mapping test for the remaining datatypes
     mod test2_mysql {
         use super::*;
 
@@ -390,6 +391,25 @@ mod tests {
                 SourceColumnDesc::simple("O_DATETIME", DataType::Timestamp, ColumnId::from(10)),
                 SourceColumnDesc::simple("O_TIMESTAMP", DataType::Timestamp, ColumnId::from(11)),
                 SourceColumnDesc::simple("O_JSON", DataType::Jsonb, ColumnId::from(12)),
+            ]
+        }
+
+        fn get_other_types_test_columns() -> Vec<SourceColumnDesc> {
+            vec![
+                SourceColumnDesc::simple("o_key", DataType::Int32, ColumnId::from(0)),
+                SourceColumnDesc::simple("o_bit", DataType::Boolean, ColumnId::from(1)),
+                SourceColumnDesc::simple("o_float", DataType::Float32, ColumnId::from(2)),
+                SourceColumnDesc::simple("o_float_6_3", DataType::Float64, ColumnId::from(3)),
+                SourceColumnDesc::simple("o_varchar", DataType::Varchar, ColumnId::from(4)),
+                SourceColumnDesc::simple("o_binary", DataType::Bytea, ColumnId::from(5)),
+                SourceColumnDesc::simple("o_varbinary", DataType::Bytea, ColumnId::from(6)),
+                SourceColumnDesc::simple("o_blob", DataType::Bytea, ColumnId::from(7)),
+                SourceColumnDesc::simple("o_text", DataType::Varchar, ColumnId::from(8)),
+                SourceColumnDesc::simple("o_enum", DataType::Varchar, ColumnId::from(9)),
+                SourceColumnDesc::simple("o_year", DataType::Int32, ColumnId::from(10)),
+                SourceColumnDesc::simple("o_datetime_0", DataType::Timestamp, ColumnId::from(11)),
+                SourceColumnDesc::simple("o_datetime_6", DataType::Timestamp, ColumnId::from(12)),
+                SourceColumnDesc::simple("o_decimal", DataType::Decimal, ColumnId::from(13)),
             ]
         }
 
@@ -646,6 +666,68 @@ mod tests {
             } else {
                 panic!("the test case is expected to fail");
             }
+        }
+
+        #[tokio::test]
+        async fn test2_mysql_other_types() {
+            // this test covers the remaining types supported for mysql that are not covered by
+            // previous tests CREATE TABLE orders(
+            //     o_key integer,
+            //     o_bit bit,
+            //     o_float float,
+            //     o_float_6_3 float(6, 3),
+            //     o_varchar varchar(3),
+            //     o_binary binary,
+            //     o_varbinary varbinary(3),
+            //     o_blob blob,
+            //     o_text text,
+            //     o_enum enum('polar', 'brown', 'panda'),
+            //     o_year year,
+            //     o_datetime_0 datetime(0),
+            //     o_datetime_6 datetime(6),
+            //     o_numeric numeric,
+            //     PRIMARY KEY (o_key)
+            // );
+            let data = br#"{"payload":{"before":null,"after":{"o_key":1,"o_bit":true,"o_float":2.2219998836517334,"o_float_6_3":333.3330078125,"o_varchar":"hhh","o_binary":"qg==","o_varbinary":"q83v","o_blob":"uw==","o_text":"haha","o_enum":"polar","o_year":2023,"o_datetime_0":1684858576000,"o_datetime_6":1684858576123456,"o_decimal":2.222},"source":{"version":"1.9.7.Final","connector":"mysql","name":"RW_CDC_test.orders","ts_ms":1684831840000,"snapshot":"last","db":"test","sequence":null,"table":"orders","server_id":0,"gtid":null,"file":"mysql-bin.000003","pos":1009,"row":0,"thread":null,"query":null},"op":"r","ts_ms":1684831840906,"transaction":null}}"#;
+            let columns = get_other_types_test_columns();
+            let parser = DebeziumJsonParser::new(columns.clone(), Default::default()).unwrap();
+            let [(op, row)]: [_; 1] = parse_one(parser, columns, data.to_vec())
+                .await
+                .try_into()
+                .unwrap();
+            assert_eq!(op, Op::Insert);
+            assert!(row[0].eq(&Some(ScalarImpl::Int32(1))));
+            assert!(row[1].eq(&Some(ScalarImpl::Bool(true))));
+            assert!(row[2].eq(&Some(ScalarImpl::Float32(2.222.into()))));
+            assert!(row[3].eq(&Some(ScalarImpl::Float64(333.3330078125.into()))));
+            assert!(row[4].eq(&Some(ScalarImpl::Utf8("hhh".into()))));
+            assert!(
+                row[5].eq(&Some(ScalarImpl::Bytea(Box::new([u8::from_str_radix(
+                    "aa", 16
+                )
+                .unwrap(),]))))
+            );
+            assert!(row[6].eq(&Some(ScalarImpl::Bytea(Box::new([
+                u8::from_str_radix("ab", 16).unwrap(),
+                u8::from_str_radix("cd", 16).unwrap(),
+                u8::from_str_radix("ef", 16).unwrap(),
+            ])))));
+            assert!(
+                row[7].eq(&Some(ScalarImpl::Bytea(Box::new([u8::from_str_radix(
+                    "bb", 16
+                )
+                .unwrap(),]))))
+            );
+            assert!(row[8].eq(&Some(ScalarImpl::Utf8("haha".into()))));
+            assert!(row[9].eq(&Some(ScalarImpl::Utf8("polar".into()))));
+            assert!(row[10].eq(&Some(ScalarImpl::Int32(2023))));
+            assert!(row[11].eq(&Some(ScalarImpl::Timestamp(Timestamp::new(
+                "2023-05-23T16:16:16".parse().unwrap()
+            )))));
+            assert!(row[12].eq(&Some(ScalarImpl::Timestamp(Timestamp::new(
+                "2023-05-23T16:16:16.123456".parse().unwrap()
+            )))));
+            assert!(row[13].eq(&Some(ScalarImpl::Decimal("2.222".parse().unwrap()))));
         }
     }
 
