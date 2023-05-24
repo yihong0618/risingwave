@@ -202,6 +202,8 @@ impl<const APPEND_ONLY: bool> RemoteSink<APPEND_ONLY> {
                     | DataType::Float64
                     | DataType::Boolean
                     | DataType::Decimal
+                    | DataType::Date
+                    | DataType::Time
                     | DataType::Timestamp
                     | DataType::Varchar
             ) {
@@ -211,7 +213,7 @@ impl<const APPEND_ONLY: bool> RemoteSink<APPEND_ONLY> {
                 })
                 } else {
                     Err(SinkError::Remote(format!(
-                        "remote sink supports Int16, Int32, Int64, Float32, Float64, Boolean, Decimal, Timestamp and Varchar, got {:?}: {:?}",
+                        "remote sink supports Int16, Int32, Int64, Float32, Float64, Boolean, Decimal, Date, Time, Timestamp and Varchar, got {:?}: {:?}",
                         column.column_desc.name,
                         column.column_desc.data_type
                     )))
