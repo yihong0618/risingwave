@@ -15,16 +15,15 @@
 use std::ops::Bound;
 use std::pin::Pin;
 
-use futures::{pin_mut, FutureExt, StreamExt, TryStreamExt};
+use futures::{pin_mut, StreamExt, TryStreamExt};
 use futures_async_stream::try_stream;
-use pin_project_lite::pin_project;
 use risingwave_common::error::Result as RwResult;
 use risingwave_common::util::addr::HostAddr;
 use risingwave_common_service::observer_manager::{Channel, NotificationClient};
 use risingwave_hummock_trace::{
-    GlobalReplay, LocalReplay, LocalReplayRead, ReplayItem, ReplayItemStream, ReplayRead,
-    ReplayStateStore, ReplayWrite, Result, TraceError, TraceSubResp, TracedBytes,
-    TracedNewLocalOptions, TracedReadOptions,
+    GlobalReplay, LocalReplay, LocalReplayRead, ReplayItemStream, ReplayRead, ReplayStateStore,
+    ReplayWrite, Result, TraceError, TraceSubResp, TracedBytes, TracedNewLocalOptions,
+    TracedReadOptions,
 };
 use risingwave_meta::manager::{MessageStatus, MetaSrvEnv, NotificationManagerRef, WorkerKey};
 use risingwave_meta::storage::{MemStore, MetaStore};
@@ -110,8 +109,8 @@ impl ReplayRead for GlobalReplayInterface {
         read_options: TracedReadOptions,
     ) -> Result<Pin<Box<dyn ReplayItemStream>>> {
         let key_range = (
-            key_range.0.map(|b| b.into_bytes()),
-            key_range.1.map(|b| b.into_bytes()),
+            key_range.0.map(TracedBytes::into),
+            key_range.1.map(TracedBytes::into),
         );
 
         let iter = self
@@ -132,7 +131,7 @@ impl ReplayRead for GlobalReplayInterface {
     ) -> Result<Option<TracedBytes>> {
         Ok(self
             .store
-            .get(key.into_bytes(), epoch, read_options.into())
+            .get(key.into(), epoch, read_options.into())
             .await
             .unwrap()
             .map(TracedBytes::from))
@@ -154,29 +153,24 @@ impl ReplayStateStore for GlobalReplayInterface {
         self.store.seal_epoch(epoch_id, is_checkpoint);
     }
 
-    async fn notify_hummock(
-        &self,
-        info: Info,
-        op: RespOperation,
-        version: NotificationVersion,
-    ) -> Result<u64> {
+    async fn notify_hummock(&self, info: Info, op: RespOperation, version: u64) -> Result<u64> {
         let prev_version_id = match &info {
             Info::HummockVersionDeltas(deltas) => deltas.version_deltas.last().map(|d| d.prev_id),
             _ => None,
         };
 
-        self.notifier
-            .notify_hummock_with_version(op, info, Some(version));
+        // self.notifier
+        //     .notify_hummock_with_version(op, info, Some(version));
 
-        // wait till version updated
-        if let Some(prev_version_id) = prev_version_id {
-            self.store.wait_version_update(prev_version_id).await;
-        }
+        // // wait till version updated
+        // if let Some(prev_version_id) = prev_version_id {
+        //     self.store.wait_version_update(prev_version_id).await;
+        // }
         Ok(version)
     }
 
     async fn new_local(&self, options: TracedNewLocalOptions) -> Box<dyn LocalReplay> {
-        let local_storage = self.store.new_local(options).await;
+        let local_storage = self.store.new_local(options.into()).await;
         Box::new(LocalReplayInterface(local_storage))
     }
 }
@@ -191,10 +185,7 @@ impl LocalReplayRead for LocalReplayInterface {
         key_range: (Bound<TracedBytes>, Bound<TracedBytes>),
         read_options: TracedReadOptions,
     ) -> Result<Box<dyn ReplayItemStream>> {
-        let key_range = (
-            key_range.0.map(|b| b.into_bytes()),
-            key_range.1.map(|b| b.into_bytes()),
-        );
+        let key_range = (key_range.0.map(|b| b.into()), key_range.1.map(|b| b.into()));
 
         let iter = LocalStateStore::iter(&self.0, key_range, read_options.into())
             .await
@@ -211,7 +202,7 @@ impl LocalReplayRead for LocalReplayInterface {
         read_options: TracedReadOptions,
     ) -> Result<Option<TracedBytes>> {
         Ok(
-            LocalStateStore::get(&self.0, key.into_bytes(), read_options.into())
+            LocalStateStore::get(&self.0, key.into(), read_options.into())
                 .await
                 .unwrap()
                 .map(TracedBytes::from),
@@ -229,15 +220,15 @@ impl ReplayWrite for LocalReplayInterface {
     ) -> Result<()> {
         Ok(LocalStateStore::insert(
             &mut self.0,
-            key.into_bytes(),
-            new_val.into_bytes(),
-            old_val.map(|b| b.into_bytes()),
+            key.into(),
+            new_val.into(),
+            old_val.map(|b| b.into()),
         )
         .unwrap())
     }
 
     async fn delete(&mut self, key: TracedBytes, old_val: TracedBytes) -> Result<()> {
-        Ok(LocalStateStore::delete(&mut self.0, key.into_bytes(), old_val.into_bytes()).unwrap())
+        Ok(LocalStateStore::delete(&mut self.0, key.into(), old_val.into()).unwrap())
     }
 }
 

@@ -17,6 +17,7 @@ mod worker;
 
 use std::ops::Bound;
 
+use futures::stream::BoxStream;
 use futures::Stream;
 #[cfg(test)]
 use mockall::{automock, mock};
@@ -26,10 +27,10 @@ pub use runner::*;
 pub(crate) use worker::*;
 
 use crate::error::Result;
-use crate::{Record, TracedBytes, TracedReadOptions};
+use crate::{Record, TracedBytes, TracedNewLocalOptions, TracedReadOptions};
 
 pub type ReplayItem = (TracedBytes, TracedBytes);
-pub trait ReplayItemStream = Stream<Item = ReplayItem>;
+pub trait ReplayItemStream = Stream<Item = ReplayItem> + Send;
 
 type ReplayGroup = Record;
 
@@ -56,7 +57,7 @@ pub trait LocalReplayRead {
         &self,
         key_range: (Bound<TracedBytes>, Bound<TracedBytes>),
         read_options: TracedReadOptions,
-    ) -> Result<Box<dyn ReplayItemStream>>;
+    ) -> Result<BoxStream<'static, ReplayItem>>;
     async fn get(
         &self,
         key: TracedBytes,
@@ -72,7 +73,7 @@ pub trait ReplayRead {
         key_range: (Bound<TracedBytes>, Bound<TracedBytes>),
         epoch: u64,
         read_options: TracedReadOptions,
-    ) -> Result<Box<dyn ReplayItemStream>>;
+    ) -> Result<BoxStream<'static, ReplayItem>>;
     async fn get(
         &self,
         key: TracedBytes,
@@ -99,7 +100,7 @@ pub trait ReplayStateStore {
     async fn sync(&self, id: u64) -> Result<usize>;
     async fn seal_epoch(&self, epoch_id: u64, is_checkpoint: bool);
     async fn notify_hummock(&self, info: Info, op: RespOperation, version: u64) -> Result<u64>;
-    async fn new_local(&self, table_id: TableId) -> Box<dyn LocalReplay>;
+    async fn new_local(&self, opts: TracedNewLocalOptions) -> Box<dyn LocalReplay>;
 }
 
 #[cfg_attr(test, automock)]
@@ -120,7 +121,7 @@ mock! {
             key_range: (Bound<TracedBytes>, Bound<TracedBytes>),
             epoch: u64,
             read_options: TracedReadOptions,
-        ) -> Result<Box<dyn ReplayItemStream>>;
+        ) -> Result<BoxStream<'static, ReplayItem>>;
         async fn get(
             &self,
             key: TracedBytes,
@@ -128,17 +129,13 @@ mock! {
             read_options: TracedReadOptions,
         ) -> Result<Option<TracedBytes>>;
     }
-    // #[async_trait::async_trait]
-    // impl ReplayWrite for GlobalReplayInterface{
-    //     fn insert(&mut self, key: TracedBytes, new_val: TracedBytes, old_val: Option<TracedBytes>)-> Result<()>;
-    // }
     #[async_trait::async_trait]
     impl ReplayStateStore for GlobalReplayInterface{
         async fn sync(&self, id: u64) -> Result<usize>;
         async fn seal_epoch(&self, epoch_id: u64, is_checkpoint: bool);
         async fn notify_hummock(&self, info: Info, op: RespOperation, version: u64,
         ) -> Result<u64>;
-        async fn new_local(&self, table_id: TableId) -> Box<dyn LocalReplay>;
+        async fn new_local(&self, opts: TracedNewLocalOptions) -> Box<dyn LocalReplay>;
     }
     impl GlobalReplay for GlobalReplayInterface{}
 }
@@ -153,7 +150,7 @@ mock! {
             &self,
             key_range: (Bound<TracedBytes>, Bound<TracedBytes>),
             read_options: TracedReadOptions,
-        ) -> Result<Box<dyn ReplayItemStream>>;
+        ) -> Result<BoxStream<'static, ReplayItem>>;
         async fn get(
             &self,
             key: TracedBytes,

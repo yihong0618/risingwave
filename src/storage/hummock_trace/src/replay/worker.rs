@@ -15,12 +15,15 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use futures::stream::BoxStream;
+use futures::{pin_mut, StreamExt, TryStreamExt};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 
-use super::{GlobalReplay, LocalReplay, ReplayIter, ReplayRequest, WorkerId, WorkerResponse};
+use super::{GlobalReplay, LocalReplay, ReplayRequest, WorkerId, WorkerResponse};
 use crate::{
-    Operation, OperationResult, Record, RecordId, StorageType, TraceResult, TracedTableId,
+    Operation, OperationResult, Record, RecordId, ReplayItem, ReplayItemStream, StorageType,
+    TraceResult, TracedTableId,
 };
 
 #[async_trait::async_trait]
@@ -162,7 +165,7 @@ impl ReplayWorker {
         record: Record,
         replay: &Arc<impl GlobalReplay>,
         res_rx: &mut UnboundedReceiver<OperationResult>,
-        iters_map: &mut HashMap<RecordId, Box<dyn ReplayIter>>,
+        iters_map: &mut HashMap<RecordId, BoxStream<'static, ReplayItem>>,
         local_storages: &mut LocalStorages,
         should_exit: &mut bool,
     ) {
@@ -247,7 +250,9 @@ impl ReplayWorker {
                 let res = res_rx.recv().await.expect("recv result failed");
                 if let OperationResult::Iter(expected) = res {
                     if expected.is_ok() {
-                        iters_map.insert(record_id, iter.unwrap());
+                        let iter = iter.unwrap().boxed();
+                        let id = record_id;
+                        iters_map.insert(id, iter);
                     } else {
                         assert!(iter.is_err());
                     }
@@ -268,6 +273,7 @@ impl ReplayWorker {
             Operation::IterNext(id) => {
                 let iter = iters_map.get_mut(&id).expect("iter not in worker");
                 let actual = iter.next().await;
+                // let actual = iter.next().await;
                 let res = res_rx.recv().await.expect("recv result failed");
                 if let OperationResult::IterNext(expected) = res {
                     assert_eq!(TraceResult::Ok(actual), expected, "iter_next result wrong");
@@ -275,7 +281,9 @@ impl ReplayWorker {
             }
             Operation::NewLocalStorage(new_local_opts) => {
                 if let StorageType::Local(_, _) = storage_type {
-                    local_storages.insert(new_local_opts.table_id, replay).await;
+                    let table_id = new_local_opts.table_id;
+                    let local_storage = replay.new_local(new_local_opts).await;
+                    local_storages.insert(table_id, local_storage).await;
                 }
             }
             Operation::DropLocalStorage => {
@@ -372,9 +380,8 @@ impl LocalStorages {
         self.storages.get_mut(table_id)
     }
 
-    async fn insert(&mut self, table_id: TracedTableId, replay: &Arc<impl GlobalReplay>) {
-        self.storages
-            .insert(table_id, replay.new_local(table_id.into()).await);
+    async fn insert(&mut self, table_id: TracedTableId, local_storage: Box<dyn LocalReplay>) {
+        self.storages.insert(table_id, local_storage);
     }
 
     fn is_empty(&self) -> bool {
@@ -436,19 +443,19 @@ mod tests {
         mock_replay.expect_new_local().times(1).returning(move |_| {
             let mut mock_local = MockLocalReplayInterface::new();
 
-            mock_local
-                .expect_iter()
-                .with(
-                    predicate::eq((Bound::Unbounded, Bound::Unbounded)),
-                    predicate::always(),
-                )
-                .returning(|_, _| {
-                    let mut mock_iter = MockReplayIter::new();
-                    mock_iter.expect_next().times(1).returning(|| {
-                        Some((TracedBytes::from(vec![1]), TracedBytes::from(vec![0])))
-                    });
-                    Ok(Box::new(mock_iter))
-                });
+            // mock_local
+            //     .expect_iter()
+            //     .with(
+            //         predicate::eq((Bound::Unbounded, Bound::Unbounded)),
+            //         predicate::always(),
+            //     )
+            //     .returning(|_, _| {
+            //         let mut mock_iter = MockReplayIter::new();
+            //         mock_iter.expect_next().times(1).returning(|| {
+            //             Some((TracedBytes::from(vec![1]), TracedBytes::from(vec![0])))
+            //         });
+            //         Ok(Box::new(mock_iter))
+            //     });
 
             Box::new(mock_local)
         });
