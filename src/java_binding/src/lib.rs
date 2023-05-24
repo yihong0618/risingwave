@@ -27,8 +27,11 @@ use std::panic::catch_unwind;
 use std::slice::from_raw_parts;
 use std::sync::{Arc, LazyLock};
 
+use chrono::{NaiveDate, NaiveTime};
 use hummock_iterator::{HummockJavaBindingIterator, KeyedRow};
-use jni::objects::{AutoArray, GlobalRef, JClass, JMethodID, JObject, JString, ReleaseMode};
+use jni::objects::{
+    AutoArray, GlobalRef, JClass, JMethodID, JObject, JString, ReleaseMode,
+};
 use jni::sys::{jboolean, jbyte, jbyteArray, jdouble, jfloat, jint, jlong, jshort};
 use jni::JNIEnv;
 use once_cell::sync::OnceCell;
@@ -549,6 +552,69 @@ pub extern "system" fn Java_com_risingwave_java_binding_Binding_rowGetDecimalVal
             env.new_object_unchecked(decimal_class, *constructor, &[string_value.into()])?;
 
         Ok(date_obj)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_risingwave_java_binding_Binding_rowGetDateValue<'a>(
+    env: EnvParam<'a>,
+    pointer: Pointer<'a, JavaBindingRow>,
+    idx: jint,
+) -> JObject<'a> {
+    execute_and_catch(env, move || {
+        let millis = pointer
+            .as_ref()
+            .datum_at(idx as usize)
+            .unwrap()
+            .into_date()
+            .0
+            .signed_duration_since(NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())
+            .num_milliseconds();
+
+        let (ts_class_ref, constructor) = pointer
+            .as_ref()
+            .class_cache
+            .timestamp_ctor
+            .get_or_try_init(|| {
+                let cls = env.find_class("java/sql/Date")?;
+                let init_method = env.get_method_id(cls, "<init>", "(J)V")?;
+                Ok::<_, jni::errors::Error>((env.new_global_ref(cls)?, init_method))
+            })?;
+        let ts_class = JClass::from(ts_class_ref.as_obj());
+        let date_obj = env.new_object_unchecked(ts_class, *constructor, &[millis.into()])?;
+
+        Ok(date_obj)
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_risingwave_java_binding_Binding_rowGetTimeValue<'a>(
+    env: EnvParam<'a>,
+    pointer: Pointer<'a, JavaBindingRow>,
+    idx: jint,
+) -> JObject<'a> {
+    execute_and_catch(env, move || {
+        let millis = pointer
+            .as_ref()
+            .datum_at(idx as usize)
+            .unwrap()
+            .into_time()
+            .0
+            .signed_duration_since(NaiveTime::from_num_seconds_from_midnight_opt(0, 0).unwrap())
+            .num_milliseconds();
+        let (ts_class_ref, constructor) = pointer
+            .as_ref()
+            .class_cache
+            .timestamp_ctor
+            .get_or_try_init(|| {
+                let cls = env.find_class("java/sql/Time")?;
+                let init_method = env.get_method_id(cls, "<init>", "(J)V")?;
+                Ok::<_, jni::errors::Error>((env.new_global_ref(cls)?, init_method))
+            })?;
+        let ts_class = JClass::from(ts_class_ref.as_obj());
+        let time_obj = env.new_object_unchecked(ts_class, *constructor, &[millis.into()])?;
+
+        Ok(time_obj)
     })
 }
 

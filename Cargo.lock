@@ -6208,6 +6208,7 @@ name = "risingwave_java_binding"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "chrono",
  "futures",
  "itertools",
  "jni",
