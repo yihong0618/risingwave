@@ -135,6 +135,7 @@ pub struct TracedNewLocalOptions {
     pub table_option: TracedTableOption,
 }
 
+#[cfg(test)]
 impl TracedNewLocalOptions {
     pub(crate) fn for_test(table_id: u32) -> Self {
         Self {

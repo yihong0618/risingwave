@@ -13,15 +13,15 @@
 // limitations under the License.
 
 use std::ops::Bound;
-use std::pin::Pin;
 
+use futures::stream::BoxStream;
 use futures::{pin_mut, StreamExt, TryStreamExt};
-use futures_async_stream::try_stream;
+use futures_async_stream::{for_await, try_stream};
 use risingwave_common::error::Result as RwResult;
 use risingwave_common::util::addr::HostAddr;
 use risingwave_common_service::observer_manager::{Channel, NotificationClient};
 use risingwave_hummock_trace::{
-    GlobalReplay, LocalReplay, LocalReplayRead, ReplayItemStream, ReplayRead, ReplayStateStore,
+    GlobalReplay, LocalReplay, LocalReplayRead, ReplayItem, ReplayRead, ReplayStateStore,
     ReplayWrite, Result, TraceError, TraceSubResp, TracedBytes, TracedNewLocalOptions,
     TracedReadOptions,
 };
@@ -35,7 +35,7 @@ use risingwave_storage::hummock::HummockStorage;
 use risingwave_storage::store::{
     LocalStateStore, StateStoreIterItemStream, StateStoreRead, SyncResult,
 };
-use risingwave_storage::{StateStore, StateStoreIterItem, StateStoreReadIterStream};
+use risingwave_storage::{StateStore, StateStoreReadIterStream};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 pub(crate) struct GlobalReplayIter<S>
 where
@@ -52,7 +52,7 @@ where
         Self { inner }
     }
 
-    #[try_stream(ok = (TracedBytes, TracedBytes), error = TraceError)]
+    #[try_stream(ok = ReplayItem, error = TraceError)]
     pub(crate) async fn into_stream(self) {
         let inner = self.inner;
         pin_mut!(inner);
@@ -62,27 +62,25 @@ where
     }
 }
 
-pub(crate) struct LocalReplayIter<S>
-where
-    S: StateStoreIterItemStream,
-{
-    inner: S,
+pub(crate) struct LocalReplayIter {
+    inner: Vec<ReplayItem>,
 }
 
-impl<S> LocalReplayIter<S>
-where
-    S: StateStoreIterItemStream,
-{
-    pub(crate) fn new(inner: S) -> Self {
+impl LocalReplayIter {
+    pub(crate) async fn new(stream: impl StateStoreIterItemStream) -> Self {
+        let mut inner = Vec::new();
+        #[for_await]
+        for value in stream {
+            let value = value.unwrap();
+            inner.push((value.0.user_key.table_key.0.into(), value.1.into()));
+        }
         Self { inner }
     }
 
-    #[try_stream(ok = (TracedBytes, TracedBytes), error = TraceError)]
+    #[try_stream(ok = ReplayItem, error = TraceError)]
     pub(crate) async fn into_stream(self) {
-        let inner = self.inner;
-        pin_mut!(inner);
-        while let Ok(Some((key, value))) = inner.try_next().await {
-            yield (key.user_key.table_key.0.into(), value.into())
+        for (key, value) in self.inner {
+            yield (key, value)
         }
     }
 }
@@ -107,7 +105,7 @@ impl ReplayRead for GlobalReplayInterface {
         key_range: (Bound<TracedBytes>, Bound<TracedBytes>),
         epoch: u64,
         read_options: TracedReadOptions,
-    ) -> Result<Pin<Box<dyn ReplayItemStream>>> {
+    ) -> Result<BoxStream<'static, Result<ReplayItem>>> {
         let key_range = (
             key_range.0.map(TracedBytes::into),
             key_range.1.map(TracedBytes::into),
@@ -119,8 +117,8 @@ impl ReplayRead for GlobalReplayInterface {
             .await
             .unwrap();
         let iter = iter.boxed();
-
-        Ok(Box::pin(HummockReplayIter::new(iter).into_stream()))
+        let stream = GlobalReplayIter::new(iter).into_stream().boxed();
+        Ok(stream)
     }
 
     async fn get(
@@ -159,13 +157,13 @@ impl ReplayStateStore for GlobalReplayInterface {
             _ => None,
         };
 
-        // self.notifier
-        //     .notify_hummock_with_version(op, info, Some(version));
+        self.notifier
+            .notify_hummock_with_version(op, info, Some(version));
 
-        // // wait till version updated
-        // if let Some(prev_version_id) = prev_version_id {
-        //     self.store.wait_version_update(prev_version_id).await;
-        // }
+        // wait till version updated
+        if let Some(prev_version_id) = prev_version_id {
+            self.store.wait_version_update(prev_version_id).await;
+        }
         Ok(version)
     }
 
@@ -184,7 +182,7 @@ impl LocalReplayRead for LocalReplayInterface {
         &self,
         key_range: (Bound<TracedBytes>, Bound<TracedBytes>),
         read_options: TracedReadOptions,
-    ) -> Result<Box<dyn ReplayItemStream>> {
+    ) -> Result<BoxStream<'static, Result<ReplayItem>>> {
         let key_range = (key_range.0.map(|b| b.into()), key_range.1.map(|b| b.into()));
 
         let iter = LocalStateStore::iter(&self.0, key_range, read_options.into())
@@ -192,8 +190,8 @@ impl LocalReplayRead for LocalReplayInterface {
             .unwrap();
 
         let iter = iter.boxed();
-
-        Ok(Box::pin(HummockReplayIter::new(iter).into_stream()))
+        let stream = LocalReplayIter::new(iter).await.into_stream().boxed();
+        Ok(stream)
     }
 
     async fn get(
@@ -212,23 +210,25 @@ impl LocalReplayRead for LocalReplayInterface {
 
 #[async_trait::async_trait]
 impl ReplayWrite for LocalReplayInterface {
-    async fn insert(
+    fn insert(
         &mut self,
         key: TracedBytes,
         new_val: TracedBytes,
         old_val: Option<TracedBytes>,
     ) -> Result<()> {
-        Ok(LocalStateStore::insert(
+        LocalStateStore::insert(
             &mut self.0,
             key.into(),
             new_val.into(),
             old_val.map(|b| b.into()),
         )
-        .unwrap())
+        .unwrap();
+        Ok(())
     }
 
-    async fn delete(&mut self, key: TracedBytes, old_val: TracedBytes) -> Result<()> {
-        Ok(LocalStateStore::delete(&mut self.0, key.into(), old_val.into()).unwrap())
+    fn delete(&mut self, key: TracedBytes, old_val: TracedBytes) -> Result<()> {
+        LocalStateStore::delete(&mut self.0, key.into(), old_val.into()).unwrap();
+        Ok(())
     }
 }
 

@@ -308,6 +308,16 @@ where
         let version_guard = self.current_version.lock().await;
         version_guard.version()
     }
+
+    #[cfg(any(test, feature = "test"))]
+    pub fn notify_hummock_with_version(
+        &self,
+        operation: Operation,
+        info: Info,
+        version: Option<NotificationVersion>,
+    ) {
+        self.notify(SubscribeType::Hummock.into(), operation, info, version)
+    }
 }
 
 type SenderMap = HashMap<WorkerKey, UnboundedSender<Notification>>;

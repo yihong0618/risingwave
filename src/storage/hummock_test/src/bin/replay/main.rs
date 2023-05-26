@@ -15,6 +15,8 @@
 #![feature(bound_map)]
 #![feature(generators)]
 #![feature(poll_ready)]
+#![feature(stmt_expr_attributes)]
+#![feature(proc_macro_hygiene)]
 
 #[macro_use]
 mod replay_impl;
@@ -37,7 +39,9 @@ use risingwave_meta::hummock::test_utils::setup_compute_env;
 use risingwave_meta::hummock::MockHummockMetaClient;
 use risingwave_object_store::object::parse_remote_object_store;
 use risingwave_pb::meta::SystemParams;
-use risingwave_storage::filter_key_extractor::{FilterKeyExtractorManager, RemoteTableAccessor};
+use risingwave_storage::filter_key_extractor::{
+    FakeRemoteTableAccessor, FilterKeyExtractorManager,
+};
 use risingwave_storage::hummock::{HummockStorage, SstableStore, TieredCache};
 use risingwave_storage::monitor::{CompactorMetrics, HummockStateStoreMetrics, ObjectStoreMetrics};
 use risingwave_storage::opts::StorageOpts;
@@ -135,7 +139,7 @@ async fn create_replay_hummock(r: Record, args: &Args) -> Result<impl GlobalRepl
     };
 
     let key_filter_manager = Arc::new(FilterKeyExtractorManager::new(Box::new(
-        RemoteTableAccessor::new(hummock_meta_client.get_inner().clone()),
+        FakeRemoteTableAccessor {},
     )));
 
     let storage = HummockStorage::new(

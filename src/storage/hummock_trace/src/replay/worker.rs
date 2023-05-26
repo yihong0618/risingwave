@@ -16,14 +16,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use futures::stream::BoxStream;
-use futures::{pin_mut, StreamExt, TryStreamExt};
+use futures::StreamExt;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 
 use super::{GlobalReplay, LocalReplay, ReplayRequest, WorkerId, WorkerResponse};
 use crate::{
-    Operation, OperationResult, Record, RecordId, ReplayItem, ReplayItemStream, StorageType,
-    TraceResult, TracedTableId,
+    Operation, OperationResult, Record, RecordId, ReplayItem, Result, StorageType, TraceResult,
+    TracedTableId,
 };
 
 #[async_trait::async_trait]
@@ -137,9 +137,11 @@ impl ReplayWorker {
         resp_tx: UnboundedSender<WorkerResponse>,
         replay: Arc<impl GlobalReplay>,
     ) {
-        let mut iters_map = HashMap::new();
+        let mut iters_map: HashMap<RecordId, BoxStream<'static, Result<ReplayItem>>> =
+            HashMap::new();
         let mut local_storages = LocalStorages::new();
         let mut should_shutdown = false;
+
         while let Some(Some(record)) = req_rx.recv().await {
             Self::handle_record(
                 record,
@@ -165,15 +167,16 @@ impl ReplayWorker {
         record: Record,
         replay: &Arc<impl GlobalReplay>,
         res_rx: &mut UnboundedReceiver<OperationResult>,
-        iters_map: &mut HashMap<RecordId, BoxStream<'static, ReplayItem>>,
+        iters_map: &mut HashMap<RecordId, BoxStream<'static, Result<ReplayItem>>>,
         local_storages: &mut LocalStorages,
-        should_exit: &mut bool,
+        should_shutdown: &mut bool,
     ) {
         let Record {
             storage_type,
             record_id,
             operation,
         } = record;
+
         match operation {
             Operation::Get {
                 key,
@@ -243,7 +246,7 @@ impl ReplayWorker {
                     }
                     StorageType::Local(_, table_id) => {
                         assert_eq!(table_id, read_options.table_id);
-                        let s = local_storages.get_mut(&read_options.table_id).unwrap();
+                        let s = local_storages.get_mut(&table_id).unwrap();
                         s.iter(key_range, read_options).await
                     }
                 };
@@ -273,7 +276,7 @@ impl ReplayWorker {
             Operation::IterNext(id) => {
                 let iter = iters_map.get_mut(&id).expect("iter not in worker");
                 let actual = iter.next().await;
-                // let actual = iter.next().await;
+                let actual = actual.map(|res| res.unwrap());
                 let res = res_rx.recv().await.expect("recv result failed");
                 if let OperationResult::IterNext(expected) = res {
                     assert_eq!(TraceResult::Ok(actual), expected, "iter_next result wrong");
@@ -283,7 +286,7 @@ impl ReplayWorker {
                 if let StorageType::Local(_, _) = storage_type {
                     let table_id = new_local_opts.table_id;
                     let local_storage = replay.new_local(new_local_opts).await;
-                    local_storages.insert(table_id, local_storage).await;
+                    local_storages.insert(table_id, local_storage);
                 }
             }
             Operation::DropLocalStorage => {
@@ -293,7 +296,7 @@ impl ReplayWorker {
                 // All local storages have been dropped, we should shutdown this worker
                 // If there are incoming new_local, this ReplayWorker will spawn again
                 if local_storages.is_empty() {
-                    *should_exit = true;
+                    *should_shutdown = true;
                 }
             }
             Operation::MetaMessage(resp) => {
@@ -365,6 +368,7 @@ impl WorkerHandler {
 struct LocalStorages {
     storages: HashMap<TracedTableId, Box<dyn LocalReplay>>,
 }
+
 impl LocalStorages {
     fn new() -> Self {
         Self {
@@ -380,7 +384,7 @@ impl LocalStorages {
         self.storages.get_mut(table_id)
     }
 
-    async fn insert(&mut self, table_id: TracedTableId, local_storage: Box<dyn LocalReplay>) {
+    fn insert(&mut self, table_id: TracedTableId, local_storage: Box<dyn LocalReplay>) {
         self.storages.insert(table_id, local_storage);
     }
 
@@ -404,7 +408,7 @@ mod tests {
     use tokio::sync::mpsc::unbounded_channel;
 
     use super::*;
-    use crate::replay::{MockGlobalReplayInterface, MockLocalReplayInterface, MockReplayIter};
+    use crate::replay::{MockGlobalReplayInterface, MockLocalReplayInterface};
     use crate::{StorageType, TracedBytes, TracedNewLocalOptions, TracedReadOptions};
 
     #[tokio::test]
@@ -441,7 +445,7 @@ mod tests {
         });
 
         mock_replay.expect_new_local().times(1).returning(move |_| {
-            let mut mock_local = MockLocalReplayInterface::new();
+            let mock_local = MockLocalReplayInterface::new();
 
             // mock_local
             //     .expect_iter()

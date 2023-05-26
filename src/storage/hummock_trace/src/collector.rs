@@ -254,11 +254,7 @@ impl TraceSpan {
 
     pub fn send(&self, op: Operation) {
         self.tx
-            .send(Some(Record::new(
-                self.storage_type().clone(),
-                self.id(),
-                op,
-            )))
+            .send(Some(Record::new(*self.storage_type(), self.id(), op)))
             .expect("failed to log record");
     }
 

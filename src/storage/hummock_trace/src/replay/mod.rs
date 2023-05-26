@@ -21,7 +21,6 @@ use futures::stream::BoxStream;
 use futures::Stream;
 #[cfg(test)]
 use mockall::{automock, mock};
-use risingwave_common::catalog::TableId;
 use risingwave_pb::meta::subscribe_response::{Info, Operation as RespOperation};
 pub use runner::*;
 pub(crate) use worker::*;
@@ -57,7 +56,7 @@ pub trait LocalReplayRead {
         &self,
         key_range: (Bound<TracedBytes>, Bound<TracedBytes>),
         read_options: TracedReadOptions,
-    ) -> Result<BoxStream<'static, ReplayItem>>;
+    ) -> Result<BoxStream<'static, Result<ReplayItem>>>;
     async fn get(
         &self,
         key: TracedBytes,
@@ -73,7 +72,7 @@ pub trait ReplayRead {
         key_range: (Bound<TracedBytes>, Bound<TracedBytes>),
         epoch: u64,
         read_options: TracedReadOptions,
-    ) -> Result<BoxStream<'static, ReplayItem>>;
+    ) -> Result<BoxStream<'static, Result<ReplayItem>>>;
     async fn get(
         &self,
         key: TracedBytes,
@@ -121,7 +120,7 @@ mock! {
             key_range: (Bound<TracedBytes>, Bound<TracedBytes>),
             epoch: u64,
             read_options: TracedReadOptions,
-        ) -> Result<BoxStream<'static, ReplayItem>>;
+        ) -> Result<BoxStream<'static, Result<ReplayItem>>>;
         async fn get(
             &self,
             key: TracedBytes,
@@ -150,7 +149,7 @@ mock! {
             &self,
             key_range: (Bound<TracedBytes>, Bound<TracedBytes>),
             read_options: TracedReadOptions,
-        ) -> Result<BoxStream<'static, ReplayItem>>;
+        ) -> Result<BoxStream<'static, Result<ReplayItem>>>;
         async fn get(
             &self,
             key: TracedBytes,
