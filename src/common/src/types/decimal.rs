@@ -521,19 +521,33 @@ impl Decimal {
         // according to https://docs.rs/rust_decimal/1.18.0/src/rust_decimal/decimal.rs.html#665-684
         // the lower 15 bits is not used, so we can use first byte to distinguish nan and inf
         match self {
-            Self::Normalized(d) => d.serialize(),
-            Self::NaN => [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            Self::PositiveInf => [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            Self::NegativeInf => [3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            Self::Normalized(d) => {
+                let mut buf = d.serialize();
+                assert_eq!(buf[0], 0);
+                buf[0] = 0x4c;
+                buf
+            }
+            Self::NaN => [0x4d, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            Self::PositiveInf => [0xb3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            Self::NegativeInf => [0xb2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         }
     }
 
     pub fn unordered_deserialize(bytes: [u8; 16]) -> Self {
         match bytes[0] {
-            0u8 => Self::Normalized(RustDecimal::deserialize(bytes)),
-            1u8 => Self::NaN,
-            2u8 => Self::PositiveInf,
-            3u8 => Self::NegativeInf,
+            0x4c => Self::Normalized(RustDecimal::deserialize(bytes)),
+            0x4d => Self::NaN,
+            0xb3 => Self::PositiveInf,
+            0xb2 => Self::NegativeInf,
+            0x00..=0x4b | 0xb4..=0xff => {
+                let raw = i128::from_be_bytes(bytes);
+                todo!(
+                    "{} as decimal(38, 0) or {}.{} as decimal(38,10)",
+                    raw,
+                    raw / 10,
+                    (raw % 10).abs(),
+                )
+            }
             _ => unreachable!(),
         }
     }
@@ -962,6 +976,23 @@ mod tests {
                     < memcomparable::Decimal::from(ordered[i])
             );
         }
+    }
+
+    #[test]
+    // #[ignore]
+    fn test_decode_max38digit() {
+        Decimal::unordered_deserialize([
+            0x4b, 0x3b, 0x4c, 0xa8, 0x5a, 0x86, 0xc4, 0x7a, 0x09, 0x8a, 0x22, 0x3f, 0xff, 0xff,
+            0xff, 0xff,
+        ]);
+    }
+
+    #[test]
+    fn test_decode_min38digit() {
+        Decimal::unordered_deserialize([
+            0xb4, 0xc4, 0xb3, 0x57, 0xa5, 0x79, 0x3b, 0x85, 0xf6, 0x75, 0xdd, 0xc0, 0x00, 0x00,
+            0x00, 0x01,
+        ]);
     }
 
     #[test]
