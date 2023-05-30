@@ -23,6 +23,7 @@ use std::sync::LazyLock;
 use bincode::{Decode, Encode};
 use bytes::Bytes;
 use parking_lot::Mutex;
+use risingwave_pb::meta::SubscribeResponse;
 use tokio::sync::mpsc::{
     unbounded_channel as channel, UnboundedReceiver as Receiver, UnboundedSender as Sender,
 };
@@ -31,7 +32,7 @@ use tokio::task_local;
 use crate::write::{TraceWriter, TraceWriterImpl};
 use crate::{
     ConcurrentIdGenerator, Operation, OperationResult, Record, RecordId, RecordIdGenerator,
-    TracedNewLocalOptions, TracedReadOptions, TracedTableId, UniqueIdGenerator,
+    TracedNewLocalOptions, TracedReadOptions, TracedSubResp, TracedTableId, UniqueIdGenerator,
 };
 
 // Global collector instance used for trace collection
@@ -172,7 +173,7 @@ impl TraceSpan {
         }
     }
 
-    pub fn new_global(op: Operation, storage_type: StorageType) -> MayTraceSpan {
+    pub fn new_global_op(op: Operation, storage_type: StorageType) -> MayTraceSpan {
         match should_use_trace() {
             true => Some(Self::new_to_global(op, storage_type)).into(),
             false => None.into(),
@@ -185,7 +186,7 @@ impl TraceSpan {
         read_options: TracedReadOptions,
         storage_type: StorageType,
     ) -> MayTraceSpan {
-        Self::new_global(Operation::get(key, epoch, read_options), storage_type)
+        Self::new_global_op(Operation::get(key, epoch, read_options), storage_type)
     }
 
     pub fn new_iter_span(
@@ -194,7 +195,7 @@ impl TraceSpan {
         read_options: TracedReadOptions,
         storage_type: StorageType,
     ) -> MayTraceSpan {
-        Self::new_global(
+        Self::new_global_op(
             Operation::Iter {
                 key_range: (
                     key_range.0.as_ref().map(|v| v.clone().into()),
@@ -213,7 +214,7 @@ impl TraceSpan {
         old_val: Option<Bytes>,
         storage_type: StorageType,
     ) -> MayTraceSpan {
-        Self::new_global(
+        Self::new_global_op(
             Operation::Insert {
                 key: key.into(),
                 new_val: new_val.into(),
@@ -224,7 +225,7 @@ impl TraceSpan {
     }
 
     pub fn new_delete_span(key: Bytes, old_val: Bytes, storage_type: StorageType) -> MayTraceSpan {
-        Self::new_global(
+        Self::new_global_op(
             Operation::Delete {
                 key: key.into(),
                 old_val: old_val.into(),
@@ -234,7 +235,7 @@ impl TraceSpan {
     }
 
     pub fn new_sync_span(epoch: u64, storage_type: StorageType) -> MayTraceSpan {
-        Self::new_global(Operation::Sync(epoch), storage_type)
+        Self::new_global_op(Operation::Sync(epoch), storage_type)
     }
 
     pub fn new_seal_span(
@@ -242,18 +243,25 @@ impl TraceSpan {
         is_checkpoint: bool,
         storage_type: StorageType,
     ) -> MayTraceSpan {
-        Self::new_global(Operation::Seal(epoch, is_checkpoint), storage_type)
+        Self::new_global_op(Operation::Seal(epoch, is_checkpoint), storage_type)
     }
 
     pub fn new_local_storage_span(
         option: TracedNewLocalOptions,
         storage_type: StorageType,
     ) -> MayTraceSpan {
-        Self::new_global(Operation::NewLocalStorage(option), storage_type)
+        Self::new_global_op(Operation::NewLocalStorage(option), storage_type)
     }
 
     pub fn new_drop_storage_span(storage_type: StorageType) -> MayTraceSpan {
-        Self::new_global(Operation::DropLocalStorage, storage_type)
+        Self::new_global_op(Operation::DropLocalStorage, storage_type)
+    }
+
+    pub fn new_meta_message_span(resp: SubscribeResponse) -> MayTraceSpan {
+        Self::new_global_op(
+            Operation::MetaMessage(Box::new(TracedSubResp::from(resp))),
+            StorageType::Global,
+        )
     }
 
     pub fn send(&self, op: Operation) {

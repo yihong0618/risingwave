@@ -34,6 +34,7 @@ risingwave_common = { path = "../common" }
 risingwave_connector = { path = "../connector" }
 risingwave_expr = { path = "../expr" }
 risingwave_hummock_sdk = { path = "../storage/hummock_sdk" }
+risingwave_hummock_trace = { path = "../storage/hummock_trace" }
 risingwave_pb = { path = "../prost" }
 risingwave_rpc_client = { path = "../rpc_client" }
 risingwave_source = { path = "../source" }

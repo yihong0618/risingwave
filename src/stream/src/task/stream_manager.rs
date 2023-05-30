@@ -31,6 +31,8 @@ use risingwave_common::config::StreamingConfig;
 use risingwave_common::util::addr::HostAddr;
 use risingwave_common::util::runtime::BackgroundShutdownRuntime;
 use risingwave_hummock_sdk::LocalSstableInfo;
+#[cfg(all(not(madsim), any(hm_trace, feature = "hm-trace")))]
+use risingwave_hummock_trace::hummock_trace_scope;
 use risingwave_pb::common::ActorInfo;
 use risingwave_pb::stream_plan;
 use risingwave_pb::stream_plan::stream_node::NodeBody;
@@ -651,6 +653,10 @@ impl LocalStreamManagerCore {
                         context.lock_barrier_manager().notify_failure(actor_id, err);
                     }
                 };
+
+                #[cfg(all(not(madsim), any(hm_trace, feature = "hm-trace")))]
+                let actor = hummock_trace_scope(actor);
+
                 let traced = match &mut self.await_tree_reg {
                     Some(m) => m
                         .register(

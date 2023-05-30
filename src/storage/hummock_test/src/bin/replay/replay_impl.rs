@@ -22,8 +22,8 @@ use risingwave_common::util::addr::HostAddr;
 use risingwave_common_service::observer_manager::{Channel, NotificationClient};
 use risingwave_hummock_trace::{
     GlobalReplay, LocalReplay, LocalReplayRead, ReplayItem, ReplayRead, ReplayStateStore,
-    ReplayWrite, Result, TraceError, TraceSubResp, TracedBytes, TracedNewLocalOptions,
-    TracedReadOptions,
+    ReplayWrite, Result, TraceError, TracedBytes, TracedNewLocalOptions, TracedReadOptions,
+    TracedSubResp,
 };
 use risingwave_meta::manager::{MessageStatus, MetaSrvEnv, NotificationManagerRef, WorkerKey};
 use risingwave_meta::storage::{MemStore, MetaStore};
@@ -235,14 +235,14 @@ impl ReplayWrite for LocalReplayInterface {
 pub struct ReplayNotificationClient<S: MetaStore> {
     addr: HostAddr,
     notification_manager: NotificationManagerRef<S>,
-    first_resp: Box<TraceSubResp>,
+    first_resp: Box<TracedSubResp>,
 }
 
 impl<S: MetaStore> ReplayNotificationClient<S> {
     pub fn new(
         addr: HostAddr,
         notification_manager: NotificationManagerRef<S>,
-        first_resp: Box<TraceSubResp>,
+        first_resp: Box<TracedSubResp>,
     ) -> Self {
         Self {
             addr,
@@ -278,7 +278,7 @@ impl<S: MetaStore> NotificationClient for ReplayNotificationClient<S> {
 pub fn get_replay_notification_client(
     env: MetaSrvEnv<MemStore>,
     worker_node: WorkerNode,
-    first_resp: Box<TraceSubResp>,
+    first_resp: Box<TracedSubResp>,
 ) -> ReplayNotificationClient<MemStore> {
     ReplayNotificationClient::new(
         worker_node.get_host().unwrap().into(),

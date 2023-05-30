@@ -149,7 +149,7 @@ pub enum Operation {
     Seal(u64, bool),
 
     /// MetaMessage operation of Hummock.
-    MetaMessage(Box<TraceSubResp>),
+    MetaMessage(Box<TracedSubResp>),
 
     /// Result operation of Hummock.
     Result(OperationResult),
@@ -275,9 +275,9 @@ pub enum OperationResult {
 }
 
 #[derive(PartialEq, Debug, Clone)]
-pub struct TraceSubResp(pub SubscribeResponse);
+pub struct TracedSubResp(pub SubscribeResponse);
 
-impl Encode for TraceSubResp {
+impl Encode for TracedSubResp {
     fn encode<E: bincode::enc::Encoder>(&self, encoder: &mut E) -> Result<(), EncodeError> {
         // SubscribeResponse and its implementation of Serialize is generated
         // by prost and pbjson for protobuf mapping.
@@ -291,7 +291,7 @@ impl Encode for TraceSubResp {
     }
 }
 
-impl Decode for TraceSubResp {
+impl Decode for TracedSubResp {
     fn decode<D: bincode::de::Decoder>(
         decoder: &mut D,
     ) -> Result<Self, bincode::error::DecodeError> {
@@ -303,7 +303,7 @@ impl Decode for TraceSubResp {
     }
 }
 
-impl<'de> bincode::BorrowDecode<'de> for TraceSubResp {
+impl<'de> bincode::BorrowDecode<'de> for TracedSubResp {
     fn borrow_decode<D: bincode::de::BorrowDecoder<'de>>(
         decoder: &mut D,
     ) -> core::result::Result<Self, bincode::error::DecodeError> {
@@ -312,6 +312,12 @@ impl<'de> bincode::BorrowDecode<'de> for TraceSubResp {
             DecodeError::OtherString("failed to decode subscribeResponse".to_string())
         })?;
         Ok(Self(resp))
+    }
+}
+
+impl From<SubscribeResponse> for TracedSubResp {
+    fn from(value: SubscribeResponse) -> Self {
+        Self(value)
     }
 }
 
