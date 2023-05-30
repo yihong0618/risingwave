@@ -22,7 +22,9 @@ use risingwave_common::catalog::TableId;
 use risingwave_hummock_sdk::HummockReadEpoch;
 use tracing::error;
 
+use super::traced_store::TracedStateStore;
 use super::MonitoredStorageMetrics;
+#[cfg(all(not(madsim), any(hm_trace, feature = "hm-trace")))]
 use crate::error::{StorageError, StorageResult};
 use crate::hummock::sstable_store::SstableStoreRef;
 use crate::hummock::{HummockStorage, SstableObjectIdManagerRef};
@@ -35,13 +37,39 @@ use crate::{
 /// A state store wrapper for monitoring metrics.
 #[derive(Clone)]
 pub struct MonitoredStateStore<S> {
+    #[cfg(not(all(not(madsim), any(hm_trace, feature = "hm-trace"))))]
     inner: Box<S>,
+
+    #[cfg(all(not(madsim), any(hm_trace, feature = "hm-trace")))]
+    inner: Box<TracedStateStore<S>>,
 
     storage_metrics: Arc<MonitoredStorageMetrics>,
 }
 
 impl<S> MonitoredStateStore<S> {
     pub fn new(inner: S, storage_metrics: Arc<MonitoredStorageMetrics>) -> Self {
+        #[cfg(all(not(madsim), any(hm_trace, feature = "hm-trace")))]
+        let inner = TracedStateStore::new_global(inner);
+
+        Self {
+            inner: Box::new(inner),
+            storage_metrics,
+        }
+    }
+
+    #[cfg(all(not(madsim), any(hm_trace, feature = "hm-trace")))]
+    pub fn new_from_local(
+        inner: TracedStateStore<S>,
+        storage_metrics: Arc<MonitoredStorageMetrics>,
+    ) -> Self {
+        Self {
+            inner: Box::new(inner),
+            storage_metrics,
+        }
+    }
+
+    #[cfg(not(all(not(madsim), any(hm_trace, feature = "hm-trace"))))]
+    pub fn new_from_local(inner: S, storage_metrics: Arc<MonitoredStorageMetrics>) -> Self {
         Self {
             inner: Box::new(inner),
             storage_metrics,
@@ -49,8 +77,13 @@ impl<S> MonitoredStateStore<S> {
     }
 }
 
+// #[cfg(not(all(not(madsim), any(hm_trace, feature = "hm-trace"))))]
+// type MonitoredIterInnerType<I> = I;
+// #[cfg(all(not(madsim), any(hm_trace, feature = "hm-trace")))]
+// type MonitoredIterInnerType<I> = TracedStateStoreIter<I>;
+
 /// A util function to break the type connection between two opaque return types defined by `impl`.
-fn identity(input: impl StateStoreIterItemStream) -> impl StateStoreIterItemStream {
+pub(crate) fn identity(input: impl StateStoreIterItemStream) -> impl StateStoreIterItemStream {
     input
 }
 
@@ -102,6 +135,11 @@ impl<S> MonitoredStateStore<S> {
     }
 
     pub fn inner(&self) -> &S {
+        #[cfg(all(not(madsim), any(hm_trace, feature = "hm-trace")))]
+        {
+            self.inner.inner()
+        }
+        #[cfg(not(all(not(madsim), any(hm_trace, feature = "hm-trace"))))]
         &self.inner
     }
 
@@ -239,7 +277,11 @@ impl<S: LocalStateStore> LocalStateStore for MonitoredStateStore<S> {
 }
 
 impl<S: StateStore> StateStore for MonitoredStateStore<S> {
+    // #[cfg(not(all(not(madsim), any(hm_trace, feature = "hm-trace"))))]
     type Local = MonitoredStateStore<S::Local>;
+
+    // #[cfg(all(not(madsim), any(hm_trace, feature = "hm-trace")))]
+    // type Local = MonitoredStateStore<TracedStateStore<S::Local>>;
 
     type NewLocalFuture<'a> = impl Future<Output = Self::Local> + Send + 'a;
 
@@ -299,7 +341,7 @@ impl<S: StateStore> StateStore for MonitoredStateStore<S> {
 
     fn new_local(&self, option: NewLocalOptions) -> Self::NewLocalFuture<'_> {
         async move {
-            MonitoredStateStore::new(
+            MonitoredStateStore::new_from_local(
                 self.inner
                     .new_local(option)
                     .instrument_await("store_new_local")
@@ -355,7 +397,6 @@ impl<S: StateStoreIterItemStream> MonitoredStateStoreIter<S> {
             stats.total_size += key.encoded_len() + value.len();
             yield (key, value);
         }
-        drop(stats);
     }
 
     fn into_stream(self) -> impl StateStoreIterItemStream {

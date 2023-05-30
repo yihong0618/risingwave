@@ -252,6 +252,10 @@ impl TraceSpan {
         Self::new_global(Operation::NewLocalStorage(option), storage_type)
     }
 
+    pub fn new_drop_storage_span(storage_type: StorageType) -> MayTraceSpan {
+        Self::new_global(Operation::DropLocalStorage, storage_type)
+    }
+
     pub fn send(&self, op: Operation) {
         self.tx
             .send(Some(Record::new(*self.storage_type(), self.id(), op)))
