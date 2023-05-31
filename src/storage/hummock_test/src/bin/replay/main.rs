@@ -55,7 +55,7 @@ struct Args {
     path: String,
 
     // path to config file
-    #[arg(short, long, default_value = "src/config/risingwave.toml")]
+    #[arg(short, long, default_value = "src/config/risingwave.user.toml")]
     config: String,
 
     #[arg(short, long)]
@@ -86,8 +86,19 @@ async fn run_replay(args: Args) -> Result<()> {
 async fn create_replay_hummock(r: Record, args: &Args) -> Result<impl GlobalReplay> {
     let config = load_config(&args.config, NO_OVERRIDE);
     let storage_memory_config = extract_storage_memory_config(&config);
-
-    let system_params_reader = SystemParamsReader::from(SystemParams::default());
+    let system = config.system.clone();
+    let system_params_reader = SystemParamsReader::from(SystemParams {
+        sstable_size_mb: system.sstable_size_mb,
+        barrier_interval_ms: system.barrier_interval_ms,
+        checkpoint_frequency: system.checkpoint_frequency,
+        block_size_kb: system.block_size_kb,
+        bloom_false_positive: system.bloom_false_positive,
+        state_store: system.state_store,
+        data_directory: system.data_directory,
+        backup_storage_url: system.backup_storage_url,
+        backup_storage_directory: system.backup_storage_directory,
+        telemetry_enabled: Some(false),
+    });
 
     let storage_opts = Arc::new(StorageOpts::from((
         &config,
