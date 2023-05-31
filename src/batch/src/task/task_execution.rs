@@ -27,7 +27,6 @@ use risingwave_common::array::DataChunk;
 use risingwave_common::error::{ErrorCode, Result, RwError};
 use risingwave_common::util::runtime::BackgroundShutdownRuntime;
 #[cfg(all(not(madsim), any(hm_trace, feature = "hm-trace")))]
-use risingwave_hummock_trace::hummock_trace_scope;
 use risingwave_pb::batch_plan::{PbTaskId, PbTaskOutputId, PlanFragment};
 use risingwave_pb::common::BatchQueryEpoch;
 use risingwave_pb::task_service::task_info_response::TaskStatus;
@@ -443,9 +442,6 @@ impl<C: BatchTaskContext> BatchTaskExecution<C> {
                 error!("Batch task {:?} panic: {:?}", task_id, error);
             }
         };
-
-        #[cfg(all(not(madsim), any(hm_trace, feature = "hm-trace")))]
-        let fut = hummock_trace_scope(fut);
 
         #[cfg(enable_task_local_alloc)]
         {
