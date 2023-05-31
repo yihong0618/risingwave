@@ -21,6 +21,7 @@ use futures::stream::BoxStream;
 use futures::Stream;
 #[cfg(test)]
 use mockall::{automock, mock};
+use risingwave_hummock_sdk::HummockReadEpoch;
 use risingwave_pb::meta::subscribe_response::{Info, Operation as RespOperation};
 pub use runner::*;
 pub(crate) use worker::*;
@@ -102,6 +103,9 @@ pub trait ReplayStateStore {
     async fn seal_epoch(&self, epoch_id: u64, is_checkpoint: bool);
     async fn notify_hummock(&self, info: Info, op: RespOperation, version: u64) -> Result<u64>;
     async fn new_local(&self, opts: TracedNewLocalOptions) -> Box<dyn LocalReplay>;
+    async fn try_wait_epoch(&self, epoch: HummockReadEpoch) -> Result<()>;
+    async fn clear_shared_buffer(&self) -> Result<()>;
+    fn validate_read_epoch(&self, epoch: HummockReadEpoch) -> Result<()>;
 }
 
 #[cfg_attr(test, automock)]
@@ -137,6 +141,9 @@ mock! {
         async fn notify_hummock(&self, info: Info, op: RespOperation, version: u64,
         ) -> Result<u64>;
         async fn new_local(&self, opts: TracedNewLocalOptions) -> Box<dyn LocalReplay>;
+        async fn try_wait_epoch(&self, epoch: HummockReadEpoch) -> Result<()>;
+        async fn clear_shared_buffer(&self) -> Result<()>;
+        fn validate_read_epoch(&self, epoch: HummockReadEpoch) -> Result<()>;
     }
     impl GlobalReplay for GlobalReplayInterface{}
 }
