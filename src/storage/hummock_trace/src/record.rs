@@ -160,6 +160,9 @@ pub enum Operation {
     /// DropLocalStorage operation of Hummock.
     DropLocalStorage,
 
+    /// Init of a local storage
+    Init(u64),
+
     /// Finish operation of Hummock.
     Finish,
 }
@@ -270,6 +273,7 @@ pub enum OperationResult {
     Iter(TraceResult<()>),
     IterNext(TraceResult<Option<(TracedBytes, TracedBytes)>>),
     Sync(TraceResult<usize>),
+    Init(TraceResult<()>),
     Seal(TraceResult<()>),
     NotifyHummock(TraceResult<()>),
 }

@@ -174,6 +174,7 @@ impl<S: LocalStateStore> LocalStateStore for TracedStateStore<S> {
     }
 
     fn init(&mut self, epoch: u64) {
+        let _span = TraceSpan::new_local_storage_init_span(epoch, self.storage_type);
         self.inner.init(epoch)
     }
 
@@ -195,7 +196,7 @@ impl<S: StateStore> StateStore for TracedStateStore<S> {
 
     fn sync(&self, epoch: u64) -> Self::SyncFuture<'_> {
         async move {
-            let span = TraceSpan::new_sync_span(epoch, self.storage_type);
+            let span: MayTraceSpan = TraceSpan::new_sync_span(epoch, self.storage_type);
 
             let sync_result = self.inner.sync(epoch).await;
 

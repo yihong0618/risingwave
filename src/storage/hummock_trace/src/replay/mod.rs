@@ -46,7 +46,9 @@ pub(crate) enum WorkerId {
     Local(u64),
     OneShot(u64),
 }
-pub trait LocalReplay: LocalReplayRead + ReplayWrite + Send + Sync {}
+pub trait LocalReplay: LocalReplayRead + ReplayWrite + Send + Sync {
+    fn init(&mut self, epoch: u64);
+}
 pub trait GlobalReplay: ReplayRead + ReplayStateStore + Send + Sync {}
 
 #[cfg_attr(test, automock)]
@@ -161,5 +163,7 @@ mock! {
         fn insert(&mut self, key: TracedBytes, new_val: TracedBytes, old_val: Option<TracedBytes>) -> Result<()>;
         fn delete(&mut self, key: TracedBytes, old_val: TracedBytes) -> Result<()>;
     }
-    impl LocalReplay for LocalReplayInterface{}
+    impl LocalReplay for LocalReplayInterface{
+        fn init(&mut self, epoch: u64);
+    }
 }

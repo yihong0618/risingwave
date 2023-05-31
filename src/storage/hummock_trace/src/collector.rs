@@ -264,6 +264,10 @@ impl TraceSpan {
         )
     }
 
+    pub fn new_local_storage_init_span(epoch: u64, storage_type: StorageType) -> MayTraceSpan {
+        Self::new_global_op(Operation::Init(epoch), storage_type)
+    }
+
     pub fn send(&self, op: Operation) {
         self.tx
             .send(Some(Record::new(*self.storage_type(), self.id(), op)))
