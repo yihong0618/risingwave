@@ -119,18 +119,22 @@ pub async fn compute_node_serve(
 
     let (reserved_memory_bytes, non_reserved_memory_bytes) =
         reserve_memory_bytes(opts.total_memory_bytes);
-    let storage_memory_config = storage_memory_config(
+    let mut storage_memory_config = storage_memory_config(
         non_reserved_memory_bytes,
         embedded_compactor_enabled,
         &config.storage,
     );
 
     let storage_memory_bytes = total_storage_memory_limit_bytes(&storage_memory_config);
-    let compute_memory_bytes = validate_compute_node_memory_config(
+    let mut compute_memory_bytes = validate_compute_node_memory_config(
         opts.total_memory_bytes,
         reserved_memory_bytes,
         storage_memory_bytes,
     );
+
+    storage_memory_config.block_cache_capacity_mb += compute_memory_bytes;
+    compute_memory_bytes = 0;
+
     print_memory_config(
         opts.total_memory_bytes,
         compute_memory_bytes,
