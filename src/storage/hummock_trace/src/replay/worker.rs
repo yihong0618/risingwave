@@ -309,7 +309,7 @@ impl ReplayWorker {
                         .unwrap();
                 }
             }
-            Operation::Init(epoch) => {
+            Operation::LocalStorageInit(epoch) => {
                 assert_ne!(storage_type, StorageType::Global);
                 if let StorageType::Local(_, table_id) = storage_type {
                     let local_storage = local_storages.get_mut(&table_id).unwrap();

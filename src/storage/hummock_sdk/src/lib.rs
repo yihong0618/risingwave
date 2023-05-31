@@ -51,7 +51,7 @@ pub const FIRST_VERSION_ID: HummockVersionId = 1;
 pub const SPLIT_TABLE_COMPACTION_GROUP_ID_HEAD: u64 = 1u64 << 56;
 pub const SINGLE_TABLE_COMPACTION_GROUP_ID_HEAD: u64 = 2u64 << 56;
 pub const OBJECT_SUFFIX: &str = "data";
-
+use bincode::{Decode, Encode};
 #[macro_export]
 /// This is wrapper for `info` log.
 ///
@@ -171,7 +171,7 @@ impl PartialEq for LocalSstableInfo {
 }
 
 /// Package read epoch of hummock, it be used for `wait_epoch`
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Encode, Decode)]
 pub enum HummockReadEpoch {
     /// We need to wait the `max_committed_epoch`
     Committed(HummockEpoch),

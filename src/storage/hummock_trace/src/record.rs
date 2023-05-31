@@ -19,6 +19,7 @@ use bincode::error::{DecodeError, EncodeError};
 use bincode::{Decode, Encode};
 use bytes::Bytes;
 use prost::Message;
+use risingwave_hummock_sdk::HummockReadEpoch;
 use risingwave_pb::meta::SubscribeResponse;
 
 use crate::{StorageType, TracedNewLocalOptions, TracedReadOptions};
@@ -161,7 +162,19 @@ pub enum Operation {
     DropLocalStorage,
 
     /// Init of a local storage
-    Init(u64),
+    LocalStorageInit(u64),
+
+    /// Try wait epoch
+    TryWaitEpoch(HummockReadEpoch),
+
+    /// clear shared buffer
+    ClearSharedBuffer,
+
+    /// Seal current epoch
+    SealCurrentEpoch(u64),
+
+    /// validate read epoch
+    ValidateReadEpoch(u64),
 
     /// Finish operation of Hummock.
     Finish,
@@ -239,7 +252,6 @@ impl From<TracedBytes> for Bytes {
         value.0
     }
 }
-
 /// `TraceResult` discards Error and only traces whether succeeded or not.
 /// Use Option rather than Result because it's overhead to serialize Error.
 #[derive(Encode, Decode, PartialEq, Eq, Debug, Clone)]

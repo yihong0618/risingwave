@@ -265,7 +265,7 @@ impl TraceSpan {
     }
 
     pub fn new_local_storage_init_span(epoch: u64, storage_type: StorageType) -> MayTraceSpan {
-        Self::new_global_op(Operation::Init(epoch), storage_type)
+        Self::new_global_op(Operation::LocalStorageInit(epoch), storage_type)
     }
 
     pub fn send(&self, op: Operation) {
