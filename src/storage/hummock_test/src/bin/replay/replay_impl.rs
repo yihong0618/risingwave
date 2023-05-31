@@ -148,7 +148,7 @@ impl ReplayStateStore for GlobalReplayInterface {
         Ok(result.sync_size)
     }
 
-    async fn seal_epoch(&self, epoch_id: u64, is_checkpoint: bool) {
+    fn seal_epoch(&self, epoch_id: u64, is_checkpoint: bool) {
         self.store.seal_epoch(epoch_id, is_checkpoint);
     }
 
@@ -198,6 +198,7 @@ impl ReplayStateStore for GlobalReplayInterface {
 }
 pub(crate) struct LocalReplayInterface(LocalHummockStorage);
 
+#[async_trait::async_trait]
 impl LocalReplay for LocalReplayInterface {
     fn init(&mut self, epoch: u64) {
         self.0.init(epoch);
@@ -205,6 +206,25 @@ impl LocalReplay for LocalReplayInterface {
 
     fn seal_current_epoch(&mut self, next_epoch: u64) {
         self.0.seal_current_epoch(next_epoch);
+    }
+
+    fn epoch(&self) -> u64 {
+        self.0.epoch()
+    }
+
+    async fn flush(&mut self, delete_ranges: Vec<(TracedBytes, TracedBytes)>) -> Result<usize> {
+        let delete_ranges = delete_ranges
+            .into_iter()
+            .map(|(start, end)| (start.into(), end.into()))
+            .collect();
+        self.0
+            .flush(delete_ranges)
+            .await
+            .map_err(|_| TraceError::FlushFailed)
+    }
+
+    fn is_dirty(&self) -> bool {
+        self.0.is_dirty()
     }
 }
 

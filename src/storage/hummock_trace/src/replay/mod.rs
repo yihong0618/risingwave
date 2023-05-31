@@ -47,9 +47,14 @@ pub(crate) enum WorkerId {
     Local(u64),
     OneShot(u64),
 }
+
+#[async_trait::async_trait]
 pub trait LocalReplay: LocalReplayRead + ReplayWrite + Send + Sync {
     fn init(&mut self, epoch: u64);
     fn seal_current_epoch(&mut self, next_epoch: u64);
+    fn is_dirty(&self) -> bool;
+    fn epoch(&self) -> u64;
+    async fn flush(&mut self, delete_ranges: Vec<(TracedBytes, TracedBytes)>) -> Result<usize>;
 }
 pub trait GlobalReplay: ReplayRead + ReplayStateStore + Send + Sync {}
 
@@ -101,7 +106,7 @@ pub trait ReplayWrite {
 #[async_trait::async_trait]
 pub trait ReplayStateStore {
     async fn sync(&self, id: u64) -> Result<usize>;
-    async fn seal_epoch(&self, epoch_id: u64, is_checkpoint: bool);
+    fn seal_epoch(&self, epoch_id: u64, is_checkpoint: bool);
     async fn notify_hummock(&self, info: Info, op: RespOperation, version: u64) -> Result<u64>;
     async fn new_local(&self, opts: TracedNewLocalOptions) -> Box<dyn LocalReplay>;
     async fn try_wait_epoch(&self, epoch: HummockReadEpoch) -> Result<()>;
@@ -138,7 +143,7 @@ mock! {
     #[async_trait::async_trait]
     impl ReplayStateStore for GlobalReplayInterface{
         async fn sync(&self, id: u64) -> Result<usize>;
-        async fn seal_epoch(&self, epoch_id: u64, is_checkpoint: bool);
+        fn seal_epoch(&self, epoch_id: u64, is_checkpoint: bool);
         async fn notify_hummock(&self, info: Info, op: RespOperation, version: u64,
         ) -> Result<u64>;
         async fn new_local(&self, opts: TracedNewLocalOptions) -> Box<dyn LocalReplay>;
@@ -171,8 +176,12 @@ mock! {
         fn insert(&mut self, key: TracedBytes, new_val: TracedBytes, old_val: Option<TracedBytes>) -> Result<()>;
         fn delete(&mut self, key: TracedBytes, old_val: TracedBytes) -> Result<()>;
     }
+    #[async_trait::async_trait]
     impl LocalReplay for LocalReplayInterface{
         fn init(&mut self, epoch: u64);
         fn seal_current_epoch(&mut self, next_epoch: u64);
+        fn is_dirty(&self) -> bool;
+        fn epoch(&self) -> u64;
+        async fn flush(&mut self, delete_ranges: Vec<(TracedBytes, TracedBytes)>) -> Result<usize>;
     }
 }

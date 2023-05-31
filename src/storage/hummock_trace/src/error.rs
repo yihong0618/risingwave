@@ -59,6 +59,9 @@ pub enum TraceError {
 
     #[error("failed to clear shared buffer")]
     ClearSharedBufferFailed,
+
+    #[error("failed to flush")]
+    FlushFailed,
 }
 
 impl From<EncodeError> for TraceError {

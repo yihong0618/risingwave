@@ -23,7 +23,7 @@ use tokio::task::JoinHandle;
 use super::{GlobalReplay, LocalReplay, ReplayRequest, WorkerId, WorkerResponse};
 use crate::{
     Operation, OperationResult, Record, RecordId, ReplayItem, Result, StorageType, TraceResult,
-    TracedTableId,
+    TracedNewLocalOptions,
 };
 
 #[async_trait::async_trait]
@@ -189,9 +189,9 @@ impl ReplayWorker {
                         let epoch = epoch.unwrap();
                         replay.get(key, epoch, read_options).await
                     }
-                    StorageType::Local(_, table_id) => {
-                        assert_eq!(table_id, read_options.table_id);
-                        let s = local_storages.get_mut(&read_options.table_id).unwrap();
+                    StorageType::Local(_, new_local_opts) => {
+                        assert_eq!(new_local_opts.table_id, read_options.table_id);
+                        let s = local_storages.get_mut(&new_local_opts).unwrap();
                         s.get(key, read_options).await
                     }
                 };
@@ -244,9 +244,9 @@ impl ReplayWorker {
                         let epoch = epoch.unwrap();
                         replay.iter(key_range, epoch, read_options).await
                     }
-                    StorageType::Local(_, table_id) => {
-                        assert_eq!(table_id, read_options.table_id);
-                        let s = local_storages.get_mut(&table_id).unwrap();
+                    StorageType::Local(_, new_local_opts) => {
+                        assert_eq!(new_local_opts.table_id, read_options.table_id);
+                        let s = local_storages.get_mut(&new_local_opts).unwrap();
                         s.iter(key_range, read_options).await
                     }
                 };
@@ -271,7 +271,7 @@ impl ReplayWorker {
             }
             Operation::Seal(epoch_id, is_checkpoint) => {
                 assert_eq!(storage_type, StorageType::Global);
-                replay.seal_epoch(epoch_id, is_checkpoint).await;
+                replay.seal_epoch(epoch_id, is_checkpoint);
             }
             Operation::IterNext(id) => {
                 let iter = iters_map.get_mut(&id).expect("iter not in worker");
@@ -284,9 +284,8 @@ impl ReplayWorker {
             }
             Operation::NewLocalStorage(new_local_opts) => {
                 if let StorageType::Local(_, _) = storage_type {
-                    let table_id = new_local_opts.table_id;
-                    let local_storage = replay.new_local(new_local_opts).await;
-                    local_storages.insert(table_id, local_storage);
+                    let local_storage = replay.new_local(new_local_opts.clone()).await;
+                    local_storages.insert(new_local_opts, local_storage);
                 }
             }
             Operation::DropLocalStorage => {
@@ -356,6 +355,44 @@ impl ReplayWorker {
             }
             Operation::Finish => {}
             Operation::Result(_) => unreachable!(),
+            Operation::LocalStorageEpoch => {
+                assert_ne!(storage_type, StorageType::Global);
+                if let StorageType::Local(_, table_id) = storage_type {
+                    let local_storage = local_storages.get_mut(&table_id).unwrap();
+                    let res = res_rx.recv().await.expect("recv result failed");
+                    if let OperationResult::LocalStorageEpoch(expected) = res {
+                        let actual = local_storage.epoch();
+                        assert_eq!(TraceResult::Ok(actual), expected, "epoch wrong");
+                    }
+                }
+            }
+            Operation::LocalStorageIsDirty => {
+                assert_ne!(storage_type, StorageType::Global);
+                if let StorageType::Local(_, table_id) = storage_type {
+                    let local_storage = local_storages.get_mut(&table_id).unwrap();
+                    let res = res_rx.recv().await.expect("recv result failed");
+                    if let OperationResult::LocalStorageIsDirty(expected) = res {
+                        let actual = local_storage.is_dirty();
+                        assert_eq!(
+                            TraceResult::Ok(actual),
+                            expected,
+                            "is_dirty wrong, epoch: {}",
+                            local_storage.epoch()
+                        );
+                    }
+                }
+            }
+            Operation::Flush(delete_range) => {
+                assert_ne!(storage_type, StorageType::Global);
+                if let StorageType::Local(_, table_id) = storage_type {
+                    let local_storage = local_storages.get_mut(&table_id).unwrap();
+                    let res = res_rx.recv().await.expect("recv result failed");
+                    if let OperationResult::Flush(expected) = res {
+                        let actual = local_storage.flush(delete_range).await;
+                        assert_eq!(TraceResult::from(actual), expected, "flush wrong");
+                    }
+                }
+            }
         }
     }
 }
@@ -411,7 +448,7 @@ impl WorkerHandler {
 }
 
 struct LocalStorages {
-    storages: HashMap<TracedTableId, Box<dyn LocalReplay>>,
+    storages: HashMap<TracedNewLocalOptions, Box<dyn LocalReplay>>,
 }
 
 impl LocalStorages {
@@ -421,15 +458,15 @@ impl LocalStorages {
         }
     }
 
-    fn remove(&mut self, table_id: &TracedTableId) {
+    fn remove(&mut self, table_id: &TracedNewLocalOptions) {
         self.storages.remove(table_id);
     }
 
-    fn get_mut(&mut self, table_id: &TracedTableId) -> Option<&mut Box<dyn LocalReplay>> {
+    fn get_mut(&mut self, table_id: &TracedNewLocalOptions) -> Option<&mut Box<dyn LocalReplay>> {
         self.storages.get_mut(table_id)
     }
 
-    fn insert(&mut self, table_id: TracedTableId, local_storage: Box<dyn LocalReplay>) {
+    fn insert(&mut self, table_id: TracedNewLocalOptions, local_storage: Box<dyn LocalReplay>) {
         self.storages.insert(table_id, local_storage);
     }
 
@@ -471,7 +508,7 @@ mod tests {
 
         let iter_local_opts = TracedNewLocalOptions::for_test(iter_table_id);
         let mut should_exit = false;
-        let get_storage_type = StorageType::Local(0, new_local_opts.table_id);
+        let get_storage_type = StorageType::Local(0, new_local_opts);
         let record = Record::new(get_storage_type, 1, op);
         let mut mock_replay = MockGlobalReplayInterface::new();
 
@@ -515,7 +552,7 @@ mod tests {
             Record::new(
                 get_storage_type,
                 0,
-                Operation::NewLocalStorage(new_local_opts.clone()),
+                Operation::NewLocalStorage(new_local_opts),
             ),
             &replay,
             &mut res_rx,
@@ -549,7 +586,7 @@ mod tests {
             read_options: iter_read_options,
         };
 
-        let iter_storage_type = StorageType::Local(0, iter_local_opts.table_id);
+        let iter_storage_type = StorageType::Local(0, iter_local_opts);
 
         ReplayWorker::handle_record(
             Record::new(

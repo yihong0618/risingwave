@@ -46,6 +46,7 @@ impl<R: TraceReader, G: GlobalReplay + 'static> HummockReplay<R, G> {
         let mut total_ops: u64 = 0;
 
         while let Ok(r) = self.reader.read() {
+            println!("read {:?}", r);
             match r.operation() {
                 Operation::Result(_) => {
                     worker_scheduler.send_result(r);
@@ -98,9 +99,9 @@ mod tests {
         let opts2 = TracedNewLocalOptions::for_test(2);
         let opts3 = TracedNewLocalOptions::for_test(3);
 
-        let storage_type1 = StorageType::Local(0, opts1.table_id);
-        let storage_type2 = StorageType::Local(1, opts2.table_id);
-        let storage_type3 = StorageType::Local(2, opts3.table_id);
+        let storage_type1 = StorageType::Local(0, opts1);
+        let storage_type2 = StorageType::Local(1, opts2);
+        let storage_type3 = StorageType::Local(2, opts3);
         let storage_type4 = StorageType::Global;
 
         let actor_1 = vec![

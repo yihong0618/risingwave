@@ -33,7 +33,7 @@ use tokio::task_local;
 use crate::write::{TraceWriter, TraceWriterImpl};
 use crate::{
     ConcurrentIdGenerator, Operation, OperationResult, Record, RecordId, RecordIdGenerator,
-    TracedNewLocalOptions, TracedReadOptions, TracedSubResp, TracedTableId, UniqueIdGenerator,
+    TracedNewLocalOptions, TracedReadOptions, TracedSubResp, UniqueIdGenerator,
 };
 
 // Global collector instance used for trace collection
@@ -181,6 +181,18 @@ impl TraceSpan {
         }
     }
 
+    pub fn new_epoch_span(storage_type: StorageType) -> MayTraceSpan {
+        Self::new_global_op(Operation::LocalStorageEpoch, storage_type)
+    }
+
+    pub fn new_is_dirty_span(storage_type: StorageType) -> MayTraceSpan {
+        Self::new_global_op(Operation::LocalStorageIsDirty, storage_type)
+    }
+
+    pub fn new_seal_current_epoch_span(epoch: u64, storage_type: StorageType) -> MayTraceSpan {
+        Self::new_global_op(Operation::SealCurrentEpoch(epoch), storage_type)
+    }
+
     pub fn new_clear_shared_buffer_span() -> MayTraceSpan {
         Self::new_global_op(Operation::ClearSharedBuffer, StorageType::Global)
     }
@@ -270,6 +282,17 @@ impl TraceSpan {
         Self::new_global_op(Operation::DropLocalStorage, storage_type)
     }
 
+    pub fn new_flush_span(
+        delete_range: Vec<(Bytes, Bytes)>,
+        storage_type: StorageType,
+    ) -> MayTraceSpan {
+        let delete_range = delete_range
+            .into_iter()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect();
+        Self::new_global_op(Operation::Flush(delete_range), storage_type)
+    }
+
     pub fn new_meta_message_span(resp: SubscribeResponse) -> MayTraceSpan {
         Self::new_global_op(
             Operation::MetaMessage(Box::new(TracedSubResp::from(resp))),
@@ -335,7 +358,7 @@ pub type ConcurrentId = u64;
 #[derive(Copy, Clone, Debug, Encode, Decode, PartialEq)]
 pub enum StorageType {
     Global,
-    Local(ConcurrentId, TracedTableId),
+    Local(ConcurrentId, TracedNewLocalOptions),
 }
 
 task_local! {
@@ -350,7 +373,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::MockTraceWriter;
+    use crate::{MockTraceWriter, TracedTableId, TracedTableOption};
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_new_spans_concurrent() {
@@ -423,7 +446,16 @@ mod tests {
                     tx,
                     generator.next(),
                     op,
-                    StorageType::Local(0, TracedTableId { table_id: 0 }),
+                    StorageType::Local(
+                        0,
+                        TracedNewLocalOptions {
+                            table_id: TracedTableId { table_id: 0 },
+                            is_consistent_op: false,
+                            table_option: TracedTableOption {
+                                retention_seconds: None,
+                            },
+                        },
+                    ),
                 );
             });
             handles.push(handle);

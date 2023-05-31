@@ -55,7 +55,7 @@ impl<S> TracedStateStore<S> {
 
     pub fn new_local(inner: S, options: NewLocalOptions) -> Self {
         let id = get_concurrent_id();
-        let storage_type: StorageType = StorageType::Local(id, options.table_id.into());
+        let storage_type: StorageType = StorageType::Local(id, options.clone().into());
 
         let _span: MayTraceSpan = TraceSpan::new_local_storage_span(options.into(), storage_type);
 
@@ -162,14 +162,17 @@ impl<S: LocalStateStore> LocalStateStore for TracedStateStore<S> {
     }
 
     fn flush(&mut self, delete_ranges: Vec<(Bytes, Bytes)>) -> Self::FlushFuture<'_> {
+        let _span = TraceSpan::new_flush_span(delete_ranges.clone(), self.storage_type);
         self.inner.flush(delete_ranges)
     }
 
     fn epoch(&self) -> u64 {
+        let _span = TraceSpan::new_epoch_span(self.storage_type);
         self.inner.epoch()
     }
 
     fn is_dirty(&self) -> bool {
+        let _span = TraceSpan::new_is_dirty_span(self.storage_type);
         self.inner.is_dirty()
     }
 
@@ -179,6 +182,7 @@ impl<S: LocalStateStore> LocalStateStore for TracedStateStore<S> {
     }
 
     fn seal_current_epoch(&mut self, next_epoch: u64) {
+        let _span = TraceSpan::new_seal_current_epoch_span(next_epoch, self.storage_type);
         self.inner.seal_current_epoch(next_epoch)
     }
 }

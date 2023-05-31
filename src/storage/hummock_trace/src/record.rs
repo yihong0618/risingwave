@@ -176,6 +176,11 @@ pub enum Operation {
     /// validate read epoch
     ValidateReadEpoch(HummockReadEpoch),
 
+    LocalStorageEpoch,
+
+    LocalStorageIsDirty,
+
+    Flush(Vec<(TracedBytes, TracedBytes)>),
     /// Finish operation of Hummock.
     Finish,
 }
@@ -281,7 +286,7 @@ pub enum OperationResult {
     Ingest(TraceResult<usize>),
     Insert(TraceResult<()>),
     Delete(TraceResult<()>),
-    Flush(TraceResult<()>),
+    Flush(TraceResult<usize>),
     Iter(TraceResult<()>),
     IterNext(TraceResult<Option<(TracedBytes, TracedBytes)>>),
     Sync(TraceResult<usize>),
@@ -291,6 +296,9 @@ pub enum OperationResult {
     TryWaitEpoch(TraceResult<()>),
     ClearSharedBuffer(TraceResult<()>),
     ValidateReadEpoch(TraceResult<()>),
+    SealCurrentEpoch(TraceResult<()>),
+    LocalStorageEpoch(TraceResult<u64>),
+    LocalStorageIsDirty(TraceResult<bool>),
 }
 
 #[derive(PartialEq, Debug, Clone)]
