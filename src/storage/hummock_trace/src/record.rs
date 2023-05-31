@@ -174,7 +174,7 @@ pub enum Operation {
     SealCurrentEpoch(u64),
 
     /// validate read epoch
-    ValidateReadEpoch(u64),
+    ValidateReadEpoch(HummockReadEpoch),
 
     /// Finish operation of Hummock.
     Finish,
@@ -288,6 +288,9 @@ pub enum OperationResult {
     Init(TraceResult<()>),
     Seal(TraceResult<()>),
     NotifyHummock(TraceResult<()>),
+    TryWaitEpoch(TraceResult<()>),
+    ClearSharedBuffer(TraceResult<()>),
+    ValidateReadEpoch(TraceResult<()>),
 }
 
 #[derive(PartialEq, Debug, Clone)]

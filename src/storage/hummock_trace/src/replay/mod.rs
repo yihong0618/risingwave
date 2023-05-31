@@ -49,6 +49,7 @@ pub(crate) enum WorkerId {
 }
 pub trait LocalReplay: LocalReplayRead + ReplayWrite + Send + Sync {
     fn init(&mut self, epoch: u64);
+    fn seal_current_epoch(&mut self, next_epoch: u64);
 }
 pub trait GlobalReplay: ReplayRead + ReplayStateStore + Send + Sync {}
 
@@ -172,5 +173,6 @@ mock! {
     }
     impl LocalReplay for LocalReplayInterface{
         fn init(&mut self, epoch: u64);
+        fn seal_current_epoch(&mut self, next_epoch: u64);
     }
 }

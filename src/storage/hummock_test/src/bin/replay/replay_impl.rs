@@ -20,6 +20,7 @@ use futures_async_stream::{for_await, try_stream};
 use risingwave_common::error::Result as RwResult;
 use risingwave_common::util::addr::HostAddr;
 use risingwave_common_service::observer_manager::{Channel, NotificationClient};
+use risingwave_hummock_sdk::HummockReadEpoch;
 use risingwave_hummock_trace::{
     GlobalReplay, LocalReplay, LocalReplayRead, ReplayItem, ReplayRead, ReplayStateStore,
     ReplayWrite, Result, TraceError, TracedBytes, TracedNewLocalOptions, TracedReadOptions,
@@ -171,12 +172,39 @@ impl ReplayStateStore for GlobalReplayInterface {
         let local_storage = self.store.new_local(options.into()).await;
         Box::new(LocalReplayInterface(local_storage))
     }
+
+    async fn try_wait_epoch(&self, epoch: HummockReadEpoch) -> Result<()> {
+        self.store
+            .try_wait_epoch(epoch)
+            .await
+            .map_err(|_| TraceError::TryWaitEpochFailed)?;
+        Ok(())
+    }
+
+    fn validate_read_epoch(&self, epoch: HummockReadEpoch) -> Result<()> {
+        self.store
+            .validate_read_epoch(epoch)
+            .map_err(|_| TraceError::ValidateReadEpochFailed)?;
+        Ok(())
+    }
+
+    async fn clear_shared_buffer(&self) -> Result<()> {
+        self.store
+            .clear_shared_buffer()
+            .await
+            .map_err(|_| TraceError::ClearSharedBufferFailed)?;
+        Ok(())
+    }
 }
 pub(crate) struct LocalReplayInterface(LocalHummockStorage);
 
 impl LocalReplay for LocalReplayInterface {
     fn init(&mut self, epoch: u64) {
         self.0.init(epoch);
+    }
+
+    fn seal_current_epoch(&mut self, next_epoch: u64) {
+        self.0.seal_current_epoch(next_epoch);
     }
 }
 

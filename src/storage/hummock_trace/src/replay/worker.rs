@@ -316,6 +316,44 @@ impl ReplayWorker {
                     local_storage.init(epoch);
                 }
             }
+            Operation::TryWaitEpoch(epoch) => {
+                assert_eq!(storage_type, StorageType::Global);
+                let res = res_rx.recv().await.expect("recv result failed");
+                if let OperationResult::TryWaitEpoch(expected) = res {
+                    let actual = replay.try_wait_epoch(epoch).await;
+                    assert_eq!(TraceResult::from(actual), expected, "try_wait_epoch wrong");
+                }
+            }
+            Operation::ClearSharedBuffer => {
+                assert_eq!(storage_type, StorageType::Global);
+                let res = res_rx.recv().await.expect("recv result failed");
+                if let OperationResult::ClearSharedBuffer(expected) = res {
+                    let actual = replay.clear_shared_buffer().await;
+                    assert_eq!(
+                        TraceResult::from(actual),
+                        expected,
+                        "clear_shared_buffer wrong"
+                    );
+                }
+            }
+            Operation::SealCurrentEpoch(epoch) => {
+                if let StorageType::Local(_, table_id) = storage_type {
+                    let local_storage = local_storages.get_mut(&table_id).unwrap();
+                    local_storage.seal_current_epoch(epoch);
+                }
+            }
+            Operation::ValidateReadEpoch(epoch) => {
+                assert_eq!(storage_type, StorageType::Global);
+                let res = res_rx.recv().await.expect("recv result failed");
+                let actual = replay.validate_read_epoch(epoch);
+                if let OperationResult::ValidateReadEpoch(expected) = res {
+                    assert_eq!(
+                        TraceResult::from(actual),
+                        expected,
+                        "validate_read_epoch wrong"
+                    );
+                }
+            }
             Operation::Finish => {}
             Operation::Result(_) => unreachable!(),
         }

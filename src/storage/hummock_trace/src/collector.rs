@@ -23,6 +23,7 @@ use std::sync::LazyLock;
 use bincode::{Decode, Encode};
 use bytes::Bytes;
 use parking_lot::Mutex;
+use risingwave_hummock_sdk::HummockReadEpoch;
 use risingwave_pb::meta::SubscribeResponse;
 use tokio::sync::mpsc::{
     unbounded_channel as channel, UnboundedReceiver as Receiver, UnboundedSender as Sender,
@@ -178,6 +179,18 @@ impl TraceSpan {
             true => Some(Self::new_to_global(op, storage_type)).into(),
             false => None.into(),
         }
+    }
+
+    pub fn new_clear_shared_buffer_span() -> MayTraceSpan {
+        Self::new_global_op(Operation::ClearSharedBuffer, StorageType::Global)
+    }
+
+    pub fn new_validate_read_epoch_span(epoch: HummockReadEpoch) -> MayTraceSpan {
+        Self::new_global_op(Operation::ValidateReadEpoch(epoch), StorageType::Global)
+    }
+
+    pub fn new_try_wait_epoch_span(epoch: HummockReadEpoch) -> MayTraceSpan {
+        Self::new_global_op(Operation::TryWaitEpoch(epoch), StorageType::Global)
     }
 
     pub fn new_get_span(

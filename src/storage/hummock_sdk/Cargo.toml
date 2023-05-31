@@ -14,8 +14,8 @@ ignored = ["workspace-hack", "num-traits"]
 normal = ["workspace-hack"]
 
 [dependencies]
-bytes = "1"
 bincode = { version = "=2.0.0-rc.3", features = ["serde"] }
+bytes = "1"
 hex = "0.4"
 itertools = "0.10"
 parking_lot = "0.12"

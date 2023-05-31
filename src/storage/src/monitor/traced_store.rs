@@ -191,7 +191,15 @@ impl<S: StateStore> StateStore for TracedStateStore<S> {
     define_state_store_associated_type!();
 
     fn try_wait_epoch(&self, epoch: HummockReadEpoch) -> Self::WaitEpochFuture<'_> {
-        async move { self.inner.try_wait_epoch(epoch).await }
+        async move {
+            let span = TraceSpan::new_try_wait_epoch_span(epoch);
+
+            let res = self.inner.try_wait_epoch(epoch).await;
+            span.may_send_result(OperationResult::TryWaitEpoch(
+                res.as_ref().map(|o| *o).into(),
+            ));
+            res
+        }
     }
 
     fn sync(&self, epoch: u64) -> Self::SyncFuture<'_> {
@@ -213,7 +221,14 @@ impl<S: StateStore> StateStore for TracedStateStore<S> {
     }
 
     fn clear_shared_buffer(&self) -> Self::ClearSharedBufferFuture<'_> {
-        async move { self.inner.clear_shared_buffer().await }
+        async move {
+            let span = TraceSpan::new_clear_shared_buffer_span();
+            let res = self.inner.clear_shared_buffer().await;
+            span.may_send_result(OperationResult::ClearSharedBuffer(
+                res.as_ref().map(|o| *o).into(),
+            ));
+            res
+        }
     }
 
     fn new_local(&self, options: NewLocalOptions) -> Self::NewLocalFuture<'_> {
@@ -221,7 +236,12 @@ impl<S: StateStore> StateStore for TracedStateStore<S> {
     }
 
     fn validate_read_epoch(&self, epoch: HummockReadEpoch) -> StorageResult<()> {
-        self.inner.validate_read_epoch(epoch)
+        let span = TraceSpan::new_validate_read_epoch_span(epoch);
+        let res = self.inner.validate_read_epoch(epoch);
+        span.may_send_result(OperationResult::ValidateReadEpoch(
+            res.as_ref().map(|o| *o).into(),
+        ));
+        res
     }
 }
 
