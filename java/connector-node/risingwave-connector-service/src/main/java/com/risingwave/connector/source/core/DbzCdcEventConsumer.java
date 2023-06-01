@@ -87,6 +87,8 @@ public class DbzCdcEventConsumer
             byte[] payload =
                     converter.fromConnectData(record.topic(), record.valueSchema(), record.value());
 
+            LOG.error(new String(payload));
+
             // serialize the offset to a JSON, so that kernel doesn't need to
             // aware the layout of it
             DebeziumOffset offset =

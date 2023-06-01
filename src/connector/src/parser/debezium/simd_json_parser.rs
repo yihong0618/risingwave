@@ -70,6 +70,8 @@ impl DebeziumJsonParser {
                 RwError::from(ProtocolError("no payload in debezium event".to_owned()))
             })?;
 
+        tracing::error!("payload: {}", payload);
+
         let op = payload.get(OP).and_then(|v| v.as_str()).ok_or_else(|| {
             RwError::from(ProtocolError(
                 "op field not found in debezium json".to_owned(),

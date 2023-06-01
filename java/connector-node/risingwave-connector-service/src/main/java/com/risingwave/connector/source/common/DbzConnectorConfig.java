@@ -129,6 +129,7 @@ public class DbzConnectorConfig {
 
     private Properties initiateDbConfig(String fileName, StringSubstitutor substitutor) {
         var dbProps = new Properties();
+
         try (var input = getClass().getClassLoader().getResourceAsStream(fileName)) {
             assert input != null;
             var inputStr = IOUtils.toString(input, StandardCharsets.UTF_8);
