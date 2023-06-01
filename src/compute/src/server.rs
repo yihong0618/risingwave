@@ -132,7 +132,7 @@ pub async fn compute_node_serve(
         storage_memory_bytes,
     );
 
-    storage_memory_config.block_cache_capacity_mb += compute_memory_bytes;
+    storage_memory_config.block_cache_capacity_mb += compute_memory_bytes >> 20;
     compute_memory_bytes = 0;
 
     print_memory_config(
