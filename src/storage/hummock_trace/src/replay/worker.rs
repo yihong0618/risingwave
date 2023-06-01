@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::collections::HashMap;
+use std::f32::consts::E;
 use std::sync::Arc;
 
 use futures::stream::BoxStream;
@@ -191,7 +192,7 @@ impl ReplayWorker {
                     }
                     StorageType::Local(_, new_local_opts) => {
                         assert_eq!(new_local_opts.table_id, read_options.table_id);
-                        let s = local_storages.get_mut(&new_local_opts).unwrap();
+                        let s = local_storages.get_mut(&storage_type).unwrap();
                         s.get(key, read_options).await
                     }
                 };
@@ -200,7 +201,7 @@ impl ReplayWorker {
                 if let OperationResult::Get(expected) = res {
                     assert_eq!(TraceResult::from(actual), expected, "get result wrong");
                 } else {
-                    panic!("unexpected operation result");
+                    panic!("expect get result, but got {:?}", res);
                 }
             }
             Operation::Insert {
@@ -208,29 +209,25 @@ impl ReplayWorker {
                 new_val,
                 old_val,
             } => {
-                let table_id = match storage_type {
-                    StorageType::Global => panic!("Global Storage cannot insert"),
-                    StorageType::Local(_, table_id) => table_id,
-                };
-                let local_storage = local_storages.get_mut(&table_id).unwrap();
+                let local_storage = local_storages.get_mut(&storage_type).unwrap();
                 let actual = local_storage.insert(key, new_val, old_val);
 
                 let expected = res_rx.recv().await.expect("recv result failed");
                 if let OperationResult::Insert(expected) = expected {
                     assert_eq!(TraceResult::from(actual), expected, "get result wrong");
+                } else {
+                    panic!("expect insert result, but got {:?}", expected);
                 }
             }
             Operation::Delete { key, old_val } => {
-                let table_id = match storage_type {
-                    StorageType::Global => panic!("Global Storage cannot delete"),
-                    StorageType::Local(_, table_id) => table_id,
-                };
-                let local_storage = local_storages.get_mut(&table_id).unwrap();
+                let local_storage = local_storages.get_mut(&storage_type).unwrap();
                 let actual = local_storage.delete(key, old_val);
 
                 let expected = res_rx.recv().await.expect("recv result failed");
                 if let OperationResult::Delete(expected) = expected {
                     assert_eq!(TraceResult::from(actual), expected, "get result wrong");
+                } else {
+                    panic!("expect delete result, but got {:?}", expected);
                 }
             }
             Operation::Iter {
@@ -246,7 +243,7 @@ impl ReplayWorker {
                     }
                     StorageType::Local(_, new_local_opts) => {
                         assert_eq!(new_local_opts.table_id, read_options.table_id);
-                        let s = local_storages.get_mut(&new_local_opts).unwrap();
+                        let s = local_storages.get_mut(&storage_type).unwrap();
                         s.iter(key_range, read_options).await
                     }
                 };
@@ -259,6 +256,8 @@ impl ReplayWorker {
                     } else {
                         assert!(iter.is_err());
                     }
+                } else {
+                    panic!("expect iter result, but got {:?}", res);
                 }
             }
             Operation::Sync(epoch_id) => {
@@ -267,6 +266,8 @@ impl ReplayWorker {
                 let res = res_rx.recv().await.expect("recv result failed");
                 if let OperationResult::Sync(expected) = res {
                     assert_eq!(TraceResult::Ok(sync_result), expected, "sync failed");
+                } else {
+                    panic!("expect sync result, but got {:?}", res);
                 }
             }
             Operation::Seal(epoch_id, is_checkpoint) => {
@@ -280,17 +281,18 @@ impl ReplayWorker {
                 let res = res_rx.recv().await.expect("recv result failed");
                 if let OperationResult::IterNext(expected) = res {
                     assert_eq!(TraceResult::Ok(actual), expected, "iter_next result wrong");
+                } else {
+                    panic!("expect iter_next result, but got {:?}", res);
                 }
             }
             Operation::NewLocalStorage(new_local_opts) => {
-                if let StorageType::Local(_, _) = storage_type {
-                    let local_storage = replay.new_local(new_local_opts.clone()).await;
-                    local_storages.insert(new_local_opts, local_storage);
-                }
+                assert_ne!(storage_type, StorageType::Global);
+                let local_storage = replay.new_local(new_local_opts.clone()).await;
+                local_storages.insert(storage_type, local_storage);
             }
             Operation::DropLocalStorage => {
-                if let StorageType::Local(_, table_id) = storage_type {
-                    local_storages.remove(&table_id);
+                if let StorageType::Local(_, _) = storage_type {
+                    local_storages.remove(&storage_type);
                 }
                 // All local storages have been dropped, we should shutdown this worker
                 // If there are incoming new_local, this ReplayWorker will spawn again
@@ -310,10 +312,8 @@ impl ReplayWorker {
             }
             Operation::LocalStorageInit(epoch) => {
                 assert_ne!(storage_type, StorageType::Global);
-                if let StorageType::Local(_, table_id) = storage_type {
-                    let local_storage = local_storages.get_mut(&table_id).unwrap();
-                    local_storage.init(epoch);
-                }
+                let local_storage = local_storages.get_mut(&storage_type).unwrap();
+                local_storage.init(epoch);
             }
             Operation::TryWaitEpoch(epoch) => {
                 assert_eq!(storage_type, StorageType::Global);
@@ -321,6 +321,11 @@ impl ReplayWorker {
                 if let OperationResult::TryWaitEpoch(expected) = res {
                     let actual = replay.try_wait_epoch(epoch).await;
                     assert_eq!(TraceResult::from(actual), expected, "try_wait_epoch wrong");
+                } else {
+                    panic!(
+                        "wrong try_wait_epoch result, expect epoch result, but got {:?}",
+                        res
+                    );
                 }
             }
             Operation::ClearSharedBuffer => {
@@ -333,13 +338,17 @@ impl ReplayWorker {
                         expected,
                         "clear_shared_buffer wrong"
                     );
+                } else {
+                    panic!(
+                        "wrong clear_shared_buffer result, expect epoch result, but got {:?}",
+                        res
+                    );
                 }
             }
             Operation::SealCurrentEpoch(epoch) => {
-                if let StorageType::Local(_, table_id) = storage_type {
-                    let local_storage = local_storages.get_mut(&table_id).unwrap();
-                    local_storage.seal_current_epoch(epoch);
-                }
+                assert_ne!(storage_type, StorageType::Global);
+                let local_storage = local_storages.get_mut(&storage_type).unwrap();
+                local_storage.seal_current_epoch(epoch);
             }
             Operation::ValidateReadEpoch(epoch) => {
                 assert_eq!(storage_type, StorageType::Global);
@@ -351,46 +360,57 @@ impl ReplayWorker {
                         expected,
                         "validate_read_epoch wrong"
                     );
+                } else {
+                    panic!(
+                        "wrong validate_read_epoch result, expect epoch result, but got {:?}",
+                        res
+                    );
                 }
             }
             Operation::Finish => {}
             Operation::Result(_) => unreachable!(),
             Operation::LocalStorageEpoch => {
                 assert_ne!(storage_type, StorageType::Global);
-                if let StorageType::Local(_, table_id) = storage_type {
-                    let local_storage = local_storages.get_mut(&table_id).unwrap();
-                    let res = res_rx.recv().await.expect("recv result failed");
-                    if let OperationResult::LocalStorageEpoch(expected) = res {
-                        let actual = local_storage.epoch();
-                        assert_eq!(TraceResult::Ok(actual), expected, "epoch wrong");
-                    }
+                let local_storage = local_storages.get_mut(&storage_type).unwrap();
+                let res = res_rx.recv().await.expect("recv result failed");
+                if let OperationResult::LocalStorageEpoch(expected) = res {
+                    let actual = local_storage.epoch();
+                    assert_eq!(TraceResult::Ok(actual), expected, "epoch wrong");
+                } else {
+                    panic!(
+                        "wrong local storage epoch result, expect epoch result, but got {:?}",
+                        res
+                    );
                 }
             }
             Operation::LocalStorageIsDirty => {
                 assert_ne!(storage_type, StorageType::Global);
-                if let StorageType::Local(_, table_id) = storage_type {
-                    let local_storage = local_storages.get_mut(&table_id).unwrap();
-                    let res = res_rx.recv().await.expect("recv result failed");
-                    if let OperationResult::LocalStorageIsDirty(expected) = res {
-                        let actual = local_storage.is_dirty();
-                        assert_eq!(
-                            TraceResult::Ok(actual),
-                            expected,
-                            "is_dirty wrong, epoch: {}",
-                            local_storage.epoch()
-                        );
-                    }
+                let local_storage = local_storages.get_mut(&storage_type).unwrap();
+                let res = res_rx.recv().await.expect("recv result failed");
+                if let OperationResult::LocalStorageIsDirty(expected) = res {
+                    let actual = local_storage.is_dirty();
+                    assert_eq!(
+                        TraceResult::Ok(actual),
+                        expected,
+                        "is_dirty wrong, epoch: {}",
+                        local_storage.epoch()
+                    );
+                } else {
+                    panic!(
+                        "wrong local storage is_dirty result, expect is_dirty result, but got {:?}",
+                        res
+                    );
                 }
             }
             Operation::Flush(delete_range) => {
                 assert_ne!(storage_type, StorageType::Global);
-                if let StorageType::Local(_, table_id) = storage_type {
-                    let local_storage = local_storages.get_mut(&table_id).unwrap();
-                    let res = res_rx.recv().await.expect("recv result failed");
-                    if let OperationResult::Flush(expected) = res {
-                        let actual = local_storage.flush(delete_range).await;
-                        assert_eq!(TraceResult::from(actual), expected, "flush wrong");
-                    }
+                let local_storage = local_storages.get_mut(&storage_type).unwrap();
+                let res = res_rx.recv().await.expect("recv result failed");
+                if let OperationResult::Flush(expected) = res {
+                    let actual = local_storage.flush(delete_range).await;
+                    assert_eq!(TraceResult::from(actual), expected, "flush wrong");
+                } else {
+                    panic!("wrong flush result, expect flush result, but got {:?}", res);
                 }
             }
         }
@@ -448,7 +468,7 @@ impl WorkerHandler {
 }
 
 struct LocalStorages {
-    storages: HashMap<TracedNewLocalOptions, Box<dyn LocalReplay>>,
+    storages: HashMap<StorageType, Box<dyn LocalReplay>>,
 }
 
 impl LocalStorages {
@@ -458,16 +478,16 @@ impl LocalStorages {
         }
     }
 
-    fn remove(&mut self, table_id: &TracedNewLocalOptions) {
-        self.storages.remove(table_id);
+    fn remove(&mut self, storage_type: &StorageType) {
+        self.storages.remove(storage_type);
     }
 
-    fn get_mut(&mut self, table_id: &TracedNewLocalOptions) -> Option<&mut Box<dyn LocalReplay>> {
-        self.storages.get_mut(table_id)
+    fn get_mut(&mut self, storage_type: &StorageType) -> Option<&mut Box<dyn LocalReplay>> {
+        self.storages.get_mut(storage_type)
     }
 
-    fn insert(&mut self, table_id: TracedNewLocalOptions, local_storage: Box<dyn LocalReplay>) {
-        self.storages.insert(table_id, local_storage);
+    fn insert(&mut self, storage_type: StorageType, local_storage: Box<dyn LocalReplay>) {
+        self.storages.insert(storage_type, local_storage);
     }
 
     fn is_empty(&self) -> bool {

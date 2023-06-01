@@ -163,6 +163,18 @@ impl MayTraceSpan {
             span.send_result(res)
         }
     }
+
+    pub fn may_send_op(&self, op: Operation) {
+        if let Some(span) = &self.0 {
+            span.send(op)
+        }
+    }
+
+    pub fn may_send_iter_next(&self) {
+        if let Some(span) = &self.0 {
+            span.send(Operation::IterNext(span.id))
+        }
+    }
 }
 
 impl TraceSpan {
@@ -355,7 +367,7 @@ impl Drop for TraceSpan {
 pub type RecordMsg = Option<Record>;
 pub type ConcurrentId = u64;
 
-#[derive(Copy, Clone, Debug, Encode, Decode, PartialEq)]
+#[derive(Copy, Clone, Debug, Encode, Decode, PartialEq, Hash, Eq)]
 pub enum StorageType {
     Global,
     Local(ConcurrentId, TracedNewLocalOptions),

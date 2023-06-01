@@ -17,8 +17,8 @@ use futures::{Future, TryFutureExt, TryStreamExt};
 use futures_async_stream::try_stream;
 use risingwave_hummock_sdk::HummockReadEpoch;
 use risingwave_hummock_trace::{
-    init_collector, should_use_trace, ConcurrentId, MayTraceSpan, OperationResult, StorageType,
-    TraceResult, TraceSpan, TracedBytes, LOCAL_ID,
+    init_collector, should_use_trace, ConcurrentId, MayTraceSpan, Operation, OperationResult,
+    StorageType, TraceResult, TraceSpan, TracedBytes, LOCAL_ID,
 };
 
 use super::identity;
@@ -70,8 +70,13 @@ impl<S> TracedStateStore<S> {
         iter_stream_future: impl Future<Output = StorageResult<St>> + 'a,
         span: MayTraceSpan,
     ) -> StorageResult<TracedStateStoreIterStream<'s, St>> {
-        let iter_stream = iter_stream_future.await?;
-        let traced = TracedStateStoreIter::new(iter_stream, span);
+        let res = iter_stream_future.await;
+        if res.is_ok() {
+            span.may_send_result(OperationResult::Iter(TraceResult::Ok(())));
+        } else {
+            span.may_send_result(OperationResult::Iter(TraceResult::Err));
+        }
+        let traced = TracedStateStoreIter::new(res?, span);
         Ok(traced.into_stream())
     }
 
@@ -162,18 +167,28 @@ impl<S: LocalStateStore> LocalStateStore for TracedStateStore<S> {
     }
 
     fn flush(&mut self, delete_ranges: Vec<(Bytes, Bytes)>) -> Self::FlushFuture<'_> {
-        let _span = TraceSpan::new_flush_span(delete_ranges.clone(), self.storage_type);
-        self.inner.flush(delete_ranges)
+        async move {
+            let span = TraceSpan::new_flush_span(delete_ranges.clone(), self.storage_type);
+            let res = self.inner.flush(delete_ranges).await;
+            span.may_send_result(OperationResult::Flush(
+                res.as_ref().map(|o: &usize| *o).into(),
+            ));
+            res
+        }
     }
 
     fn epoch(&self) -> u64 {
-        let _span = TraceSpan::new_epoch_span(self.storage_type);
-        self.inner.epoch()
+        let span = TraceSpan::new_epoch_span(self.storage_type);
+        let res = self.inner.epoch();
+        span.may_send_result(OperationResult::LocalStorageEpoch(TraceResult::Ok(res)));
+        res
     }
 
     fn is_dirty(&self) -> bool {
-        let _span = TraceSpan::new_is_dirty_span(self.storage_type);
-        self.inner.is_dirty()
+        let span = TraceSpan::new_is_dirty_span(self.storage_type);
+        let res = self.inner.is_dirty();
+        span.may_send_result(OperationResult::LocalStorageIsDirty(TraceResult::Ok(res)));
+        res
     }
 
     fn init(&mut self, epoch: u64) {
@@ -326,6 +341,7 @@ impl<S: StateStoreIterItemStream> TracedStateStoreIter<S> {
             .await
             .inspect_err(|e| tracing::error!("Failed in next: {:?}", e))?
         {
+            self.span.may_send_iter_next();
             self.span
                 .may_send_result(OperationResult::IterNext(TraceResult::Ok(Some((
                     TracedBytes::from(key.user_key.table_key.to_vec()),

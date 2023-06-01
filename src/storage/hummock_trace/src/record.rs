@@ -283,20 +283,16 @@ impl<T, E> From<std::result::Result<T, E>> for TraceResult<T> {
 #[derive(Encode, Decode, PartialEq, Eq, Debug, Clone)]
 pub enum OperationResult {
     Get(TraceResult<Option<TracedBytes>>),
-    Ingest(TraceResult<usize>),
     Insert(TraceResult<()>),
     Delete(TraceResult<()>),
     Flush(TraceResult<usize>),
     Iter(TraceResult<()>),
     IterNext(TraceResult<Option<(TracedBytes, TracedBytes)>>),
     Sync(TraceResult<usize>),
-    Init(TraceResult<()>),
-    Seal(TraceResult<()>),
     NotifyHummock(TraceResult<()>),
     TryWaitEpoch(TraceResult<()>),
     ClearSharedBuffer(TraceResult<()>),
     ValidateReadEpoch(TraceResult<()>),
-    SealCurrentEpoch(TraceResult<()>),
     LocalStorageEpoch(TraceResult<u64>),
     LocalStorageIsDirty(TraceResult<bool>),
 }
