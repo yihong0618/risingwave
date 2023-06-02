@@ -509,7 +509,9 @@ mod tests {
 
     use super::*;
     use crate::replay::{MockGlobalReplayInterface, MockLocalReplayInterface};
-    use crate::{StorageType, TracedBytes, TracedNewLocalOptions, TracedReadOptions};
+    use crate::{
+        MockReplayIterStream, StorageType, TracedBytes, TracedNewLocalOptions, TracedReadOptions,
+    };
 
     #[tokio::test]
     async fn test_handle_record() {
@@ -545,21 +547,21 @@ mod tests {
         });
 
         mock_replay.expect_new_local().times(1).returning(move |_| {
-            let mock_local = MockLocalReplayInterface::new();
+            let mut mock_local = MockLocalReplayInterface::new();
 
-            // mock_local
-            //     .expect_iter()
-            //     .with(
-            //         predicate::eq((Bound::Unbounded, Bound::Unbounded)),
-            //         predicate::always(),
-            //     )
-            //     .returning(|_, _| {
-            //         let mut mock_iter = MockReplayIter::new();
-            //         mock_iter.expect_next().times(1).returning(|| {
-            //             Some((TracedBytes::from(vec![1]), TracedBytes::from(vec![0])))
-            //         });
-            //         Ok(Box::new(mock_iter))
-            //     });
+            mock_local
+                .expect_iter()
+                .with(
+                    predicate::eq((Bound::Unbounded, Bound::Unbounded)),
+                    predicate::always(),
+                )
+                .returning(move |_, _| {
+                    let iter = MockReplayIterStream::new(vec![(
+                        TracedBytes::from(vec![1]),
+                        TracedBytes::from(vec![0]),
+                    )]);
+                    Ok(iter.into_stream().boxed())
+                });
 
             Box::new(mock_local)
         });
@@ -585,6 +587,7 @@ mod tests {
                 TracedBytes::from(vec![120]),
             ))))
             .unwrap();
+
         ReplayWorker::handle_record(
             record,
             &replay,

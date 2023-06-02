@@ -20,6 +20,8 @@ use std::ops::Bound;
 use futures::stream::BoxStream;
 use futures::Stream;
 #[cfg(test)]
+use futures_async_stream::try_stream;
+#[cfg(test)]
 use mockall::{automock, mock};
 use risingwave_hummock_sdk::HummockReadEpoch;
 use risingwave_pb::meta::subscribe_response::{Info, Operation as RespOperation};
@@ -27,6 +29,8 @@ pub use runner::*;
 pub(crate) use worker::*;
 
 use crate::error::Result;
+#[cfg(test)]
+use crate::TraceError;
 use crate::{Record, TracedBytes, TracedNewLocalOptions, TracedReadOptions};
 
 pub type ReplayItem = (TracedBytes, TracedBytes);
@@ -114,12 +118,6 @@ pub trait ReplayStateStore {
     fn validate_read_epoch(&self, epoch: HummockReadEpoch) -> Result<()>;
 }
 
-#[cfg_attr(test, automock)]
-#[async_trait::async_trait]
-pub trait ReplayIter: Send + Sync {
-    async fn next(&mut self) -> Option<(TracedBytes, TracedBytes)>;
-}
-
 // define mock trait for replay interfaces
 // We need to do this since the mockall crate does not support async_trait
 #[cfg(test)]
@@ -183,5 +181,24 @@ mock! {
         fn is_dirty(&self) -> bool;
         fn epoch(&self) -> u64;
         async fn flush(&mut self, delete_ranges: Vec<(TracedBytes, TracedBytes)>) -> Result<usize>;
+    }
+}
+
+#[cfg(test)]
+pub(crate) struct MockReplayIterStream {
+    items: Vec<ReplayItem>,
+}
+#[cfg(test)]
+impl MockReplayIterStream {
+    pub(crate) fn new(items: Vec<ReplayItem>) -> Self {
+        Self { items }
+    }
+
+    #[try_stream(ok = ReplayItem, error = TraceError)]
+
+    pub(crate) async fn into_stream(self) {
+        for (key, value) in self.items {
+            yield (key, value)
+        }
     }
 }
