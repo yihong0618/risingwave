@@ -3,7 +3,7 @@
 ## Tracing
 
 ### Config
-In the `./src/config/config.toml`, we must disable the vacuum of the compactor.
+In your config file, we must disable the vacuum of the compactor.
 ```toml
 [meta]
 # Put a very large number
@@ -60,6 +60,15 @@ If we set the flag in root `Cargo.toml`, we don't need to set the env variable.
 Replaying requires the complete object storage from tracing. Please make sure data remain in object storage.
 
 ### Run Replay
+
+Start a MinIO server before replaying.
+Object storage data is usually stored in `.risingwave/data/minio` and config is stored in `.risingwave/config/minio`.
+```
+MINIO_ROOT_PASSWORD=hummockadmin MINIO_ROOT_USER=hummockadmin .risi
+ngwave/bin/minio server --address 127.0.0.1:9301 --console-address 127
+.0.0.1:9400 --config-dir .risingwave/config/minio .risingwave/data/minio
+```
+
 
 Default storage config file, it uses `src/config/risingwave.toml`
 ```
