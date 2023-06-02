@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::collections::HashMap;
-use std::f32::consts::E;
 use std::sync::Arc;
 
 use futures::stream::BoxStream;
@@ -24,7 +23,6 @@ use tokio::task::JoinHandle;
 use super::{GlobalReplay, LocalReplay, ReplayRequest, WorkerId, WorkerResponse};
 use crate::{
     Operation, OperationResult, Record, RecordId, ReplayItem, Result, StorageType, TraceResult,
-    TracedNewLocalOptions,
 };
 
 #[async_trait::async_trait]
@@ -287,7 +285,7 @@ impl ReplayWorker {
             }
             Operation::NewLocalStorage(new_local_opts) => {
                 assert_ne!(storage_type, StorageType::Global);
-                let local_storage = replay.new_local(new_local_opts.clone()).await;
+                let local_storage = replay.new_local(new_local_opts).await;
                 local_storages.insert(storage_type, local_storage);
             }
             Operation::DropLocalStorage => {

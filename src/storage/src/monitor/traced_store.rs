@@ -17,8 +17,8 @@ use futures::{Future, TryFutureExt, TryStreamExt};
 use futures_async_stream::try_stream;
 use risingwave_hummock_sdk::HummockReadEpoch;
 use risingwave_hummock_trace::{
-    init_collector, should_use_trace, ConcurrentId, MayTraceSpan, Operation, OperationResult,
-    StorageType, TraceResult, TraceSpan, TracedBytes, LOCAL_ID,
+    init_collector, should_use_trace, ConcurrentId, MayTraceSpan, OperationResult, StorageType,
+    TraceResult, TraceSpan, TracedBytes, LOCAL_ID,
 };
 
 use super::identity;
