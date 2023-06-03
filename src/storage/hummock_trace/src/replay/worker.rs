@@ -52,7 +52,9 @@ impl<G: GlobalReplay> WorkerScheduler<G> {
 
     fn allocate_worker_id(&mut self, record: &Record) -> WorkerId {
         match record.storage_type() {
-            StorageType::Local(concurrent_id, _) => WorkerId::Local(*concurrent_id),
+            StorageType::Local(concurrent_id, opts) => {
+                WorkerId::Local(*concurrent_id, opts.table_id)
+            }
             StorageType::Global => WorkerId::OneShot(record.record_id()),
         }
     }
@@ -90,7 +92,7 @@ impl<G: GlobalReplay + 'static> ReplayWorkerScheduler for WorkerScheduler<G> {
         // Check if the worker with the given ID exists in the workers map.
         if let Some(handler) = self.workers.get_mut(&worker_id) {
             // If the worker exists, wait for it to finish executing.
-            let resp = handler.wait().await;
+            let resp = handler.wait(record.record_id).await;
 
             // If the worker is a one-shot worker or local workers that should be closed, remove it
             // from the workers map and call its finish method.
@@ -126,7 +128,7 @@ impl ReplayWorker {
             res_tx,
             resp_rx,
             join,
-            stacked_replay_count: 0,
+            stacked_replay_reqs: HashMap::new(),
         }
     }
 
@@ -143,7 +145,7 @@ impl ReplayWorker {
 
         while let Some(Some(record)) = req_rx.recv().await {
             Self::handle_record(
-                record,
+                record.clone(),
                 &replay,
                 &mut res_rx,
                 &mut iters_map,
@@ -289,6 +291,7 @@ impl ReplayWorker {
                 local_storages.insert(storage_type, local_storage);
             }
             Operation::DropLocalStorage => {
+                assert_ne!(storage_type, StorageType::Global);
                 if let StorageType::Local(_, _) = storage_type {
                     local_storages.remove(&storage_type);
                 }
@@ -365,8 +368,6 @@ impl ReplayWorker {
                     );
                 }
             }
-            Operation::Finish => {}
-            Operation::Result(_) => unreachable!(),
             Operation::LocalStorageEpoch => {
                 assert_ne!(storage_type, StorageType::Global);
                 let local_storage = local_storages.get_mut(&storage_type).unwrap();
@@ -411,6 +412,8 @@ impl ReplayWorker {
                     panic!("wrong flush result, expect flush result, but got {:?}", res);
                 }
             }
+            Operation::Finish => unreachable!(),
+            Operation::Result(_) => unreachable!(),
         }
     }
 }
@@ -420,7 +423,7 @@ struct WorkerHandler {
     res_tx: UnboundedSender<OperationResult>,
     resp_rx: UnboundedReceiver<WorkerResponse>,
     join: JoinHandle<()>,
-    stacked_replay_count: u32,
+    stacked_replay_reqs: HashMap<u64, u32>,
 }
 
 impl WorkerHandler {
@@ -433,23 +436,33 @@ impl WorkerHandler {
     }
 
     fn replay(&mut self, req: ReplayRequest) {
-        self.stacked_replay_count += 1;
+        if let Some(r) = &req {
+            let entry = self.stacked_replay_reqs.entry(r.record_id).or_insert(0);
+            *entry += 1;
+        }
         self.send_replay_req(req);
     }
 
-    async fn wait(&mut self) -> Option<WorkerResponse> {
-        assert!(self.stacked_replay_count > 0);
+    async fn wait(&mut self, record_id: u64) -> Option<WorkerResponse> {
+        let mut stacked_replay_reqs = *self.stacked_replay_reqs.get(&record_id).unwrap();
+        assert!(
+            stacked_replay_reqs > 0,
+            "replay count should be 0, but found {}",
+            stacked_replay_reqs
+        );
         let mut resp = None;
 
-        while self.stacked_replay_count > 0 {
+        while stacked_replay_reqs > 0 {
             resp = Some(
                 self.resp_rx
                     .recv()
                     .await
                     .expect("failed to wait worker resp"),
             );
-            self.stacked_replay_count -= 1;
+            stacked_replay_reqs -= 1;
         }
+        // cleaned this record from replay worker
+        self.stacked_replay_reqs.remove(&record_id);
         // impossible to be None
         resp
     }

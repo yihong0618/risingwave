@@ -32,7 +32,6 @@ If you wish to manually run `cargo` rather than `risedev`, set the env variable 
 RUSTFLAGS="--cfg hm_trace --cfg tokio_unstable"
 ```
 We must manually enable `tokio_unstable` because extra flag sources are mutually exclusive. If we provide this variable, cargo will not evaluate `build.rustflags` in `.cargo/config.toml`
-
 For example, to start a traced playground
 
 ```
