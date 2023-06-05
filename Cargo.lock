@@ -1489,6 +1489,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "connection-string"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "510ca239cf13b7f8d16a2b48f263de7b4f8c566f0af58d901031473c76afb1e3"
+
+[[package]]
 name = "console"
 version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6239,6 +6245,7 @@ dependencies = [
  "axum",
  "bytes",
  "clap 4.2.7",
+ "connection-string",
  "crepe",
  "easy-ext",
  "either",

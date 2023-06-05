@@ -1879,6 +1879,7 @@ where
         }
         let key = (sink.database_id, sink.schema_id, sink.name.clone());
         database_core.check_relation_name_duplicated(&key)?;
+        database_core.check_sink_target_duplicated(sink)?;
         #[cfg(not(test))]
         user_core.ensure_user_id(sink.owner)?;
 

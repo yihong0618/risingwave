@@ -14,7 +14,9 @@
 
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::str::FromStr;
 
+use connection_string::JdbcString;
 use itertools::Itertools;
 use risingwave_common::catalog::TableOption;
 use risingwave_pb::catalog::{
@@ -216,6 +218,32 @@ impl DatabaseManager {
         } else {
             Ok(())
         }
+    }
+
+    pub fn check_sink_target_duplicated(&self, sink: &Sink) -> MetaResult<()> {
+        if let Some(jdbc_url_0) = sink.get_properties().get("jdbc.url") {
+            let jdbc0 = JdbcString::from_str(jdbc_url_0).map_err(|e| {
+                MetaError::invalid_parameter(format!("invalid jdbc string: {}", e.to_string()))
+            })?;
+            let sub_protocol = jdbc0.sub_protocol();
+            let host = jdbc0.server_name()
+                .ok_or_else(|| MetaError::invalid_parameter(format!("invalid jdbc string: host not provided")))?;
+            let port = jdbc0.port()
+                .ok_or_else(|| MetaError::invalid_parameter(format!("invalid jdbc string: host not provided")))?;
+            let db = jdbc0.properties().get("database")
+                .ok_or_else(|| MetaError::invalid_parameter(format!("invalid jdbc string: database not provided")))?;
+            if self.sinks.values().any(|x| {
+                if let Some(jdbc_url_1) = x.get_properties().get("jdbc.url") {
+                    let jdbc1 = JdbcString::from_str(jdbc_url_1).unwrap();
+                    let properties1 = jdbc1.properties();
+                    // if (host == jdbc1.server_name().unwrap() && )
+                        todo!()
+                }
+            }) {
+                Err(MetaError::catalog_duplicated("sink target", &sink.name))
+            }
+        }
+        Ok(())
     }
 
     pub fn list_databases(&self) -> Vec<Database> {

@@ -22,6 +22,7 @@ aws-config = { workspace = true }
 aws-sdk-ec2 = { workspace = true }
 bytes = { version = "1", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
+connection-string = "0.2.0"
 crepe = "0.1"
 easy-ext = "1"
 either = "1"
