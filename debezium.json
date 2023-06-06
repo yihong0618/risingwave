@@ -1,0 +1,86 @@
+{
+    "status": "BEGIN",
+    "id": "file=binlog.000004,pos=905",
+    "event_count": null,
+    "data_collections": null
+}
+
+{
+    "before": null,
+    "after": {
+        "k": 6,
+        "v": "hello"
+    },
+    "source": {
+        "version": "1.9.7.Final",
+        "connector": "mysql",
+        "name": "RW_CDC_bz.t",
+        "ts_ms": 1686039171000,
+        "snapshot": "false",
+        "db": "bz",
+        "sequence": null,
+        "table": "t",
+        "server_id": 1,
+        "gtid": null,
+        "file": "binlog.000004",
+        "pos": 1030,
+        "row": 0,
+        "thread": 8,
+        "query": null
+    },
+    "op": "c",
+    "ts_ms": 1686039182444,
+    "transaction": {
+        "id": "file=binlog.000004,pos=905",
+        "total_order": 1,
+        "data_collection_order": 1
+    }
+}
+
+{
+    "before": null,
+    "after": {
+        "k2": 5,
+        "v2": "world"
+    },
+    "source": {
+        "version": "1.9.7.Final",
+        "connector": "mysql",
+        "name": "RW_CDC_bz.t",
+        "ts_ms": 1686039179000,
+        "snapshot": "false",
+        "db": "bz",
+        "sequence": null,
+        "table": "t2",
+        "server_id": 1,
+        "gtid": null,
+        "file": "binlog.000004",
+        "pos": 1134,
+        "row": 0,
+        "thread": 8,
+        "query": null
+    },
+    "op": "c",
+    "ts_ms": 1686039182446,
+    "transaction": {
+        "id": "file=binlog.000004,pos=905",
+        "total_order": 2,
+        "data_collection_order": 1
+    }
+}
+
+{
+    "status": "END",
+    "id": "file=binlog.000004,pos=905",
+    "event_count": 2,
+    "data_collections": [
+        {
+            "data_collection": "bz.t",
+            "event_count": 1
+        },
+        {
+            "data_collection": "bz.t2",
+            "event_count": 1
+        }
+    ]
+}
