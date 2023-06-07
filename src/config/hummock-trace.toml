@@ -1,0 +1,8 @@
+[server]
+telemetry_enabled = false
+
+[meta]
+vacuum_interval_sec = 2147483647
+
+[system]
+data_directory = "hummock_001"
