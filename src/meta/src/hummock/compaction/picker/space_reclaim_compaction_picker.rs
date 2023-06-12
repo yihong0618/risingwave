@@ -18,6 +18,7 @@ use risingwave_pb::hummock::hummock_version::Levels;
 use risingwave_pb::hummock::{InputLevel, SstableInfo};
 
 use super::CompactionInput;
+use crate::hummock::compaction::picker::LocalPickerStatistic;
 use crate::hummock::level_handler::LevelHandler;
 
 // The execution model of SpaceReclaimCompactionPicker scans through the last level of files by
@@ -60,6 +61,7 @@ impl SpaceReclaimCompactionPicker {
         levels: &Levels,
         level_handlers: &[LevelHandler],
         state: &mut SpaceReclaimPickerState,
+        stats: &mut LocalPickerStatistic,
     ) -> Option<CompactionInput> {
         assert!(!levels.levels.is_empty());
         let mut select_input_ssts = vec![];
@@ -106,8 +108,11 @@ impl SpaceReclaimCompactionPicker {
                 let exist_count = self.exist_table_count(sst);
                 let need_reclaim = exist_count < sst.table_ids.len();
                 let is_trivial = exist_count == 0;
-                if level_handlers[state.last_level].is_pending_compact(&sst.sst_id) || !need_reclaim
+                if !need_reclaim || level_handlers[state.last_level].is_pending_compact(&sst.sst_id)
                 {
+                    if need_reclaim {
+                        stats.skip_by_pending_files = 1;
+                    }
                     if !select_input_ssts.is_empty() {
                         // Our goal is to pick as many complete layers of data as possible and keep
                         // the picked files contiguous to avoid overlapping

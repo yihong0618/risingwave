@@ -478,7 +478,7 @@ impl LevelSelector for SpaceReclaimCompactionSelector {
         group: &CompactionGroup,
         levels: &Levels,
         level_handlers: &mut [LevelHandler],
-        _selector_stats: &mut LocalSelectorStatistic,
+        selector_stats: &mut LocalSelectorStatistic,
         _table_id_to_options: HashMap<u32, TableOption>,
     ) -> Option<CompactionTask> {
         let dynamic_level_core = DynamicLevelSelectorCore::new(group.compaction_config.clone());
@@ -491,7 +491,19 @@ impl LevelSelector for SpaceReclaimCompactionSelector {
             .state
             .entry(group.group_id)
             .or_insert_with(SpaceReclaimPickerState::default);
-        let compaction_input = picker.pick_compaction(levels, level_handlers, state)?;
+
+        let last_level = state.last_level;
+        let mut stats = LocalPickerStatistic::default();
+        let compaction_input =
+            match picker.pick_compaction(levels, level_handlers, state, &mut stats) {
+                Some(input) => input,
+                None => {
+                    selector_stats
+                        .skip_picker
+                        .push((last_level, last_level, stats));
+                    return None;
+                }
+            };
         compaction_input.add_pending_task(task_id, level_handlers);
 
         Some(create_compaction_task(
