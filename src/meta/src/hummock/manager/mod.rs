@@ -847,7 +847,6 @@ where
             .into_iter()
             .filter(|(table_id, _)| member_table_ids.contains(table_id))
             .collect();
-        let exist_table_ids = HashSet::from_iter(member_table_ids.clone());
 
         let compact_task = compact_status.get_compact_task(
             current_version.get_compaction_group_levels(compaction_group_id),
@@ -871,6 +870,7 @@ where
             .unwrap()
             .member_table_ids
             .clone();
+        let is_trivial_reclaim = CompactStatus::is_trivial_reclaim(&compact_task);
 
         if CompactStatus::is_trivial_move_task(&compact_task) && can_trivial_move {
             compact_task.sorted_output_ssts = compact_task.input_ssts[0].table_infos.clone();
@@ -886,7 +886,7 @@ where
                 compact_task.target_level,
                 start_time.elapsed()
             );
-        } else if CompactStatus::is_trivial_reclaim(&compact_task, &exist_table_ids) {
+        } else if is_trivial_reclaim {
             compact_task.set_task_status(TaskStatus::Success);
             self.report_compact_task_impl(None, &mut compact_task, Some(compaction_guard), None)
                 .await?;
@@ -959,6 +959,8 @@ where
                         && compact_task.input_ssts[1].table_infos.is_empty()
                     {
                         "trivial-move"
+                    } else if is_trivial_reclaim {
+                        "trivial-space-reclaim"
                     } else {
                         ""
                     };
@@ -1004,6 +1006,8 @@ where
                     compact_task.input_ssts[1].level_idx,
                     if CompactStatus::is_trivial_move_task(&compact_task) {
                         "trivial-move"
+                    } else if is_trivial_reclaim {
+                        "trivial-space-reclaim"
                     } else {
                         ""
                     }
@@ -1093,17 +1097,10 @@ where
             if let TaskStatus::Pending = task.task_status() {
                 return Ok(Some(task));
             }
-            #[cfg(debug_assertions)]
-            {
-                if !CompactStatus::is_trivial_move_task(&task) {
-                    let existing_table_ids =
-                        HashSet::<u32>::from_iter(task.existing_table_ids.clone());
-                    assert!(CompactStatus::is_trivial_reclaim(
-                        &task,
-                        &existing_table_ids
-                    ));
-                }
-            }
+            assert!(
+                CompactStatus::is_trivial_move_task(&task)
+                    || CompactStatus::is_trivial_reclaim(&task)
+            );
         }
 
         Ok(None)
@@ -1405,6 +1402,8 @@ where
                 // TODO: only support can_trivial_move in DynamicLevelCompcation, will check
                 // task_type next PR
                 "trivial-move"
+            } else if CompactStatus::is_trivial_reclaim(compact_task) {
+                "trivial-space-reclaim"
             } else {
                 "unassigned"
             };
