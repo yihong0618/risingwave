@@ -707,11 +707,9 @@ impl SstableWriter for BatchUploadWriter {
 pub struct StreamingUploadWriter {
     object_id: HummockSstableObjectId,
     sstable_store: SstableStoreRef,
-    policy: CachePolicy,
     /// Data are uploaded block by block, except for the size footer.
     object_uploader: ObjectStreamingUploader,
     /// Compressed blocks to refill block or meta cache. Keep the uncompressed capacity for decode.
-    blocks: Vec<Block>,
     data_len: usize,
     tracker: Option<MemoryTracker>,
 }
@@ -726,9 +724,7 @@ impl StreamingUploadWriter {
         Self {
             object_id,
             sstable_store,
-            policy: options.policy,
             object_uploader,
-            blocks: Vec::new(),
             data_len: 0,
             tracker: options.tracker,
         }
@@ -739,13 +735,9 @@ impl StreamingUploadWriter {
 impl SstableWriter for StreamingUploadWriter {
     type Output = JoinHandle<HummockResult<()>>;
 
-    async fn write_block(&mut self, block_data: &[u8], meta: &BlockMeta) -> HummockResult<()> {
+    async fn write_block(&mut self, block_data: &[u8], _meta: &BlockMeta) -> HummockResult<()> {
         self.data_len += block_data.len();
         let block_data = Bytes::from(block_data.to_vec());
-        if let CachePolicy::Fill(_) = self.policy {
-            let block = Block::decode(block_data.clone(), meta.uncompressed_size as usize)?;
-            self.blocks.push(block);
-        }
         self.object_uploader
             .write_bytes(block_data)
             .await
@@ -769,19 +761,6 @@ impl SstableWriter for StreamingUploadWriter {
                     t
                 });
             self.sstable_store.insert_meta_cache(self.object_id, meta);
-
-            // Add block cache.
-            if let CachePolicy::Fill(fill_high_priority_cache) = self.policy {
-                debug_assert!(!self.blocks.is_empty());
-                for (block_idx, block) in self.blocks.into_iter().enumerate() {
-                    self.sstable_store.block_cache.insert(
-                        self.object_id,
-                        block_idx as u64,
-                        Box::new(block),
-                        fill_high_priority_cache,
-                    );
-                }
-            }
             // Upload data to object store.
             self.object_uploader
                 .finish()

@@ -835,54 +835,27 @@ impl Compactor {
                 .start_timer()
         };
 
-        let (split_table_outputs, table_stats_map) = if self.options.capacity as u64
-            > self.context.storage_opts.min_sst_size_for_streaming_upload
-        {
-            let factory = StreamingSstableWriterFactory::new(self.context.sstable_store.clone());
-            if self.task_config.is_target_l0_or_lbase {
-                self.compact_key_range_impl::<_, Xor16FilterBuilder>(
-                    factory,
-                    iter,
-                    compaction_filter,
-                    del_agg,
-                    filter_key_extractor,
-                    task_progress.clone(),
-                )
-                .await?
-            } else {
-                self.compact_key_range_impl::<_, Xor8FilterBuilder>(
-                    factory,
-                    iter,
-                    compaction_filter,
-                    del_agg,
-                    filter_key_extractor,
-                    task_progress.clone(),
-                )
-                .await?
-            }
+        let factory = StreamingSstableWriterFactory::new(self.context.sstable_store.clone());
+        let (split_table_outputs, table_stats_map) = if self.task_config.is_target_l0_or_lbase {
+            self.compact_key_range_impl::<_, Xor16FilterBuilder>(
+                factory,
+                iter,
+                compaction_filter,
+                del_agg,
+                filter_key_extractor,
+                task_progress.clone(),
+            )
+            .await?
         } else {
-            let factory = BatchSstableWriterFactory::new(self.context.sstable_store.clone());
-            if self.task_config.is_target_l0_or_lbase {
-                self.compact_key_range_impl::<_, Xor16FilterBuilder>(
-                    factory,
-                    iter,
-                    compaction_filter,
-                    del_agg,
-                    filter_key_extractor,
-                    task_progress.clone(),
-                )
-                .await?
-            } else {
-                self.compact_key_range_impl::<_, Xor8FilterBuilder>(
-                    factory,
-                    iter,
-                    compaction_filter,
-                    del_agg,
-                    filter_key_extractor,
-                    task_progress.clone(),
-                )
-                .await?
-            }
+            self.compact_key_range_impl::<_, Xor8FilterBuilder>(
+                factory,
+                iter,
+                compaction_filter,
+                del_agg,
+                filter_key_extractor,
+                task_progress.clone(),
+            )
+            .await?
         };
 
         compact_timer.observe_duration();
