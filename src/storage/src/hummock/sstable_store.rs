@@ -674,11 +674,6 @@ impl SstableWriter for BatchUploadWriter {
                 t
             });
 
-            // Upload data to object store.
-            self.sstable_store
-                .clone()
-                .put_sst_data(self.object_id, data)
-                .await?;
             self.sstable_store.insert_meta_cache(self.object_id, meta);
 
             // Add block cache.
@@ -694,6 +689,11 @@ impl SstableWriter for BatchUploadWriter {
                     );
                 }
             }
+            // Upload data to object store.
+            self.sstable_store
+                .clone()
+                .put_sst_data(self.object_id, data)
+                .await?;
             Ok(())
         });
         Ok(join_handle)
@@ -768,12 +768,6 @@ impl SstableWriter for StreamingUploadWriter {
                     }
                     t
                 });
-
-            // Upload data to object store.
-            self.object_uploader
-                .finish()
-                .await
-                .map_err(HummockError::object_io_error)?;
             self.sstable_store.insert_meta_cache(self.object_id, meta);
 
             // Add block cache.
@@ -788,6 +782,11 @@ impl SstableWriter for StreamingUploadWriter {
                     );
                 }
             }
+            // Upload data to object store.
+            self.object_uploader
+                .finish()
+                .await
+                .map_err(HummockError::object_io_error)?;
             Ok(())
         });
         Ok(join_handle)
