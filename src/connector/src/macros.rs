@@ -226,7 +226,7 @@ macro_rules! impl_common_split_reader_logic {
                     $crate::parser::ByteStreamSourceParserImpl::create(parser_config, source_ctx)?;
                 #[for_await]
                 for msg_batch in parser.into_stream(data_stream) {
-                    let start_time = minstant::Instant::now();
+                    let start_time = tokio::time::Instant::now();
                     yield msg_batch?;
                     metrics_clone
                         .partition_output_waiting_duration_ns

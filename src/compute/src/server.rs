@@ -469,7 +469,7 @@ fn total_storage_memory_limit_bytes(storage_memory_config: &StorageMemoryConfig)
         + storage_memory_config.shared_buffer_capacity_mb
         + storage_memory_config.file_cache_total_buffer_capacity_mb
         + storage_memory_config.compactor_memory_limit_mb;
-    tracing::info!("WKXLOG total_storage_memory_limit_bytes: {}", total_memory);
+    tracing::info!("WKXLOG total_storage_memory_mb: {}", total_storage_memory_mb);
     total_storage_memory_mb << 20
 }
 

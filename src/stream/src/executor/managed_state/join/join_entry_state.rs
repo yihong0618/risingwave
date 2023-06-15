@@ -48,13 +48,6 @@ impl EstimateSize for JoinEntryState {
 }
 
 impl JoinEntryState {
-    /// New
-    pub fn new() -> Self {
-        Self {
-            cached: Default::default(),
-        }
-    }
-
     /// Insert into the cache.
     pub fn insert(&mut self, key: PkType, value: StateValueType) {
         self.kv_heap_size.add(&key, &value);

@@ -52,6 +52,7 @@ pub struct StreamingMetrics {
     pub join_lookup_real_miss_count: GenericCounterVec<AtomicU64>,
     pub join_total_lookup_count: GenericCounterVec<AtomicU64>,
     pub join_insert_cache_miss_count: GenericCounterVec<AtomicU64>,
+    pub join_may_exist_true_count: GenericCounterVec<AtomicU64>,
     pub join_actor_input_waiting_duration_ns: GenericCounterVec<AtomicU64>,
     pub join_match_duration_ns: GenericCounterVec<AtomicU64>,
     pub join_barrier_align_duration: HistogramVec,
@@ -323,6 +324,14 @@ impl StreamingMetrics {
             "stream_join_insert_cache_miss_count",
             "Join executor cache miss when insert operation",
             &["side", "join_table_id", "degree_table_id", "actor_id"],
+            registry
+        )
+        .unwrap();
+
+        let join_may_exist_true_count = register_int_counter_vec_with_registry!(
+            "stream_join_may_exist_true_count",
+            "Count of may_exist's true returns of when insert rows in join executor",
+            &["actor_id", "side"],
             registry
         )
         .unwrap();
@@ -711,6 +720,7 @@ impl StreamingMetrics {
             join_lookup_real_miss_count,
             join_total_lookup_count,
             join_insert_cache_miss_count,
+            join_may_exist_true_count,
             join_actor_input_waiting_duration_ns,
             join_match_duration_ns,
             join_barrier_align_duration,

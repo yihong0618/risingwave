@@ -16,23 +16,20 @@ use std::alloc::{Allocator, Global};
 use std::borrow::Borrow;
 use std::cmp::min;
 use std::hash::{BuildHasher, Hash};
-use std::ops::{Deref, DerefMut};
-use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use lru::{DefaultHasher, KeyRef, LruCache};
+use lru::{DefaultHasher, IndexedLruCache, KeyRef};
 use prometheus::IntGauge;
 use risingwave_common::estimate_size::EstimateSize;
 
+use super::{MutGuard, UnsafeMutGuard, REPORT_SIZE_EVERY_N_KB_CHANGE};
 use crate::common::metrics::MetricsInfo;
-
-pub(crate) const REPORT_SIZE_EVERY_N_KB_CHANGE: usize = 4096;
 
 /// The managed cache is a lru cache that bounds the memory usage by epoch.
 /// Should be used with `GlobalMemoryManager`.
-pub struct ManagedLruCache<K, V, S = DefaultHasher, A: Clone + Allocator = Global> {
-    inner: LruCache<K, V, S, A>,
+pub struct ManagedIndexedLruCache<K, V, S = DefaultHasher, A: Clone + Allocator = Global> {
+    inner: IndexedLruCache<K, V, S, A>,
     /// The entry with epoch less than water should be evicted.
     /// Should only be updated by the `GlobalMemoryManager`.
     watermark_epoch: Arc<AtomicU64>,
@@ -46,7 +43,7 @@ pub struct ManagedLruCache<K, V, S = DefaultHasher, A: Clone + Allocator = Globa
     last_reported_size_bytes: usize,
 }
 
-impl<K, V, S, A: Clone + Allocator> Drop for ManagedLruCache<K, V, S, A> {
+impl<K, V, S, A: Clone + Allocator> Drop for ManagedIndexedLruCache<K, V, S, A> {
     fn drop(&mut self) {
         if let Some(metrics) = &self.memory_usage_metrics {
             metrics.set(0.into());
@@ -61,10 +58,10 @@ impl<K, V, S, A: Clone + Allocator> Drop for ManagedLruCache<K, V, S, A> {
 }
 
 impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Allocator>
-    ManagedLruCache<K, V, S, A>
+    ManagedIndexedLruCache<K, V, S, A>
 {
     pub fn new_inner(
-        inner: LruCache<K, V, S, A>,
+        inner: IndexedLruCache<K, V, S, A>,
         watermark_epoch: Arc<AtomicU64>,
         metrics_info: Option<MetricsInfo>,
     ) -> Self {
@@ -114,24 +111,47 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
         self.inner.current_epoch()
     }
 
-    /// An iterator visiting all values in most-recently used order. The iterator element type is
-    /// &V.
-    pub fn values(&self) -> impl Iterator<Item = &V> {
-        self.inner.iter().map(|(_k, v)| v)
+    pub fn bucket_count(&self) -> usize {
+        self.inner.bucket_count()
     }
 
-    pub fn put(&mut self, k: K, v: V) -> Option<V> {
+    pub fn ghost_bucket_count(&self) -> usize {
+        self.inner.ghost_bucket_count()
+    }
+
+    /// An iterator visiting all values in most-recently used order. The iterator element type is
+    /// &V.
+    // pub fn values(&self) -> impl Iterator<Item = &V> {
+    //     self.inner.iter().map(|(_k, v)| v)
+    // }
+
+    pub fn put(&mut self, k: K, v: V) {
         let key_size = k.estimated_size();
         self.kv_heap_size_inc(key_size + v.estimated_size());
         let old_val = self.inner.put(k, v);
         if let Some(old_val) = &old_val {
             self.kv_heap_size_dec(key_size + old_val.estimated_size());
         }
-        old_val
     }
 
-    pub fn get_mut(&mut self, k: &K) -> Option<MutGuard<'_, V>> {
-        let v = self.inner.get_mut(k);
+    pub fn put_sample(
+        &mut self,
+        k: K,
+        v: V,
+        is_update: bool,
+        return_distance: bool,
+    ) -> Option<(u32, bool)> {
+        let key_size = k.estimated_size();
+        self.kv_heap_size_inc(key_size + v.estimated_size());
+        let (old_val, distance) = self.inner.put_sample(k, v, is_update, return_distance);
+        if let Some(old_val) = &old_val {
+            self.kv_heap_size_dec(key_size + old_val.estimated_size());
+        }
+        distance
+    }
+
+    pub fn get_mut(&mut self, k: &K, check_ghost: bool) -> Option<MutGuard<'_, V>> {
+        let v = self.inner.get_mut(k, check_ghost);
         v.map(|inner| {
             MutGuard::new(
                 inner,
@@ -142,8 +162,8 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
         })
     }
 
-    pub fn get_mut_unsafe(&mut self, k: &K) -> Option<UnsafeMutGuard<V>> {
-        let v = self.inner.get_mut(k);
+    pub fn get_mut_unsafe(&mut self, k: &K, check_ghost: bool) -> Option<UnsafeMutGuard<V>> {
+        let v = self.inner.get_mut(k, check_ghost);
         v.map(|inner| {
             UnsafeMutGuard::new(
                 inner,
@@ -154,13 +174,13 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
         })
     }
 
-    pub fn get<Q>(&mut self, k: &Q) -> Option<&V>
-    where
-        KeyRef<K>: Borrow<Q>,
-        Q: Hash + Eq + ?Sized,
-    {
-        self.inner.get(k)
-    }
+    // pub fn get<Q>(&mut self, k: &Q, check_ghost: bool) -> Option<&V>
+    // where
+    //     KeyRef<K>: Borrow<Q>,
+    //     Q: Hash + Eq + ?Sized,
+    // {
+    //     self.inner.get(k, check_ghost)
+    // }
 
     pub fn peek_mut(&mut self, k: &K) -> Option<MutGuard<'_, V>> {
         let v = self.inner.peek_mut(k);
@@ -174,23 +194,23 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
         })
     }
 
-    pub fn push(&mut self, k: K, v: V) -> Option<(K, V)> {
-        self.kv_heap_size_inc(k.estimated_size() + v.estimated_size());
+    // pub fn push(&mut self, k: K, v: V) -> Option<(K, V)> {
+    //     self.kv_heap_size_inc(k.estimated_size() + v.estimated_size());
 
-        let old_kv = self.inner.push(k, v);
+    //     let old_kv = self.inner.push(k, v);
 
-        if let Some((old_key, old_val)) = &old_kv {
-            self.kv_heap_size_dec(old_key.estimated_size() + old_val.estimated_size());
-        }
-        old_kv
-    }
+    //     if let Some((old_key, old_val)) = &old_kv {
+    //         self.kv_heap_size_dec(old_key.estimated_size() + old_val.estimated_size());
+    //     }
+    //     old_kv
+    // }
 
-    pub fn contains<Q>(&self, k: &Q) -> bool
+    pub fn contains<Q>(&self, k: &Q, check_ghost: bool) -> bool
     where
         KeyRef<K>: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
     {
-        self.inner.contains(k)
+        self.inner.contains(k, check_ghost)
     }
 
     pub fn len(&self) -> usize {
@@ -230,20 +250,7 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
     }
 }
 
-pub fn new_unbounded<K: Hash + Eq + EstimateSize, V: EstimateSize>(
-    watermark_epoch: Arc<AtomicU64>,
-) -> ManagedLruCache<K, V> {
-    ManagedLruCache::new_inner(LruCache::unbounded(), watermark_epoch, None)
-}
-
-pub fn new_unbounded_with_metrics<K: Hash + Eq + EstimateSize, V: EstimateSize>(
-    watermark_epoch: Arc<AtomicU64>,
-    metrics_info: MetricsInfo,
-) -> ManagedLruCache<K, V> {
-    ManagedLruCache::new_inner(LruCache::unbounded(), watermark_epoch, Some(metrics_info))
-}
-
-pub fn new_with_hasher_in<
+pub fn new_indexed_with_hasher_in<
     K: Hash + Eq + EstimateSize,
     V: EstimateSize,
     S: BuildHasher,
@@ -253,130 +260,19 @@ pub fn new_with_hasher_in<
     metrics_info: MetricsInfo,
     hasher: S,
     alloc: A,
-) -> ManagedLruCache<K, V, S, A> {
-    ManagedLruCache::new_inner(
-        LruCache::unbounded_with_hasher_in(hasher, alloc),
+    ghost_cap: usize,
+    update_interval: u32,
+    ghost_bucket_count: usize,
+) -> ManagedIndexedLruCache<K, V, S, A> {
+    ManagedIndexedLruCache::new_inner(
+        IndexedLruCache::unbounded_with_hasher_in(
+            hasher,
+            alloc,
+            ghost_cap,
+            update_interval,
+            ghost_bucket_count,
+        ),
         watermark_epoch,
         Some(metrics_info),
     )
-}
-
-pub fn new_with_hasher<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher>(
-    watermark_epoch: Arc<AtomicU64>,
-    metrics_info: MetricsInfo,
-    hasher: S,
-) -> ManagedLruCache<K, V, S> {
-    ManagedLruCache::new_inner(
-        LruCache::unbounded_with_hasher(hasher),
-        watermark_epoch,
-        Some(metrics_info),
-    )
-}
-
-pub struct MutGuard<'a, V: EstimateSize> {
-    inner: &'a mut V,
-    // The size of the original value
-    original_val_size: usize,
-    // The total size of a collection
-    total_size: &'a mut usize,
-    last_reported_size_bytes: &'a mut usize,
-    memory_usage_metrics: &'a mut Option<IntGauge>,
-}
-
-impl<'a, V: EstimateSize> MutGuard<'a, V> {
-    pub fn new(
-        inner: &'a mut V,
-        total_size: &'a mut usize,
-        last_reported_size_bytes: &'a mut usize,
-        memory_usage_metrics: &'a mut Option<IntGauge>,
-    ) -> Self {
-        let original_val_size = inner.estimated_size();
-        Self {
-            inner,
-            original_val_size,
-            total_size,
-            last_reported_size_bytes,
-            memory_usage_metrics,
-        }
-    }
-
-    fn report_memory_usage(&mut self) -> bool {
-        if self.total_size.abs_diff(*self.last_reported_size_bytes)
-            > REPORT_SIZE_EVERY_N_KB_CHANGE << 10
-        {
-            if let Some(metrics) = self.memory_usage_metrics.as_ref() {
-                metrics.set(*self.total_size as _);
-            }
-            *self.last_reported_size_bytes = *self.total_size;
-            true
-        } else {
-            false
-        }
-    }
-}
-
-impl<'a, V: EstimateSize> Drop for MutGuard<'a, V> {
-    fn drop(&mut self) {
-        *self.total_size = self
-            .total_size
-            .saturating_sub(self.original_val_size)
-            .saturating_add(self.inner.estimated_size());
-        self.report_memory_usage();
-    }
-}
-
-impl<'a, V: EstimateSize> Deref for MutGuard<'a, V> {
-    type Target = V;
-
-    fn deref(&self) -> &Self::Target {
-        self.inner
-    }
-}
-
-impl<'a, V: EstimateSize> DerefMut for MutGuard<'a, V> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.inner
-    }
-}
-
-pub struct UnsafeMutGuard<V: EstimateSize> {
-    inner: NonNull<V>,
-    // The size of the original value
-    original_val_size: usize,
-    // The total size of a collection
-    total_size: NonNull<usize>,
-    last_reported_size_bytes: NonNull<usize>,
-    memory_usage_metrics: NonNull<Option<IntGauge>>,
-}
-
-impl<V: EstimateSize> UnsafeMutGuard<V> {
-    pub fn new(
-        inner: &mut V,
-        total_size: &mut usize,
-        last_reported_size_bytes: &mut usize,
-        memory_usage_metrics: &mut Option<IntGauge>,
-    ) -> Self {
-        let original_val_size = inner.estimated_size();
-        Self {
-            inner: inner.into(),
-            original_val_size,
-            total_size: total_size.into(),
-            last_reported_size_bytes: last_reported_size_bytes.into(),
-            memory_usage_metrics: memory_usage_metrics.into(),
-        }
-    }
-
-    /// # Safety
-    ///
-    /// 1. Only 1 `MutGuard` should be held for each value.
-    /// 2. The returned `MutGuard` should not be moved to other threads.
-    pub unsafe fn as_mut_guard<'a>(&mut self) -> MutGuard<'a, V> {
-        MutGuard {
-            inner: self.inner.as_mut(),
-            original_val_size: self.original_val_size,
-            total_size: self.total_size.as_mut(),
-            last_reported_size_bytes: self.last_reported_size_bytes.as_mut(),
-            memory_usage_metrics: self.memory_usage_metrics.as_mut(),
-        }
-    }
 }

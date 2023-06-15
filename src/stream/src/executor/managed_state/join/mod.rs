@@ -35,9 +35,8 @@ use risingwave_common::util::sort_util::OrderType;
 use risingwave_storage::store::PrefetchOptions;
 use risingwave_storage::StateStore;
 
-use crate::cache::{new_with_hasher_in, ManagedLruCache};
+use crate::cache::{new_indexed_with_hasher_in, ManagedIndexedLruCache};
 use crate::common::metrics::MetricsInfo;
-use crate::cache::{cache_may_stale, new_indexed_with_hasher_in, ExecutorIndexedCache};
 use crate::common::table::state_table::StateTable;
 use crate::executor::error::StreamExecutorResult;
 use crate::executor::monitor::StreamingMetrics;
@@ -158,7 +157,7 @@ impl DerefMut for HashValueWrapper {
 }
 
 type JoinHashMapInner<K> =
-    ExecutorIndexedCache<K, HashValueWrapper, PrecomputedBuildHasher, SharedStatsAlloc<Global>>;
+    ManagedIndexedLruCache<K, HashValueWrapper, PrecomputedBuildHasher, SharedStatsAlloc<Global>>;
 
 pub struct JoinHashMapMetrics {
     /// Metrics used by join executor
@@ -254,7 +253,7 @@ impl JoinHashMapMetrics {
                 .cache_real_resue_distance_bucket_count
                 .with_label_values(&[
                     &self.actor_id,
-                    &self.table_id,
+                    &self.join_table_id,
                     self.side,
                     &self.bucket_ids[i],
                 ])
@@ -271,7 +270,7 @@ impl JoinHashMapMetrics {
                 .cache_ghost_resue_distance_bucket_count
                 .with_label_values(&[
                     &self.actor_id,
-                    &self.table_id,
+                    &self.join_table_id,
                     self.side,
                     &self.bucket_ids[i],
                 ])
@@ -347,7 +346,6 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
         pk_contained_in_jk: bool,
         metrics: Arc<StreamingMetrics>,
         actor_id: ActorId,
-        table_id: TableId,
         side: &'static str,
     ) -> Self {
         let alloc = StatsAlloc::new(Global).shared();
@@ -386,14 +384,15 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
 
         // let cache =
         //     new_with_hasher_in(watermark_epoch, metrics_info, PrecomputedBuildHasher, alloc);
-        let cache = ExecutorIndexedCache::new(new_indexed_with_hasher_in(
+        let cache = new_indexed_with_hasher_in(
             watermark_epoch,
+            metrics_info,
             PrecomputedBuildHasher,
             alloc,
             GHOST_CAP,
             REAL_UPDATE_INTERVAL,
             BUCKET_NUMBER,
-        ));
+        );
 
         Self {
             inner: cache,
@@ -404,7 +403,13 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
             degree_state,
             need_degree_table,
             pk_contained_in_jk,
-            metrics: JoinHashMapMetrics::new(metrics, actor_id, side, join_table_id, degree_table_id),
+            metrics: JoinHashMapMetrics::new(
+                metrics,
+                actor_id,
+                side,
+                join_table_id,
+                degree_table_id,
+            ),
             bucket_size: 1,
             ghost_bucket_size: 1,
             ghost_start: 0,
@@ -451,29 +456,20 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
     /// Note: This will NOT remove anything from remote storage.
     pub async fn take_state<'a>(&mut self, key: &K) -> StreamExecutorResult<HashValueType> {
         self.metrics.total_lookup_count += 1;
-        // let state = if self.inner.contains(key) {
-        //     // Do not update the LRU statistics here with `peek_mut` since we will put the state
-        //     // back.
-        //     let mut state = self.inner.peek_mut(key).unwrap();
-        //     state.take()
-        // } else {
-        //     self.metrics.lookup_miss_count += 1;
-        //     self.fetch_cached_state(key).await?.into()
-        // };
-        // Ok(state)
-        let state = self.inner.peek_mut(key);
-        self.metrics.total_lookup_count += 1;
-        Ok(match state {
-            Some(state) => state.take(),
-            None => {
-                self.metrics.lookup_miss_count += 1;
-                let res = self.fetch_cached_state(key).await?;
-                if !res.is_empty() {
-                    self.metrics.lookup_real_miss_count += 1;
-                }
-                res.into()
+        let state = if self.inner.contains(key, false) {
+            // Do not update the LRU statistics here with `peek_mut` since we will put the state
+            // back.
+            let mut state = self.inner.peek_mut(key).unwrap();
+            state.take()
+        } else {
+            self.metrics.lookup_miss_count += 1;
+            let res = self.fetch_cached_state(key).await?;
+            if !res.is_empty() {
+                self.metrics.lookup_real_miss_count += 1;
             }
-        })
+            res.into()
+        };
+        Ok(state)
     }
 
     /// Fetch cache from the state store. Should only be called if the key does not exist in memory.
@@ -481,7 +477,7 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
     async fn fetch_cached_state(&self, key: &K) -> StreamExecutorResult<JoinEntryState> {
         let key = key.deserialize(&self.join_key_data_types)?;
 
-        let mut entry_state = JoinEntryState::new();
+        let mut entry_state = JoinEntryState::default();
 
         if self.need_degree_table {
             let table_iter_fut = self
@@ -553,23 +549,14 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
 
         // TODO(yuhao): avoid this `contains`.
         // https://github.com/risingwavelabs/risingwave/issues/9233
-        // if self.inner.contains(key) {
-        let ent = self.inner.get_mut(key, false);
-        if let Some(entry) = ent {
+        if self.inner.contains(key, false) {
             // Update cache
-            let mut entry = self.inner.get_mut(key).unwrap();
+            let mut entry = self.inner.get_mut(key, false).unwrap();
             entry.insert(pk, value.encode());
-
-            // let stack_distance = self.current_index_id - idx.unwrap();
-            // self.metrics
-            //     .metrics
-            //     .join_cached_seq_gap
-            //     .with_label_values(&[&self.metrics.actor_id, self.metrics.side, "write_sd"])
-            //     .observe(stack_distance as f64);
         } else if self.pk_contained_in_jk {
             // Refill cache when the join key exist in neither cache or storage.
             self.metrics.insert_cache_miss_count += 1;
-            let mut state = JoinEntryState::new();
+            let mut state = JoinEntryState::default();
             state.insert(pk, value.encode());
             self.update_state(key, state.into(), false, false);
         } else {
@@ -577,25 +564,12 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
             self.metrics.insert_cache_miss_count += 1;
             // Refill cache when the join key exists in neither cache or storage.
             if !self.state.table.may_exist(&prefix).await? {
-                let mut state = JoinEntryState::new();
+                let mut state = JoinEntryState::default();
                 state.insert(pk, value.encode());
                 self.update_state(key, state.into(), false, false);
             } else {
                 self.metrics.may_exist_true_count += 1;
             }
-
-            // if let Some(index) = idx {
-            //     let stack_distance = self.current_index_id - index;
-            //     self.metrics
-            //         .metrics
-            //         .join_cached_seq_gap
-            //         .with_label_values(&[
-            //             &self.metrics.actor_id,
-            //             self.metrics.side,
-            //             "write_ghost_sd",
-            //         ])
-            //         .observe(stack_distance as f64);
-            // }
         }
 
         // Update the flush buffer.
@@ -616,23 +590,14 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
 
         // TODO(yuhao): avoid this `contains`.
         // https://github.com/risingwavelabs/risingwave/issues/9233
-        // if self.inner.contains(key) {
-        let ent = self.inner.get_mut(key, false);
-        if let Some(entry) = ent {
+        if self.inner.contains(key, false) {
             // Update cache
-            let mut entry = self.inner.get_mut(key).unwrap();
+            let mut entry = self.inner.get_mut(key, false).unwrap();
             entry.insert(pk, join_row.encode());
-
-            // let stack_distance = self.current_index_id - idx.unwrap();
-            // self.metrics
-            //     .metrics
-            //     .join_cached_seq_gap
-            //     .with_label_values(&[&self.metrics.actor_id, self.metrics.side, "write_sd"])
-            //     .observe(stack_distance as f64);
         } else if self.pk_contained_in_jk {
             // Refill cache when the join key exist in neither cache or storage.
             self.metrics.insert_cache_miss_count += 1;
-            let mut state = JoinEntryState::new();
+            let mut state = JoinEntryState::default();
             state.insert(pk, join_row.encode());
             // self.update_state(key, state.into());
             self.update_state(key, state.into(), false, false);
@@ -641,24 +606,12 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
             self.metrics.insert_cache_miss_count += 1;
             // Refill cache when the join key exists in neither cache or storage.
             if !self.state.table.may_exist(&prefix).await? {
-                let mut state = JoinEntryState::new();
+                let mut state = JoinEntryState::default();
                 state.insert(pk, join_row.encode());
                 self.update_state(key, state.into(), false, false);
             } else {
                 self.metrics.may_exist_true_count += 1;
             }
-            // if let Some(index) = idx {
-            //     let stack_distance = self.current_index_id - index;
-            //     self.metrics
-            //         .metrics
-            //         .join_cached_seq_gap
-            //         .with_label_values(&[
-            //             &self.metrics.actor_id,
-            //             self.metrics.side,
-            //             "write_ghost_sd",
-            //         ])
-            //         .observe(stack_distance as f64);
-            // }
         }
 
         // Update the flush buffer.
@@ -669,7 +622,7 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
     /// Delete a join row
     pub fn delete(&mut self, key: &K, value: JoinRow<impl Row>) {
         let ent = self.inner.get_mut(key, false);
-        if let Some(entry) = ent {
+        if let Some(mut entry) = ent {
             let pk = (&value.row)
                 .project(&self.state.pk_indices)
                 .memcmp_serialize(&self.pk_serializer);
@@ -686,7 +639,7 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
     /// Used when the side does not need to update degree.
     pub fn delete_row(&mut self, key: &K, value: impl Row) {
         let ent = self.inner.get_mut(key, false);
-        if let Some(entry) = ent {
+        if let Some(mut entry) = ent {
             let pk = (&value)
                 .project(&self.state.pk_indices)
                 .memcmp_serialize(&self.pk_serializer);
@@ -783,7 +736,6 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
     pub fn evict(&mut self) {
         self.inner.evict();
     }
-
 
     /// Cached entry count for this hash table.
     pub fn entry_count(&self) -> usize {

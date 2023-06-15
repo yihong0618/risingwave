@@ -268,9 +268,6 @@ pub struct HashJoinExecutor<K: HashKey, S: StateStore, const T: JoinTypePrimitiv
     /// Count the messages received, clear to 0 when counted to `EVICT_EVERY_N_MESSAGES`
     cnt_rows_received: u32,
 
-    /// Count the messages received, clear to 0 when counted to `EVICT_EVERY_N_MESSAGES`
-    cnt_rows_received: u32,
-
     /// watermark column index -> `BufferedWatermarks`
     watermark_buffers: BTreeMap<usize, BufferedWatermarks<SideTypePrimitive>>,
 }
@@ -621,8 +618,6 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
         let inequality_watermarks = vec![None; inequality_pairs.len()];
         let watermark_buffers = BTreeMap::new();
 
-        let table_id_l = state_table_l.table_id();
-        let table_id_r = state_table_r.table_id();
         Self {
             ctx: ctx.clone(),
             input_l: Some(input_l),
@@ -644,7 +639,6 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     pk_contained_in_jk_l,
                     metrics.clone(),
                     ctx.id,
-                    table_id_l,
                     "left",
                 ),
                 join_key_indices: join_key_indices_l,
@@ -672,7 +666,6 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     pk_contained_in_jk_r,
                     metrics.clone(),
                     ctx.id,
-                    table_id_r,
                     "right",
                 ),
                 join_key_indices: join_key_indices_r,
@@ -1161,7 +1154,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                             yield chunk;
                         }
                         // Insert back the state taken from ht.
-                        side_match.ht.update_state(key, matched_rows,  true, sampled);
+                        side_match.ht.update_state(key, matched_rows, true, sampled);
                         for matched_row in matched_rows_to_clean {
                             if side_match.need_degree_table {
                                 side_match.ht.delete(key, matched_row);
