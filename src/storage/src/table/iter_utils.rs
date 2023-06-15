@@ -14,25 +14,28 @@
 
 use std::collections::binary_heap::PeekMut;
 use std::collections::BinaryHeap;
+use std::marker::PhantomData;
 
-use futures::StreamExt;
+use futures::{Stream, StreamExt};
 use futures_async_stream::try_stream;
+use itertools::Itertools;
 use risingwave_common::row::OwnedRow;
 
-use super::storage_table::PkAndRowStream;
-use crate::error::StorageError;
+use crate::error::{StorageError, StorageResult};
+
+pub trait KeyAndRowStream<K> = Stream<Item = StorageResult<(K, OwnedRow)>> + Send;
 
 /// We use a binary heap to merge the results of the different streams in order.
 /// This is the node type of the heap.
-struct Node<S: PkAndRowStream> {
+struct Node<K, S: KeyAndRowStream<K> + Send> {
     stream: S,
 
     /// The next item polled from `stream` previously. Since the `eq` and `cmp` must be synchronous
     /// functions, we need to implement peeking manually.
-    peeked: (Vec<u8>, OwnedRow),
+    peeked: (K, OwnedRow),
 }
 
-impl<S: PkAndRowStream> PartialEq for Node<S> {
+impl<K: PartialEq, S: KeyAndRowStream<K>> PartialEq for Node<K, S> {
     fn eq(&self, other: &Self) -> bool {
         match self.peeked.0 == other.peeked.0 {
             true => unreachable!("primary key from different iters should be unique"),
@@ -40,14 +43,17 @@ impl<S: PkAndRowStream> PartialEq for Node<S> {
         }
     }
 }
-impl<S: PkAndRowStream> Eq for Node<S> {}
+impl<K: PartialEq, S: KeyAndRowStream<K>> Eq for Node<K, S> {}
 
-impl<S: PkAndRowStream> PartialOrd for Node<S> {
+impl<K: PartialEq + PartialOrd, S: KeyAndRowStream<K>> PartialOrd for Node<K, S> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
-impl<S: PkAndRowStream> Ord for Node<S> {
+
+impl<K: PartialEq + PartialOrd + Iterator + IntoIterator, S: KeyAndRowStream<K>> Ord
+    for Node<K, S>
+{
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // The heap is a max heap, so we need to reverse the order.
         self.peeked.0.cmp(&other.peeked.0).reverse()
@@ -59,7 +65,7 @@ impl<S: PkAndRowStream> Ord for Node<S> {
 #[try_stream(ok = (Vec<u8>, OwnedRow), error = StorageError)]
 pub(super) async fn merge_sort<S>(streams: Vec<S>)
 where
-    S: PkAndRowStream + Unpin,
+    S: KeyAndRowStream<K> + Unpin,
 {
     let mut heap = BinaryHeap::with_capacity(streams.len());
     for mut stream in streams {

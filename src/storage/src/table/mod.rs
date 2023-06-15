@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub mod batch_table;
+pub mod iter_utils;
 
 use std::sync::{Arc, LazyLock};
 

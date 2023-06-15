@@ -39,7 +39,6 @@ use risingwave_hummock_sdk::key::{end_bound_of_prefix, next_key, prefixed_range}
 use risingwave_hummock_sdk::HummockReadEpoch;
 use tracing::trace;
 
-use super::iter_utils;
 use crate::error::{StorageError, StorageResult};
 use crate::hummock::CachePolicy;
 use crate::row_serde::row_serde_util::{
@@ -47,7 +46,7 @@ use crate::row_serde::row_serde_util::{
 };
 use crate::row_serde::{find_columns_by_ids, ColumnMapping};
 use crate::store::{PrefetchOptions, ReadOptions};
-use crate::table::{compute_vnode, Distribution, TableIter, DEFAULT_VNODE};
+use crate::table::{compute_vnode, iter_utils, Distribution, TableIter, DEFAULT_VNODE};
 use crate::StateStore;
 
 /// [`StorageTableInner`] is the interface accessing relational data in KV(`StateStore`) with
