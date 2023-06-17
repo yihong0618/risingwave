@@ -319,6 +319,31 @@ where
             Distribution::fallback(),
             None,
             false,
+            0,
+        )
+        .await
+    }
+
+    /// Create a state table without distribution, with given `prefix_hint_len`, used for unit
+    /// tests.
+    pub async fn new_without_distribution_with_prefix_hint_len(
+        store: S,
+        table_id: TableId,
+        columns: Vec<ColumnDesc>,
+        order_types: Vec<OrderType>,
+        pk_indices: Vec<usize>,
+        prefix_hint_len: usize,
+    ) -> Self {
+        Self::new_with_distribution_inner(
+            store,
+            table_id,
+            columns,
+            order_types,
+            pk_indices,
+            Distribution::fallback(),
+            None,
+            true,
+            prefix_hint_len,
         )
         .await
     }
@@ -343,6 +368,7 @@ where
             distribution,
             value_indices,
             true,
+            0,
         )
         .await
     }
@@ -365,6 +391,7 @@ where
             distribution,
             value_indices,
             false,
+            0,
         )
         .await
     }
@@ -382,6 +409,7 @@ where
         }: Distribution,
         value_indices: Option<Vec<usize>>,
         is_consistent_op: bool,
+        prefix_hint_len: usize,
     ) -> Self {
         let local_state_store = store
             .new_local(NewLocalOptions {
@@ -422,7 +450,7 @@ where
             row_serde: SD::new(&column_ids, Arc::from(data_types.into_boxed_slice())),
             pk_indices,
             dist_key_in_pk_indices,
-            prefix_hint_len: 0,
+            prefix_hint_len,
             vnodes,
             table_option: Default::default(),
             vnode_col_idx_in_pk: None,

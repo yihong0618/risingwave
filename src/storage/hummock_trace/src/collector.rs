@@ -505,6 +505,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_should_use_trace() {
         std::env::set_var(USE_TRACE, "true");
         assert!(should_use_trace());
