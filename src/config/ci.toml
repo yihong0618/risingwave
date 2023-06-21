@@ -1,9 +1,9 @@
 [meta]
 disable_recovery = true
-max_heartbeat_interval_secs = 600
+max_heartbeat_interval_secs = 6000
 
 [streaming]
-in_flight_barrier_nums = 10
+in_flight_barrier_nums = 10000
 
 [streaming.developer]
 stream_exchange_concurrent_barriers = 10
@@ -12,5 +12,9 @@ stream_exchange_concurrent_barriers = 10
 imm_merge_threshold = 2
 
 [system]
-barrier_interval_ms = 250
-checkpoint_frequency = 5
+barrier_interval_ms = 100
+checkpoint_frequency = 1
+
+sstable_size_mb = 256
+block_size_kb = 64
+bloom_false_positive = 0.001

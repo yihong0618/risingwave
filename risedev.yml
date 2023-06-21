@@ -474,6 +474,12 @@ profile:
         enable-tiered-cache: true
       - use: frontend
       - use: compactor
+      - use: prometheus
+      - use: grafana
+      - use: zookeeper
+        persist-data: true
+      - use: kafka
+        persist-data: true
 
   ci-3cn-3fe:
     config-path: src/config/ci.toml

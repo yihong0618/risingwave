@@ -26,7 +26,7 @@ use std::marker::PhantomData;
 use std::ops::Div;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use await_tree::InstrumentAwait;
 pub use compaction_executor::CompactionExecutor;
@@ -846,6 +846,8 @@ impl Compactor {
         task_id: Option<HummockCompactionTaskId>,
         split_index: Option<usize>,
     ) -> HummockResult<(Vec<LocalSstableInfo>, CompactionStatistics)> {
+        let start_timer = Instant::now();
+
         // Monitor time cost building shared buffer to SSTs.
         let compact_timer = if self.context.is_share_buffer_compact {
             self.context
@@ -967,13 +969,14 @@ impl Compactor {
             .iter()
             .all(|table_info| table_info.sst_info.get_table_ids().is_sorted()));
 
-        if task_id.is_some() {
+        if !self.context.is_share_buffer_compact {
             // skip shared buffer compaction
             tracing::info!(
-                "Finish Task {:?} split_index {:?} sst count {}",
+                "Finish Task {:?} split_index {:?} sst count {} cost {} ms",
                 task_id,
                 split_index,
-                ssts.len()
+                ssts.len(),
+                start_timer.elapsed().as_millis()
             );
         }
         Ok((ssts, table_stats_map))

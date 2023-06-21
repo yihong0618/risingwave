@@ -351,10 +351,9 @@ impl CompactorManager {
                         // 2. task duration is too long
                         cancellable_tasks.push((task.get_task_id(), (*context_id, task.clone())));
 
-                        if task_duration_too_long {
-                            let (need_quota, total_file_count, total_key_count) =
-                                estimate_state_for_compaction(task);
-                            tracing::info!(
+                        let (need_quota, total_file_count, total_key_count) =
+                            estimate_state_for_compaction(task);
+                        tracing::info!(
                                 "CompactionGroupId {} Task {} duration too long create_time {:?} num_ssts_sealed {} num_ssts_uploaded {} num_progress_key {} \
                                 pending_read_io_count {} pending_write_io_count {} need_quota {} total_file_count {} total_key_count {} target_level {} \
                                 base_level {} target_sub_level_id {} task_type {}",
@@ -373,8 +372,7 @@ impl CompactorManager {
                                 task.base_level,
                                 task.target_sub_level_id,
                                 task.task_type,
-                            );
-                        }
+                        );
                     }
                 }
             }

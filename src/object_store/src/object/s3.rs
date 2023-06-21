@@ -440,28 +440,32 @@ impl ObjectStore for S3ObjectStore {
         )));
 
         // retry if occurs AWS EC2 HTTP timeout error.
-        let resp = tokio_retry::RetryIf::spawn(
-            Self::get_retry_strategy(),
-            || async {
-                match self.obj_store_request(path, start_pos, None).send().await {
-                    Ok(resp) => Ok(resp),
-                    Err(err) => {
-                        if let SdkError::DispatchFailure(e) = &err
-                            && e.is_timeout()
-                        {
-                            self.metrics
-                                .request_retry_count
-                                .with_label_values(&["streaming_read"])
-                                .inc();
-                        }
+        // let resp = tokio_retry::RetryIf::spawn(
+        //     Self::get_retry_strategy(),
+        //     || async {
+        //         match self.obj_store_request(path, start_pos, None).send().await {
+        //             Ok(resp) => Ok(resp),
+        //             Err(err) => {
+        //                 if let SdkError::DispatchFailure(e) = &err
+        //                     && e.is_timeout()
+        //                 {
+        //                     self.metrics
+        //                         .request_retry_count
+        //                         .with_label_values(&["streaming_read"])
+        //                         .inc();
+        //                 }
 
-                        Err(err)
-                    }
-                }
-            },
-            Self::should_retry,
-        )
-        .await?;
+        //                 Err(err)
+        //             }
+        //         }
+        //     },
+        //     Self::should_retry,
+        // )
+        // .await?;
+
+        // Ok(Box::new(resp.body.into_async_read()))
+
+        let resp = self.obj_store_request(path, start_pos, None).send().await?;
 
         Ok(Box::new(resp.body.into_async_read()))
     }

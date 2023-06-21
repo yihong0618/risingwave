@@ -442,7 +442,8 @@ impl AsyncStackTraceOption {
         match self {
             Self::Off => None,
             Self::On => Some(false),
-            Self::ReleaseVerbose => Some(!cfg!(debug_assertions)),
+            // Self::ReleaseVerbose => Some(!cfg!(debug_assertions)),
+            Self::ReleaseVerbose => Some(true),
         }
     }
 }
