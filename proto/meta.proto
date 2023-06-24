@@ -345,6 +345,7 @@ message RescheduleRequest {
   // reschedule plan for each fragment
   map<uint32, Reschedule> reschedules = 1;
   uint64 revision = 2;
+  map<uint32, common.FragmentCacheSize> new_fragment_cache_sizes = 3;
 }
 
 message RescheduleResponse {

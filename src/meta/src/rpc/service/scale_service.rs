@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
+
 use itertools::Itertools;
 use risingwave_pb::common::WorkerType;
 use risingwave_pb::meta::reschedule_request::Reschedule;
@@ -25,7 +27,7 @@ use tonic::{Request, Response, Status};
 
 use crate::barrier::{BarrierScheduler, Command};
 use crate::manager::{CatalogManagerRef, ClusterManagerRef, FragmentManagerRef};
-use crate::model::MetadataModel;
+use crate::model::{FragmentId, MetadataModel};
 use crate::storage::MetaStore;
 use crate::stream::{GlobalStreamManagerRef, ParallelUnitReschedule, SourceManagerRef};
 
@@ -148,6 +150,17 @@ where
             }));
         }
 
+        let new_fragment_cache_sizes: HashMap<FragmentId, HashMap<u32, u64>> = req
+            .new_fragment_cache_sizes
+            .into_iter()
+            .map(|(fid, fragment_cache_size)| {
+                (
+                    fid,
+                    fragment_cache_size.table_cache_sizes.into_iter().collect(),
+                )
+            })
+            .collect();
+
         self.stream_manager
             .reschedule_actors(
                 req.reschedules
@@ -175,6 +188,7 @@ where
                         )
                     })
                     .collect(),
+                new_fragment_cache_sizes,
             )
             .await?;
 

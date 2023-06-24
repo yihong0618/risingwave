@@ -32,6 +32,7 @@ use risingwave_common::util::value_encoding::{deserialize_datum, serialize_datum
 use risingwave_connector::source::SplitImpl;
 use risingwave_expr::expr::BoxedExpression;
 use risingwave_expr::ExprError;
+use risingwave_pb::common::FragmentCacheSize;
 use risingwave_pb::data::{PbDatum, PbEpoch};
 use risingwave_pb::expr::PbInputRef;
 use risingwave_pb::stream_plan::add_mutation::Dispatchers;
@@ -39,8 +40,8 @@ use risingwave_pb::stream_plan::barrier::PbMutation;
 use risingwave_pb::stream_plan::stream_message::StreamMessage;
 use risingwave_pb::stream_plan::update_mutation::{DispatcherUpdate, MergeUpdate};
 use risingwave_pb::stream_plan::{
-    AddMutation, PauseMutation, PbBarrier, PbDispatcher, PbStreamMessage, PbWatermark,
-    ResumeMutation, SourceChangeSplitMutation, StopMutation, UpdateMutation,
+    AddMutation, CacheMutation, PauseMutation, PbBarrier, PbDispatcher, PbStreamMessage,
+    PbWatermark, ResumeMutation, SourceChangeSplitMutation, StopMutation, UpdateMutation,
 };
 use smallvec::SmallVec;
 
@@ -234,6 +235,9 @@ pub enum Mutation {
     SourceChangeSplit(HashMap<ActorId, Vec<SplitImpl>>),
     Pause,
     Resume,
+    Cache {
+        new_fragment_cache_sizes: HashMap<FragmentId, HashMap<u32, u64>>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -325,6 +329,12 @@ impl Barrier {
     /// chunk and a watermark before this barrier.
     pub fn is_resume(&self) -> bool {
         matches!(self.mutation.as_deref(), Some(Mutation::Resume))
+    }
+
+    /// Whether this barrier is for resume. Used for now executor to determine whether to yield a
+    /// chunk and a watermark before this barrier.
+    pub fn is_cache(&self) -> bool {
+        matches!(self.mutation.as_deref(), Some(Mutation::Cache { .. }))
     }
 
     /// Returns the [`MergeUpdate`] if this barrier is to update the merge executors for the actor
@@ -445,6 +455,22 @@ impl Mutation {
             }),
             Mutation::Pause => PbMutation::Pause(PauseMutation {}),
             Mutation::Resume => PbMutation::Resume(ResumeMutation {}),
+            Mutation::Cache {
+                new_fragment_cache_sizes,
+            } => PbMutation::Cache(CacheMutation {
+                new_fragment_cache_sizes: new_fragment_cache_sizes
+                    .clone()
+                    .into_iter()
+                    .map(|(fid, cache_sizes)| {
+                        (
+                            fid,
+                            FragmentCacheSize {
+                                table_cache_sizes: cache_sizes,
+                            },
+                        )
+                    })
+                    .collect(),
+            }),
         }
     }
 
@@ -529,6 +555,19 @@ impl Mutation {
             }
             PbMutation::Pause(_) => Mutation::Pause,
             PbMutation::Resume(_) => Mutation::Resume,
+            PbMutation::Cache(s) => Mutation::Cache {
+                new_fragment_cache_sizes: s
+                    .new_fragment_cache_sizes
+                    .clone()
+                    .into_iter()
+                    .map(|(fid, fragment_cache_size)| {
+                        (
+                            fid,
+                            fragment_cache_size.table_cache_sizes.into_iter().collect(),
+                        )
+                    })
+                    .collect(),
+            },
         };
         Ok(mutation)
     }

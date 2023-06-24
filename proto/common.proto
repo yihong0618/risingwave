@@ -105,3 +105,7 @@ message ColumnOrder {
   uint32 column_index = 1;
   OrderType order_type = 2;
 }
+
+message FragmentCacheSize {
+  map<uint32, uint64> table_cache_sizes = 1;
+}

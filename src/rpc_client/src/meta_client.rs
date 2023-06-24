@@ -675,6 +675,7 @@ impl MetaClient {
         let request = RescheduleRequest {
             reschedules,
             revision,
+            new_fragment_cache_sizes: HashMap::new(),
         };
         let resp = self.inner.reschedule(request).await?;
         Ok((resp.success, resp.revision))

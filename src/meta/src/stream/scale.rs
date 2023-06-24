@@ -25,12 +25,15 @@ use risingwave_common::bail;
 use risingwave_common::buffer::{Bitmap, BitmapBuilder};
 use risingwave_common::hash::{ActorMapping, ParallelUnitId, VirtualNode};
 use risingwave_common::util::iter_util::ZipEqDebug;
-use risingwave_pb::common::{ActorInfo, ParallelUnit, WorkerNode};
+use risingwave_pb::common::{ActorInfo, FragmentCacheSize, ParallelUnit, WorkerNode};
 use risingwave_pb::meta::table_fragments::actor_status::ActorState;
 use risingwave_pb::meta::table_fragments::fragment::FragmentDistributionType;
 use risingwave_pb::meta::table_fragments::{self, ActorStatus, Fragment};
+use risingwave_pb::stream_plan::barrier::Mutation;
 use risingwave_pb::stream_plan::stream_node::NodeBody;
-use risingwave_pb::stream_plan::{DispatcherType, FragmentTypeFlag, StreamActor, StreamNode};
+use risingwave_pb::stream_plan::{
+    CacheMutation, DispatcherType, FragmentTypeFlag, StreamActor, StreamNode,
+};
 use risingwave_pb::stream_service::{
     BroadcastActorInfoTableRequest, BuildActorsRequest, UpdateActorsRequest,
 };
@@ -591,10 +594,11 @@ where
     pub async fn reschedule_actors(
         &self,
         reschedules: HashMap<FragmentId, ParallelUnitReschedule>,
+        new_fragment_cache_sizes: HashMap<FragmentId, HashMap<u32, u64>>,
     ) -> MetaResult<()> {
         let mut revert_funcs = vec![];
         if let Err(e) = self
-            .reschedule_actors_impl(&mut revert_funcs, reschedules)
+            .reschedule_actors_impl(&mut revert_funcs, reschedules, new_fragment_cache_sizes)
             .await
         {
             for revert_func in revert_funcs.into_iter().rev() {
@@ -610,6 +614,7 @@ where
         &self,
         revert_funcs: &mut Vec<BoxFuture<'_, ()>>,
         mut reschedules: HashMap<FragmentId, ParallelUnitReschedule>,
+        new_fragment_cache_sizes: HashMap<FragmentId, HashMap<u32, u64>>,
     ) -> MetaResult<()> {
         let ctx = self.build_reschedule_context(&mut reschedules).await?;
         // Index of actors to create/remove
@@ -1172,12 +1177,35 @@ where
 
         tracing::debug!("reschedule plan: {:#?}", reschedule_fragment);
 
-        self.barrier_scheduler
-            .run_command_with_paused(Command::RescheduleFragment {
-                reschedules: reschedule_fragment,
+        // self.barrier_scheduler
+        //     .run_command_with_paused(Command::RescheduleFragment {
+        //         reschedules: reschedule_fragment,
+        //     })
+        //     .await?;
+        let cache_sizes = new_fragment_cache_sizes
+            .into_iter()
+            .map(|(fid, cache_sizes)| {
+                (
+                    fid,
+                    FragmentCacheSize {
+                        table_cache_sizes: cache_sizes,
+                    },
+                )
             })
+            .collect();
+        let mutation = CacheMutation {
+            new_fragment_cache_sizes: cache_sizes,
+        };
+        self.barrier_scheduler
+            .run_multiple_commands(vec![
+                Command::pause(),
+                Command::RescheduleFragment {
+                    reschedules: reschedule_fragment,
+                },
+                Command::Plain(Some(Mutation::Cache(mutation))),
+                Command::resume(),
+            ])
             .await?;
-
         Ok(())
     }
 

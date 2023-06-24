@@ -811,6 +811,14 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     self.side_l.ht.update_epoch(barrier.epoch.curr);
                     self.side_r.ht.update_epoch(barrier.epoch.curr);
 
+                    if barrier.is_cache() {
+                        tracing::info!(
+                            "WKXNB! cache mutation: {:?}, fragment_id: {}",
+                            barrier,
+                            self.ctx.fragment_id
+                        );
+                    }
+
                     // Report metrics of cached join rows/entries
                     for (side, side_bucket, side_ghost_bucket, side_ghost_start, ht) in [
                         (
