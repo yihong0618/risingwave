@@ -329,7 +329,7 @@ impl CompactorManager {
         now: u64,
     ) -> Vec<(HummockCompactionTaskId, (HummockContextId, CompactTask))> {
         let mut cancellable_tasks = vec![];
-        const MAX_TASK_DURATION_SEC: u64 = 2700;
+        const MAX_TASK_DURATION_SEC: u64 = 300;
 
         for (context_id, heartbeats) in task_heartbeats {
             {
@@ -349,32 +349,34 @@ impl CompactorManager {
                     if *expire_at < now || task_duration_too_long {
                         // 1. task heartbeat expire
                         // 2. task duration is too long
-                        cancellable_tasks.push((task.get_task_id(), (*context_id, task.clone())));
-
-                        if task_duration_too_long {
-                            let (need_quota, total_file_count, total_key_count) =
-                                estimate_state_for_compaction(task);
-                            tracing::info!(
-                                "CompactionGroupId {} Task {} duration too long create_time {:?} num_ssts_sealed {} num_ssts_uploaded {} num_progress_key {} \
-                                pending_read_io_count {} pending_write_io_count {} need_quota {} total_file_count {} total_key_count {} target_level {} \
-                                base_level {} target_sub_level_id {} task_type {}",
-                                task.compaction_group_id,
-                                task.task_id,
-                                create_time,
-                                num_ssts_sealed,
-                                num_ssts_uploaded,
-                                num_progress_key,
-                                num_pending_read_io,
-                                num_pending_write_io,
-                                need_quota,
-                                total_file_count,
-                                total_key_count,
-                                task.target_level,
-                                task.base_level,
-                                task.target_sub_level_id,
-                                task.task_type,
-                            );
+                        // TODO: remove
+                        if !task_duration_too_long {
+                            cancellable_tasks
+                                .push((task.get_task_id(), (*context_id, task.clone())));
                         }
+
+                        let (need_quota, total_file_count, total_key_count) =
+                            estimate_state_for_compaction(task);
+                        tracing::info!(
+                            "CompactionGroupId {} Task {} duration too long create_time {:?} num_ssts_sealed {} num_ssts_uploaded {} num_progress_key {} \
+                            pending_read_io_count {} pending_write_io_count {} need_quota {} total_file_count {} total_key_count {} target_level {} \
+                            base_level {} target_sub_level_id {} task_type {}",
+                            task.compaction_group_id,
+                            task.task_id,
+                            create_time,
+                            num_ssts_sealed,
+                            num_ssts_uploaded,
+                            num_progress_key,
+                            num_pending_read_io,
+                            num_pending_write_io,
+                            need_quota,
+                            total_file_count,
+                            total_key_count,
+                            task.target_level,
+                            task.base_level,
+                            task.target_sub_level_id,
+                            task.task_type,
+                        );
                     }
                 }
             }
@@ -427,16 +429,17 @@ impl CompactorManager {
         if let Some(heartbeats) = guard.get_mut(&context_id) {
             for progress in progress_list {
                 if let Some(task_ref) = heartbeats.get_mut(&progress.task_id) {
-                    if task_ref.num_ssts_sealed < progress.num_ssts_sealed
-                        || task_ref.num_ssts_uploaded < progress.num_ssts_uploaded
-                        || task_ref.num_progress_key < progress.num_progress_key
-                    {
-                        // Refresh the expiry of the task as it is showing progress.
-                        task_ref.expire_at = now + self.task_expiry_seconds;
-                        task_ref.num_ssts_sealed = progress.num_ssts_sealed;
-                        task_ref.num_ssts_uploaded = progress.num_ssts_uploaded;
-                        task_ref.num_progress_key = progress.num_progress_key;
-                    }
+                    // task_ref.expire_at = now + self.task_expiry_seconds;
+                    // if task_ref.num_ssts_sealed < progress.num_ssts_sealed
+                    //     || task_ref.num_ssts_uploaded < progress.num_ssts_uploaded
+                    //     || task_ref.num_progress_key < progress.num_progress_key
+                    // {
+                    // Refresh the expiry of the task as it is showing progress.
+                    task_ref.expire_at = now + self.task_expiry_seconds;
+                    task_ref.num_ssts_sealed = progress.num_ssts_sealed;
+                    task_ref.num_ssts_uploaded = progress.num_ssts_uploaded;
+                    task_ref.num_progress_key = progress.num_progress_key;
+                    // }
                     task_ref.num_pending_read_io = progress.num_pending_read_io;
                     task_ref.num_pending_write_io = progress.num_pending_write_io;
                 }
