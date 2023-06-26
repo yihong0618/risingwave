@@ -840,9 +840,17 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     }
 
                     // Report metrics of cached join rows/entries
-                    for (side, side_bucket, side_ghost_bucket, side_ghost_start, ht) in [
+                    for (
+                        side,
+                        side_with_ghost,
+                        side_bucket,
+                        side_ghost_bucket,
+                        side_ghost_start,
+                        ht,
+                    ) in [
                         (
                             "left",
+                            "left_with_ghost",
                             "left_bucket",
                             "left_ghost_bucket",
                             "left_ghost_start",
@@ -850,6 +858,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                         ),
                         (
                             "right",
+                            "right_with_ghost",
                             "right_bucket",
                             "right_ghost_bucket",
                             "right_ghost_start",
@@ -869,6 +878,11 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                             .join_cached_entries
                             .with_label_values(&[&actor_id_str, side])
                             .set(cache_entry_count as i64);
+                        let cache_entry_count_with_ghost = ht.entry_count_with_ghost();
+                        self.metrics
+                            .join_cached_entries
+                            .with_label_values(&[&actor_id_str, side_with_ghost])
+                            .set(cache_entry_count_with_ghost as i64);
                         self.metrics
                             .join_cached_entries
                             .with_label_values(&[&actor_id_str, side_bucket])

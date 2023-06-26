@@ -261,12 +261,7 @@ impl JoinHashMapMetrics {
                 .inc_by(count as u64);
             self.bucket_counts[i] = 0;
 
-            let mut ghost_count = self.ghost_bucket_counts[i];
-            if i == BUCKET_NUMBER {
-                assert!(self.lookup_miss_count >= self.lookup_real_miss_count);
-                assert!(ghost_count >= (self.lookup_miss_count - self.lookup_real_miss_count));
-                ghost_count -= self.lookup_miss_count - self.lookup_real_miss_count;
-            }
+            let ghost_count = self.ghost_bucket_counts[i];
             self.metrics
                 .cache_ghost_resue_distance_bucket_count
                 .with_label_values(&[
@@ -759,6 +754,10 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
     /// Cached entry count for this hash table.
     pub fn entry_count(&self) -> usize {
         self.inner.len()
+    }
+
+    pub fn entry_count_with_ghost(&self) -> usize {
+        self.inner.len_with_ghost()
     }
 
     pub fn bucket_count(&self) -> usize {

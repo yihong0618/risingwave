@@ -246,6 +246,10 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
         self.inner.len()
     }
 
+    pub fn len_with_ghost(&self) -> usize {
+        self.inner.len() + self.inner.ghost_len()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.inner.len() == 0
     }
