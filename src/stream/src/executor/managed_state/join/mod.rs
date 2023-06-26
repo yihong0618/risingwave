@@ -15,6 +15,7 @@
 mod join_entry_state;
 
 use std::alloc::Global;
+use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
@@ -425,6 +426,24 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
     pub fn update_epoch(&mut self, epoch: u64) {
         // Update the current epoch in `ManagedLruCache`
         self.inner.update_epoch(epoch)
+    }
+
+    pub fn update_cache_size_limit(&mut self, table_cache_sizes: &HashMap<u32, u64>) {
+        let table_id = self.state.table.table_id();
+        if let Some(cache_size) = table_cache_sizes.get(&table_id) {
+            self.inner.update_size_limit(*cache_size as usize);
+            tracing::info!(
+                "WKXLOG: Success update_size_limit table_id {}, to cache size: {}",
+                table_id,
+                cache_size
+            );
+        } else {
+            tracing::warn!(
+                "WKXLOG: WARN!!! update_size_limit cannot find table_id {} in table_cache_size: {:?}",
+                table_id,
+                table_cache_sizes
+            );
+        }
     }
 
     /// Update the vnode bitmap and manipulate the cache if necessary.

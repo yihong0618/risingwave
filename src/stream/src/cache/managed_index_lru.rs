@@ -41,6 +41,7 @@ pub struct ManagedIndexedLruCache<K, V, S = DefaultHasher, A: Clone + Allocator 
     metrics_info: Option<MetricsInfo>,
     /// The size reported last time
     last_reported_size_bytes: usize,
+    size_limit: usize,
 }
 
 impl<K, V, S, A: Clone + Allocator> Drop for ManagedIndexedLruCache<K, V, S, A> {
@@ -80,13 +81,18 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
             memory_usage_metrics,
             metrics_info,
             last_reported_size_bytes: 0,
+            size_limit: 0,
         }
     }
 
     /// Evict epochs lower than the watermark
     pub fn evict(&mut self) {
-        let epoch = self.watermark_epoch.load(Ordering::Relaxed);
-        self.evict_by_epoch(epoch);
+        if self.size_limit == 0 {
+            let epoch = self.watermark_epoch.load(Ordering::Relaxed);
+            self.evict_by_epoch(epoch);
+        } else {
+            self.evict_by_size();
+        }
     }
 
     /// Evict epochs lower than the watermark, except those entry which touched in this epoch
@@ -98,13 +104,36 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
 
     /// Evict epochs lower than the watermark
     fn evict_by_epoch(&mut self, epoch: u64) {
-        while let Some((key, value)) = self.inner.pop_lru_by_epoch(epoch) {
-            self.kv_heap_size_dec(key.estimated_size() + value.estimated_size());
+        while let Some((key_op, value)) = self.inner.pop_lru_by_epoch(epoch) {
+            if let Some(key) = key_op {
+                self.kv_heap_size_dec(key.estimated_size() + value.estimated_size());
+            } else {
+                self.kv_heap_size_dec(value.estimated_size());
+            }
+        }
+    }
+
+    fn evict_by_size(&mut self) {
+        while self.kv_heap_size > self.size_limit {
+            if let Some((key_op, value)) = self.inner.pop_lru_once() {
+                if let Some(key) = key_op {
+                    self.kv_heap_size_dec(key.estimated_size() + value.estimated_size());
+                } else {
+                    self.kv_heap_size_dec(value.estimated_size());
+                }
+            } else {
+                break;
+            }
         }
     }
 
     pub fn update_epoch(&mut self, epoch: u64) {
         self.inner.update_epoch(epoch);
+    }
+
+    pub fn update_size_limit(&mut self, size_limit: usize) {
+        self.size_limit = size_limit;
+        self.evict_by_size();
     }
 
     pub fn current_epoch(&mut self) -> u64 {

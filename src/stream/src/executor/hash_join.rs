@@ -817,6 +817,26 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                             barrier,
                             self.ctx.fragment_id
                         );
+                        if let Some(mutation) = barrier.mutation.as_deref() {
+                            match mutation {
+                                crate::executor::Mutation::Cache {
+                                    new_fragment_cache_sizes,
+                                } => {
+                                    if let Some(table_cache_sizes) =
+                                        new_fragment_cache_sizes.get(&self.ctx.fragment_id)
+                                    {
+                                        self.side_l.ht.update_cache_size_limit(table_cache_sizes);
+                                        self.side_r.ht.update_cache_size_limit(table_cache_sizes);
+                                        tracing::info!(
+                                            "WKXNB! table cache updated! table_cache_sizes: {:?}, fragment_id: {}",
+                                            table_cache_sizes,
+                                            self.ctx.fragment_id
+                                        );
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
                     }
 
                     // Report metrics of cached join rows/entries
