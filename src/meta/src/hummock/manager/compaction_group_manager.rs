@@ -613,6 +613,7 @@ impl<S: MetaStore> HummockManager<S> {
         let sst_split_info = versioning
             .current_version
             .apply_version_delta(&new_version_delta);
+        tracing::info!("move table {:?} {}->{} sst split info: {:?}", table_ids, parent_group_id, target_compaction_group_id, sst_split_info);
         // Updates SST split info
         for (object_id, sst_id, _parent_old_sst_id, parent_new_sst_id) in sst_split_info {
             match branched_ssts.get_mut(object_id) {

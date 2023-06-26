@@ -841,15 +841,16 @@ where
             compact_task.set_task_status(TaskStatus::Success);
             self.report_compact_task_impl(None, &mut compact_task, Some(compaction_guard), None)
                 .await?;
-            tracing::debug!(
-                "TrivialReclaim for compaction group {}: remove {} sstables, cost time: {:?}",
+            tracing::info!(
+                "TrivialReclaim for compaction group {}: remove {} sstables, cost time: {:?} task: {:?}",
                 compaction_group_id,
                 compact_task
                     .input_ssts
                     .iter()
                     .map(|level| level.table_infos.len())
                     .sum::<usize>(),
-                start_time.elapsed()
+                start_time.elapsed(),
+                compact_task_to_string(&compact_task)
             );
         } else if CompactStatus::is_trivial_move_task(&compact_task) && can_trivial_move {
             compact_task.sorted_output_ssts = compact_task.input_ssts[0].table_infos.clone();
@@ -857,13 +858,14 @@ where
             compact_task.set_task_status(TaskStatus::Success);
             self.report_compact_task_impl(None, &mut compact_task, Some(compaction_guard), None)
                 .await?;
-            tracing::debug!(
-                "TrivialMove for compaction group {}: pick up {} sstables in level {} to compact to target_level {}  cost time: {:?}",
+            tracing::info!(
+                "TrivialMove for compaction group {}: pick up {} sstables in level {} to compact to target_level {}  cost time: {:?} task: {:?}",
                 compaction_group_id,
                 compact_task.input_ssts[0].table_infos.len(),
                 compact_task.input_ssts[0].level_idx,
                 compact_task.target_level,
-                start_time.elapsed()
+                start_time.elapsed(),
+                compact_task_to_string(&compact_task)
             );
         } else {
             compact_task.table_options = table_id_to_option
