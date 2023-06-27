@@ -58,7 +58,7 @@ pub type JoinTypePrimitive = u8;
 
 /// Evict the cache every n rows.
 const EVICT_EVERY_N_ROWS: u32 = 16;
-const SAMPLE_NUM_IN_TEN_K: u64 = 200;
+const SAMPLE_NUM_IN_TEN_K: u64 = 300;
 
 #[allow(non_snake_case, non_upper_case_globals)]
 pub mod JoinType {
@@ -812,11 +812,6 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     self.side_r.ht.update_epoch(barrier.epoch.curr);
 
                     if barrier.is_cache() {
-                        tracing::info!(
-                            "WKXNB! cache mutation: {:?}, fragment_id: {}",
-                            barrier,
-                            self.ctx.fragment_id
-                        );
                         if let Some(mutation) = barrier.mutation.as_deref() {
                             match mutation {
                                 crate::executor::Mutation::Cache {
@@ -1026,7 +1021,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
     async fn hash_eq_match(
         key: &K,
         ht: &mut JoinHashMap<K, S>,
-    ) -> StreamExecutorResult<Option<HashValueType>> {
+    ) -> StreamExecutorResult<Option<(HashValueType, bool)>> {
         if !key.null_bitmap().is_subset(ht.null_matched()) {
             Ok(None)
         } else {
@@ -1102,7 +1097,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
             key.hash(&mut hasher);
             let sampled = hasher.finish() % 10000 < SAMPLE_NUM_IN_TEN_K;
 
-            let matched_rows: Option<HashValueType> = if side_update
+            let matched_rows: Option<(HashValueType, bool)> = if side_update
                 .non_null_fields
                 .iter()
                 .all(|column_idx| unsafe { row.datum_at_unchecked(*column_idx).is_some() })
@@ -1116,7 +1111,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                 Op::Insert | Op::UpdateInsert => {
                     let mut degree = 0;
                     let mut append_only_matched_row = None;
-                    if let Some(mut matched_rows) = matched_rows {
+                    if let Some((mut matched_rows, new_state)) = matched_rows {
                         let mut matched_rows_to_clean = vec![];
                         for (matched_row_ref, matched_row) in
                             matched_rows.values_mut(&side_match.all_data_types)
@@ -1196,7 +1191,9 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                             yield chunk;
                         }
                         // Insert back the state taken from ht.
-                        side_match.ht.update_state(key, matched_rows, true, sampled);
+                        side_match
+                            .ht
+                            .update_state(key, matched_rows, !new_state, sampled);
                         for matched_row in matched_rows_to_clean {
                             if side_match.need_degree_table {
                                 side_match.ht.delete(key, matched_row);
@@ -1227,7 +1224,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                 }
                 Op::Delete | Op::UpdateDelete => {
                     let mut degree = 0;
-                    if let Some(mut matched_rows) = matched_rows {
+                    if let Some((mut matched_rows, new_state)) = matched_rows {
                         let mut matched_rows_to_clean = vec![];
                         for (matched_row_ref, matched_row) in
                             matched_rows.values_mut(&side_match.all_data_types)
@@ -1297,7 +1294,9 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                             yield chunk;
                         }
                         // Insert back the state taken from ht.
-                        side_match.ht.update_state(key, matched_rows, true, sampled);
+                        side_match
+                            .ht
+                            .update_state(key, matched_rows, !new_state, sampled);
                         for matched_row in matched_rows_to_clean {
                             if side_match.need_degree_table {
                                 side_match.ht.delete(key, matched_row);

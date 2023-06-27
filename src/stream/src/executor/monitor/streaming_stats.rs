@@ -50,6 +50,7 @@ pub struct StreamingMetrics {
     // Streaming Join
     pub join_lookup_miss_count: GenericCounterVec<AtomicU64>,
     pub join_lookup_real_miss_count: GenericCounterVec<AtomicU64>,
+    pub join_lookup_new_count: GenericCounterVec<AtomicU64>,
     pub join_total_lookup_count: GenericCounterVec<AtomicU64>,
     pub join_insert_cache_miss_count: GenericCounterVec<AtomicU64>,
     pub join_may_exist_true_count: GenericCounterVec<AtomicU64>,
@@ -124,6 +125,7 @@ pub struct StreamingMetrics {
 
     // Memory
     pub stream_memory_usage: GenericGaugeVec<AtomicI64>,
+    pub stream_kv_size: GenericGaugeVec<AtomicI64>,
 }
 
 impl StreamingMetrics {
@@ -308,6 +310,14 @@ impl StreamingMetrics {
             "stream_join_lookup_real_miss_count",
             "Join executor lookup real miss count",
             &["actor_id", "side"],
+            registry
+        )
+        .unwrap();
+
+        let join_lookup_new_count = register_int_counter_vec_with_registry!(
+            "stream_join_lookup_new_count",
+            "Join executor lookup new operation",
+            &["actor_id", "side", "join_table_id"],
             registry
         )
         .unwrap();
@@ -693,6 +703,14 @@ impl StreamingMetrics {
         )
         .unwrap();
 
+        let stream_kv_size = register_int_gauge_vec_with_registry!(
+            "stream_kv_size",
+            "Memory usage for stream executors",
+            &["table_id", "actor_id", "desc", "type"],
+            registry
+        )
+        .unwrap();
+
         Self {
             registry,
             executor_row_count,
@@ -718,6 +736,7 @@ impl StreamingMetrics {
             exchange_frag_recv_size,
             join_lookup_miss_count,
             join_lookup_real_miss_count,
+            join_lookup_new_count,
             join_total_lookup_count,
             join_insert_cache_miss_count,
             join_may_exist_true_count,
@@ -766,6 +785,7 @@ impl StreamingMetrics {
             materialize_cache_hit_count,
             materialize_cache_total_count,
             stream_memory_usage,
+            stream_kv_size,
         }
     }
 

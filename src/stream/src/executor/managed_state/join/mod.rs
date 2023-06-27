@@ -45,7 +45,7 @@ use crate::task::{ActorId, AtomicU64Ref};
 
 type DegreeType = u64;
 const BUCKET_NUMBER: usize = 30;
-const GHOST_CAP: usize = 300000;
+const GHOST_CAP: usize = 600000;
 const REAL_UPDATE_INTERVAL: u32 = 20000;
 
 fn build_degree_row(order_key: impl Row, degree: DegreeType) -> impl Row {
@@ -213,6 +213,14 @@ impl JoinHashMapMetrics {
     }
 
     pub fn flush(&mut self) {
+        // tracing::info!(
+        //     "FUCK????? self.lookup_miss_count: {}, self.lookup_real_miss_count: {},
+        // self.ghost_bucket_counts[BUCKET_NUMBER]: {}, bucket_counts[0]: {}",
+        //     self.lookup_miss_count,
+        //     self.lookup_real_miss_count,
+        //     self.ghost_bucket_counts[BUCKET_NUMBER],
+        //     self.bucket_counts[0]
+        // );
         self.metrics
             .join_lookup_miss_count
             .with_label_values(&[
@@ -226,6 +234,10 @@ impl JoinHashMapMetrics {
             .join_lookup_real_miss_count
             .with_label_values(&[&self.actor_id, self.side])
             .inc_by(self.lookup_real_miss_count as u64);
+        self.metrics
+            .join_lookup_new_count
+            .with_label_values(&[&self.actor_id, self.side, &self.join_table_id])
+            .inc_by((self.lookup_miss_count - self.lookup_real_miss_count) as u64);
         self.metrics
             .join_total_lookup_count
             .with_label_values(&[
@@ -277,6 +289,7 @@ impl JoinHashMapMetrics {
         self.lookup_miss_count = 0;
         self.lookup_real_miss_count = 0;
         self.insert_cache_miss_count = 0;
+        self.may_exist_true_count = 0;
     }
 }
 
@@ -468,22 +481,27 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
     /// returned.
     ///
     /// Note: This will NOT remove anything from remote storage.
-    pub async fn take_state<'a>(&mut self, key: &K) -> StreamExecutorResult<HashValueType> {
+    pub async fn take_state<'a>(&mut self, key: &K) -> StreamExecutorResult<(HashValueType, bool)> {
         self.metrics.total_lookup_count += 1;
+        let new_state;
         let state = if self.inner.contains(key, false) {
             // Do not update the LRU statistics here with `peek_mut` since we will put the state
             // back.
             let mut state = self.inner.peek_mut(key).unwrap();
+            new_state = false;
             state.take()
         } else {
             self.metrics.lookup_miss_count += 1;
             let res = self.fetch_cached_state(key).await?;
-            if !res.is_empty() {
+            if res.is_empty() {
+                new_state = true;
+            } else {
                 self.metrics.lookup_real_miss_count += 1;
+                new_state = false;
             }
             res.into()
         };
-        Ok(state)
+        Ok((state, new_state))
     }
 
     /// Fetch cache from the state store. Should only be called if the key does not exist in memory.
@@ -684,6 +702,10 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
 
                     self.metrics.ghost_bucket_counts[bucket_index] += 1;
                 } else {
+                    if !sampled {
+                        // not sampled
+                        return;
+                    }
                     let bucket_index = if distance > (self.bucket_size * BUCKET_NUMBER) as u32 {
                         BUCKET_NUMBER
                     } else {

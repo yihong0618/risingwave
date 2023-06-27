@@ -52,7 +52,6 @@ impl GlobalMemoryManager {
 
         tracing::info!("memory control policy: {:?}", &memory_control_policy);
 
-
         Arc::new(Self {
             watermark_epoch: Arc::new(0.into()),
             interval_ms,

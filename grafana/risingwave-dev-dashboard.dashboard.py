@@ -881,6 +881,16 @@ def section_streaming_actors(outer_panels):
                         ),
                     ],
                 ),
+                panels.timeseries_bytes(
+                    "Executor KV Size",
+                    "",
+                    [
+                        panels.target(
+                            "stream_kv_size",
+                            "table {{table_id}} actor {{actor_id}} desc: {{desc}} type: {{type}}",
+                        ),
+                    ],
+                ),
                 panels.timeseries_percentage(
                     "Actor Input Blocking Time Ratio",
                     "",
@@ -952,6 +962,10 @@ def section_streaming_actors(outer_panels):
                         panels.target(
                             f"rate({metric('stream_join_lookup_real_miss_count')}[$__rate_interval])",
                             "cache real miss {{actor_id}} {{side}}",
+                        ),
+                        panels.target(
+                            f"rate({metric('stream_join_lookup_new_count')}[$__rate_interval])",
+                            "cache new element {{actor_id}} {{side}}",
                         ),
                         panels.target(
                             f"rate({metric('stream_join_lookup_total_count')}[$__rate_interval])",

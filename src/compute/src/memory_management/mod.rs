@@ -72,14 +72,23 @@ pub trait MemoryControl: Send + Sync + std::fmt::Debug {
 }
 
 #[cfg(target_os = "linux")]
-pub fn build_memory_control_policy(total_memory_bytes: usize, wkx_operator_cache_capacity_mb: usize) -> Result<MemoryControlRef> {
+pub fn build_memory_control_policy(
+    total_memory_bytes: usize,
+    wkx_operator_cache_capacity_mb: usize,
+) -> Result<MemoryControlRef> {
     use self::policy::JemallocMemoryControl;
 
-    Ok(Box::new(JemallocMemoryControl::new(total_memory_bytes, wkx_operator_cache_capacity_mb)))
+    Ok(Box::new(JemallocMemoryControl::new(
+        total_memory_bytes,
+        wkx_operator_cache_capacity_mb,
+    )))
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn build_memory_control_policy(_total_memory_bytes: usize, _wkx_operator_cache_capacity_mb: usize) -> Result<MemoryControlRef> {
+pub fn build_memory_control_policy(
+    _total_memory_bytes: usize,
+    _wkx_operator_cache_capacity_mb: usize,
+) -> Result<MemoryControlRef> {
     // We disable memory control on operating systems other than Linux now because jemalloc
     // stats do not work well.
     tracing::warn!("memory control is only enabled on Linux now");

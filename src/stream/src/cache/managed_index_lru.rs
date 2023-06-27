@@ -37,11 +37,18 @@ pub struct ManagedIndexedLruCache<K, V, S = DefaultHasher, A: Clone + Allocator 
     kv_heap_size: usize,
     /// The metrics of memory usage
     memory_usage_metrics: Option<IntGauge>,
+    memory_key_size_metrics: Option<IntGauge>,
+    memory_value_size_metrics: Option<IntGauge>,
+    memory_avg_kv_size_metrics: Option<IntGauge>,
     // Metrics info
     metrics_info: Option<MetricsInfo>,
     /// The size reported last time
     last_reported_size_bytes: usize,
     size_limit: usize,
+    key_size_sum: usize,
+    key_size_count: usize,
+    value_size_sum: usize,
+    value_size_count: usize,
 }
 
 impl<K, V, S, A: Clone + Allocator> Drop for ManagedIndexedLruCache<K, V, S, A> {
@@ -74,14 +81,48 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
             ])
         });
 
+        let memory_key_size_metrics = metrics_info.as_ref().map(|info| {
+            info.metrics.stream_kv_size.with_label_values(&[
+                &info.table_id,
+                &info.actor_id,
+                &info.desc,
+                &"key",
+            ])
+        });
+
+        let memory_value_size_metrics = metrics_info.as_ref().map(|info| {
+            info.metrics.stream_kv_size.with_label_values(&[
+                &info.table_id,
+                &info.actor_id,
+                &info.desc,
+                &"value",
+            ])
+        });
+
+        let memory_avg_kv_size_metrics = metrics_info.as_ref().map(|info| {
+            info.metrics.stream_kv_size.with_label_values(&[
+                &info.table_id,
+                &info.actor_id,
+                &info.desc,
+                &"avg_kv",
+            ])
+        });
+
         Self {
             inner,
             watermark_epoch,
             kv_heap_size: 0,
             memory_usage_metrics,
+            memory_key_size_metrics,
+            memory_value_size_metrics,
+            memory_avg_kv_size_metrics,
             metrics_info,
             last_reported_size_bytes: 0,
             size_limit: 0,
+            key_size_sum: 0,
+            key_size_count: 0,
+            value_size_sum: 0,
+            value_size_count: 0,
         }
     }
 
@@ -93,6 +134,7 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
         } else {
             self.evict_by_size();
         }
+        self.inner.adjust_counters();
     }
 
     /// Evict epochs lower than the watermark, except those entry which touched in this epoch
@@ -107,8 +149,14 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
         while let Some((key_op, value)) = self.inner.pop_lru_by_epoch(epoch) {
             if let Some(key) = key_op {
                 self.kv_heap_size_dec(key.estimated_size() + value.estimated_size());
+                self.key_size_count += 1;
+                self.value_size_count += 1;
+                self.key_size_sum += key.estimated_size();
+                self.value_size_sum += value.estimated_size();
             } else {
                 self.kv_heap_size_dec(value.estimated_size());
+                self.value_size_count += 1;
+                self.value_size_sum += value.estimated_size();
             }
         }
     }
@@ -118,8 +166,14 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
             if let Some((key_op, value)) = self.inner.pop_lru_once() {
                 if let Some(key) = key_op {
                     self.kv_heap_size_dec(key.estimated_size() + value.estimated_size());
+                    self.key_size_count += 1;
+                    self.value_size_count += 1;
+                    self.key_size_sum += key.estimated_size();
+                    self.value_size_sum += value.estimated_size();
                 } else {
                     self.kv_heap_size_dec(value.estimated_size());
+                    self.value_size_count += 1;
+                    self.value_size_sum += value.estimated_size();
                 }
             } else {
                 break;
@@ -261,11 +315,13 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
     fn kv_heap_size_inc(&mut self, size: usize) {
         self.kv_heap_size = self.kv_heap_size.saturating_add(size);
         self.report_memory_usage();
+        self.report_kv_size();
     }
 
     fn kv_heap_size_dec(&mut self, size: usize) {
         self.kv_heap_size = self.kv_heap_size.saturating_sub(size);
         self.report_memory_usage();
+        self.report_kv_size();
     }
 
     fn report_memory_usage(&mut self) -> bool {
@@ -279,6 +335,36 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
             true
         } else {
             false
+        }
+    }
+
+    fn report_kv_size(&mut self) {
+        if self.value_size_count > 10000 {
+            if self.key_size_count > 0 {
+                if let Some(metrics) = self.memory_key_size_metrics.as_ref() {
+                    metrics.set((self.key_size_sum / self.key_size_count) as i64);
+                }
+            }
+
+            if let Some(metrics) = self.memory_value_size_metrics.as_ref() {
+                metrics.set((self.value_size_sum / self.value_size_count) as i64);
+            }
+
+            if let Some(metrics) = self.memory_avg_kv_size_metrics.as_ref() {
+                let ghost_len = self.inner.ghost_len();
+                let real_len = self.inner.len();
+                let real_kv_size = self.kv_heap_size - ghost_len * 24;
+                if real_len != 0 {
+                    metrics.set((real_kv_size / real_len) as i64);
+                } else {
+                    metrics.set(0);
+                }
+            }
+
+            self.key_size_count = 0;
+            self.value_size_count = 0;
+            self.key_size_sum = 0;
+            self.value_size_sum = 0;
         }
     }
 }
