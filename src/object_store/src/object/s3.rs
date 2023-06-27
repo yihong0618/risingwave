@@ -29,6 +29,7 @@ use aws_sdk_s3::Client;
 use aws_smithy_http::body::SdkBody;
 use aws_smithy_http::result::SdkError;
 use aws_smithy_types::retry::RetryConfig;
+use aws_smithy_types::timeout::TimeoutConfig;
 use fail::fail_point;
 use futures::future::try_join_all;
 use futures::stream;
@@ -591,8 +592,17 @@ impl S3ObjectStore {
         }
 
         // Retry 3 times if we get server-side errors or throttling errors
-        let sdk_config_loader =
-            aws_config::from_env().retry_config(RetryConfig::standard().with_max_attempts(4));
+        let sdk_config_loader = aws_config::from_env()
+            .retry_config(RetryConfig::standard().with_max_attempts(4))
+            .timeout_config(
+                TimeoutConfig::builder()
+                    .connect_timeout(Duration::from_millis(
+                        3100, // SDK_DEFAULT_CONNECT_TIMEOUT
+                    ))
+                    .read_timeout(Duration::from_millis(10000))
+                    .operation_attempt_timeout(Duration::from_millis(20000))
+                    .build(),
+            );
         let sdk_config = match std::env::var("RW_S3_ENDPOINT") {
             Ok(endpoint) => sdk_config_loader.endpoint_url(endpoint).load().await,
             Err(_) => sdk_config_loader.load().await,
