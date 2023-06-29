@@ -29,6 +29,7 @@ use aws_sdk_s3::Client;
 use aws_smithy_http::body::SdkBody;
 use aws_smithy_http::result::SdkError;
 use aws_smithy_types::retry::RetryConfig;
+use aws_smithy_types::timeout::TimeoutConfigBuilder;
 use fail::fail_point;
 use futures::future::try_join_all;
 use futures::stream;
@@ -560,6 +561,16 @@ impl ObjectStore for S3ObjectStore {
 }
 
 impl S3ObjectStore {
+    // See https://docs.rs/aws-smithy-types/latest/aws_smithy_types/timeout/struct.TimeoutConfigBuilder.html
+    // Limit on the amount of time it takes to initiate a socket connection.
+    const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_millis(3100);
+    // Limit on the amount of time it takes to read the first byte of a response from the time the
+    // request is initiated
+    const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(10);
+    // Limit on the amount of time it takes to fullfill a request. This controls the timeout for
+    // each retry attempt.
+    const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+
     /// Creates an S3 object store from environment variable.
     ///
     /// See [AWS Docs](https://docs.aws.amazon.com/sdk-for-rust/latest/dg/credentials.html) on how to provide credentials and region from env variable. If you are running compute-node on EC2, no configuration is required.
@@ -591,8 +602,15 @@ impl S3ObjectStore {
         }
 
         // Retry 3 times if we get server-side errors or throttling errors
-        let sdk_config_loader =
-            aws_config::from_env().retry_config(RetryConfig::standard().with_max_attempts(4));
+        let sdk_config_loader = aws_config::from_env()
+            .retry_config(RetryConfig::standard().with_max_attempts(4))
+            .timeout_config(
+                TimeoutConfigBuilder::new()
+                    .connect_timeout(Self::DEFAULT_CONNECT_TIMEOUT)
+                    .read_timeout(Self::DEFAULT_READ_TIMEOUT)
+                    .operation_attempt_timeout(Self::DEFAULT_REQUEST_TIMEOUT)
+                    .build(),
+            );
         let sdk_config = match std::env::var("RW_S3_ENDPOINT") {
             Ok(endpoint) => sdk_config_loader.endpoint_url(endpoint).load().await,
             Err(_) => sdk_config_loader.load().await,
