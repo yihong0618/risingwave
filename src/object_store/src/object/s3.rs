@@ -569,7 +569,7 @@ impl S3ObjectStore {
     const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(10);
     // Limit on the amount of time it takes to fullfill a request. This controls the timeout for
     // each retry attempt.
-    const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+    const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
     /// Creates an S3 object store from environment variable.
     ///
