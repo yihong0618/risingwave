@@ -180,7 +180,7 @@ def section_compaction(outer_panels):
                     [
                         panels.target(
                             f"sum({metric('storage_level_compact_frequency')}) by (compactor, group, task_type, result)",
-                            "{{task_type}} - {{result}} - group-{{group}} @ {{compactor}}",
+                            "group-{{group}} - {{task_type}} - {{result}} @ {{compactor}}",
                         ),
                     ],
                 ),
@@ -355,6 +355,28 @@ def section_compaction(outer_panels):
                                       "{{task}}"),
                     ],
                 ),
+
+                panels.timeseries_bytes(
+                    "Lsm Compact Pending Bytes",
+                    "bytes of Lsm tree needed to reach balance",
+                    [
+                        panels.target(
+                            f"sum({metric('storage_compact_pending_bytes')}) by (instance, group)",
+                            "compact pending bytes - {{group}} @ {{instance}} ",
+                        ),
+                    ],
+                ),
+            ],
+        )
+    ]
+
+
+def section_compaction_misc(outer_panels):
+    panels = outer_panels.sub_panel()
+    return [
+        outer_panels.row_collapsed(
+            "Compaction (Misc)",
+            [
                 panels.timeseries_bytes_per_sec(
                     "KBs Read/Write by Level",
                     "",
@@ -458,16 +480,6 @@ def section_compaction(outer_panels):
                     ],
                 ),
 
-                panels.timeseries_bytes(
-                    "Lsm Compact Pending Bytes",
-                    "bytes of Lsm tree needed to reach balance",
-                    [
-                        panels.target(
-                            f"sum({metric('storage_compact_pending_bytes')}) by (instance, group)",
-                            "compact pending bytes - {{group}} @ {{instance}} ",
-                        ),
-                    ],
-                ),
 
                 panels.timeseries_percentage(
                     "Lsm Level Compression Ratio",
@@ -482,7 +494,6 @@ def section_compaction(outer_panels):
             ],
         )
     ]
-
 
 def section_object_storage(outer_panels):
     panels = outer_panels.sub_panel()
@@ -2894,6 +2905,7 @@ dashboard = Dashboard(
         *section_batch(panels),
         *section_hummock(panels),
         *section_compaction(panels),
+        *section_compaction_misc(panels),
         *section_object_storage(panels),
         *section_hummock_tiered_cache(panels),
         *section_hummock_manager(panels),
