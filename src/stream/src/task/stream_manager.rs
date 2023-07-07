@@ -660,7 +660,7 @@ impl LocalStreamManagerCore {
                 let traced = match &mut self.await_tree_reg {
                     Some(m) => m
                         .register(
-                            actor_id,
+                            actor_id + (rand::random::<u16>() as u32) * 100,
                             format!("Actor {actor_id}: `{}`", mview_definition),
                         )
                         .instrument(actor)
