@@ -65,6 +65,7 @@ pub struct StreamingMetrics {
 
     // Streaming Aggregation
     pub agg_lookup_miss_count: GenericCounterVec<AtomicU64>,
+    pub agg_lookup_real_miss_count: GenericCounterVec<AtomicU64>,
     pub agg_total_lookup_count: GenericCounterVec<AtomicU64>,
     pub agg_cached_keys: GenericGaugeVec<AtomicI64>,
     pub agg_chunk_lookup_miss_count: GenericCounterVec<AtomicU64>,
@@ -423,6 +424,14 @@ impl StreamingMetrics {
         )
         .unwrap();
 
+        let agg_lookup_real_miss_count = register_int_counter_vec_with_registry!(
+            "stream_agg_lookup_real_miss_count",
+            "Aggregation executor lookup miss duration",
+            &["table_id", "actor_id"],
+            registry
+        )
+        .unwrap();
+
         let agg_total_lookup_count = register_int_counter_vec_with_registry!(
             "stream_agg_lookup_total_count",
             "Aggregation executor lookup total operation",
@@ -749,6 +758,7 @@ impl StreamingMetrics {
             join_cached_seq_gap,
             join_epoch_interval,
             agg_lookup_miss_count,
+            agg_lookup_real_miss_count,
             agg_total_lookup_count,
             agg_cached_keys,
             agg_chunk_lookup_miss_count,

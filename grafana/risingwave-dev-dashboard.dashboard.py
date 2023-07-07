@@ -1019,6 +1019,11 @@ def section_streaming_actors(outer_panels):
                             f"(sum(rate({metric('stream_agg_lookup_miss_count')}[$__rate_interval])) by (table_id, actor_id) ) / (sum(rate({metric('stream_agg_lookup_total_count')}[$__rate_interval])) by (table_id, actor_id))",
                             "Agg cache miss ratio - table {{table_id}} actor {{actor_id}} ",
                         ),
+                        
+                        panels.target(
+                            f"(sum(rate({metric('stream_agg_lookup_real_miss_count')}[$__rate_interval])) by (table_id, actor_id) ) / (sum(rate({metric('stream_agg_lookup_total_count')}[$__rate_interval])) by (table_id, actor_id))",
+                            "Agg cache real miss ratio - table {{table_id}} actor {{actor_id}} ",
+                        ),
 
                         panels.target(
                             f"(sum(rate({metric('stream_agg_distinct_cache_miss_count')}[$__rate_interval])) by (table_id, actor_id) ) / (sum(rate({metric('stream_agg_distinct_total_cache_count')}[$__rate_interval])) by (table_id, actor_id))",
@@ -1139,8 +1144,14 @@ def section_streaming_actors(outer_panels):
                     [
                         panels.target(
                             f"rate({metric('stream_agg_lookup_miss_count')}[$__rate_interval])",
-                            "cache miss - table {{table_id}} actor {{actor_id}}",
+                            "stream agg cache miss - table {{table_id}} actor {{actor_id}}",
                         ),
+                        
+                        panels.target(
+                            f"rate({metric('stream_agg_lookup_real_miss_count')}[$__rate_interval])",
+                            "stream agg cache real miss - table {{table_id}} actor {{actor_id}}",
+                        ),
+                        
                         panels.target(
                             f"rate({metric('stream_agg_distinct_cache_miss_count')}[$__rate_interval])",
                             "Distinct agg cache miss - table {{table_id}} actor {{actor_id}}",
