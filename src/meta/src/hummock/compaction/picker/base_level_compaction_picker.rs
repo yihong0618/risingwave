@@ -89,6 +89,15 @@ impl LevelCompactionPicker {
         level_handlers: &[LevelHandler],
         stats: &mut LocalPickerStatistic,
     ) -> Option<CompactionInput> {
+        let l0_total_size = l0.total_file_size
+            - level_handlers[0].get_pending_output_file_size(target_level.level_idx);
+        let base_level_size = target_level.total_file_size;
+        if l0_total_size < base_level_size {
+            // skip
+            stats.skip_by_write_amp_limit += 1;
+            return None;
+        }
+
         let overlap_strategy = create_overlap_strategy(self.config.compaction_mode());
         let min_compaction_bytes = self.config.sub_level_max_compaction_bytes;
         let non_overlap_sub_level_picker = NonOverlapSubLevelPicker::new(
