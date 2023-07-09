@@ -47,8 +47,10 @@ use super::{
 };
 use crate::common::table::state_table::StateTable;
 use crate::common::StreamChunkBuilder;
-use crate::executor::expect_first_barrier_from_aligned_stream;
 use crate::executor::JoinType::LeftAnti;
+use crate::executor::{
+    expect_first_barrier_from_aligned_stream, JOIN_GHOST_CAP, SAMPLE_NUM_IN_TEN_K,
+};
 use crate::task::AtomicU64Ref;
 
 /// The `JoinType` and `SideType` are to mimic a enum, because currently
@@ -58,7 +60,6 @@ pub type JoinTypePrimitive = u8;
 
 /// Evict the cache every n rows.
 const EVICT_EVERY_N_ROWS: u32 = 16;
-const SAMPLE_NUM_IN_TEN_K: u64 = 300;
 
 #[allow(non_snake_case, non_upper_case_globals)]
 pub mod JoinType {
@@ -270,6 +271,9 @@ pub struct HashJoinExecutor<K: HashKey, S: StateStore, const T: JoinTypePrimitiv
 
     /// watermark column index -> `BufferedWatermarks`
     watermark_buffers: BTreeMap<usize, BufferedWatermarks<SideTypePrimitive>>,
+
+    table_id_l: String,
+    table_id_r: String,
 }
 
 impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> std::fmt::Debug
@@ -491,6 +495,9 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
         let state_order_key_indices_l = state_table_l.pk_indices();
         let state_order_key_indices_r = state_table_r.pk_indices();
 
+        let table_id_l = state_table_l.table_id().to_string();
+        let table_id_r = state_table_r.table_id().to_string();
+
         let join_key_indices_l = params_l.join_key_indices;
         let join_key_indices_r = params_r.join_key_indices;
 
@@ -689,6 +696,8 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
             chunk_size,
             cnt_rows_received: 0,
             watermark_buffers,
+            table_id_l,
+            table_id_r,
         }
     }
 
@@ -835,28 +844,17 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                     }
 
                     // Report metrics of cached join rows/entries
-                    for (
-                        side,
-                        side_with_ghost,
-                        side_bucket,
-                        side_ghost_bucket,
-                        side_ghost_start,
-                        ht,
-                    ) in [
+                    for (side, side_with_ghost, table_id, ht) in [
                         (
                             "left",
                             "left_with_ghost",
-                            "left_bucket",
-                            "left_ghost_bucket",
-                            "left_ghost_start",
+                            &self.table_id_l,
                             &mut self.side_l.ht,
                         ),
                         (
                             "right",
                             "right_with_ghost",
-                            "right_bucket",
-                            "right_ghost_bucket",
-                            "right_ghost_start",
+                            &self.table_id_r,
                             &mut self.side_r.ht,
                         ),
                     ] {
@@ -878,19 +876,21 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                             .join_cached_entries
                             .with_label_values(&[&actor_id_str, side_with_ghost])
                             .set(cache_entry_count_with_ghost as i64);
+
                         self.metrics
-                            .join_cached_entries
-                            .with_label_values(&[&actor_id_str, side_bucket])
+                            .mrc_bucket_info
+                            .with_label_values(&[table_id, &actor_id_str, side, "bucket"])
                             .set(ht.bucket_count() as i64);
                         self.metrics
-                            .join_cached_entries
-                            .with_label_values(&[&actor_id_str, side_ghost_bucket])
+                            .mrc_bucket_info
+                            .with_label_values(&[table_id, &actor_id_str, side, "ghost_bucket"])
                             .set(ht.ghost_bucket_count() as i64);
                         self.metrics
-                            .join_cached_entries
-                            .with_label_values(&[&actor_id_str, side_ghost_start])
+                            .mrc_bucket_info
+                            .with_label_values(&[table_id, &actor_id_str, side, "ghost_start"])
                             .set(ht.statistic_ghost_start() as i64);
-                        ht.update_bucket_size(cache_entry_count);
+
+                        ht.update_bucket_size(cache_entry_count, JOIN_GHOST_CAP);
                         // self.metrics
                         //     .join_cached_estimated_size
                         //     .with_label_values(&[&actor_id_str, side])

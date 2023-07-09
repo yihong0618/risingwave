@@ -50,7 +50,6 @@ pub struct StreamingMetrics {
     // Streaming Join
     pub join_lookup_miss_count: GenericCounterVec<AtomicU64>,
     pub join_lookup_real_miss_count: GenericCounterVec<AtomicU64>,
-    pub join_lookup_new_count: GenericCounterVec<AtomicU64>,
     pub join_total_lookup_count: GenericCounterVec<AtomicU64>,
     pub join_insert_cache_miss_count: GenericCounterVec<AtomicU64>,
     pub join_may_exist_true_count: GenericCounterVec<AtomicU64>,
@@ -60,7 +59,6 @@ pub struct StreamingMetrics {
     pub join_cached_entries: GenericGaugeVec<AtomicI64>,
     pub join_cached_rows: GenericGaugeVec<AtomicI64>,
     pub join_cached_estimated_size: GenericGaugeVec<AtomicI64>,
-    pub join_cached_seq_gap: HistogramVec,
     pub join_epoch_interval: GenericGaugeVec<AtomicI64>,
 
     // Streaming Aggregation
@@ -73,6 +71,9 @@ pub struct StreamingMetrics {
     pub agg_distinct_cache_miss_count: GenericCounterVec<AtomicU64>,
     pub agg_distinct_total_cache_count: GenericCounterVec<AtomicU64>,
     pub agg_distinct_cached_entry_count: GenericGaugeVec<AtomicI64>,
+
+    pub mrc_bucket_info: GenericGaugeVec<AtomicI64>,
+    pub lookup_new_count: GenericCounterVec<AtomicU64>,
 
     // Streaming TopN
     pub group_top_n_cache_miss_count: GenericCounterVec<AtomicU64>,
@@ -315,14 +316,6 @@ impl StreamingMetrics {
         )
         .unwrap();
 
-        let join_lookup_new_count = register_int_counter_vec_with_registry!(
-            "stream_join_lookup_new_count",
-            "Join executor lookup new operation",
-            &["actor_id", "side", "join_table_id"],
-            registry
-        )
-        .unwrap();
-
         let join_total_lookup_count = register_int_counter_vec_with_registry!(
             "stream_join_lookup_total_count",
             "Join executor lookup total operation",
@@ -396,18 +389,6 @@ impl StreamingMetrics {
         )
         .unwrap();
 
-        let opts = histogram_opts!(
-            "stream_join_cached_seq_gap",
-            "Sequence gap of join cache",
-            exponential_buckets(10.0, 1.5, 25).unwrap()
-        );
-        let join_cached_seq_gap = register_histogram_vec_with_registry!(
-            opts,
-            &["actor_id", "side", "operation"],
-            registry
-        )
-        .unwrap();
-
         let join_epoch_interval = register_int_gauge_vec_with_registry!(
             "stream_join_epoch_interval",
             "Number of cached rows in streaming join operators",
@@ -460,6 +441,22 @@ impl StreamingMetrics {
             "stream_agg_distinct_cached_entry_count",
             "Total entry counts in distinct aggregation executor cache",
             &["table_id", "actor_id"],
+            registry
+        )
+        .unwrap();
+
+        let mrc_bucket_info = register_int_gauge_vec_with_registry!(
+            "stream_mrc_bucket_info",
+            "Bucket info cache operators",
+            &["table_id", "actor_id", "desc", "type"],
+            registry
+        )
+        .unwrap();
+
+        let lookup_new_count = register_int_counter_vec_with_registry!(
+            "stream_executor_lookup_new_count",
+            "Executor lookup new operation",
+            &["table_id", "actor_id", "side"],
             registry
         )
         .unwrap();
@@ -745,7 +742,6 @@ impl StreamingMetrics {
             exchange_frag_recv_size,
             join_lookup_miss_count,
             join_lookup_real_miss_count,
-            join_lookup_new_count,
             join_total_lookup_count,
             join_insert_cache_miss_count,
             join_may_exist_true_count,
@@ -755,7 +751,6 @@ impl StreamingMetrics {
             join_cached_entries,
             join_cached_rows,
             join_cached_estimated_size,
-            join_cached_seq_gap,
             join_epoch_interval,
             agg_lookup_miss_count,
             agg_lookup_real_miss_count,
@@ -766,6 +761,8 @@ impl StreamingMetrics {
             agg_distinct_cache_miss_count,
             agg_distinct_total_cache_count,
             agg_distinct_cached_entry_count,
+            mrc_bucket_info,
+            lookup_new_count,
             group_top_n_cache_miss_count,
             group_top_n_total_query_cache_count,
             group_top_n_cached_entry_count,

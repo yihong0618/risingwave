@@ -45,7 +45,7 @@ humantime = "2.1"
 hytra = { workspace = true }
 itertools = "0.10"
 itoa = "1.0"
-lru = { git = "https://github.com/risingwavelabs/lru-rs.git", rev = "00ed9687617f091d286a84b2eea85f4dbd57fadc" }
+lru = { git = "https://github.com/risingwavelabs/lru-rs.git", rev = "40b9c9bfb93cd973a5e8cb11c6649278f12f91ac" }
 memcomparable = { version = "0.2", features = ["decimal"] }
 num-integer = "0.1"
 num-traits = "0.2"

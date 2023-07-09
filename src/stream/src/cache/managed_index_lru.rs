@@ -277,6 +277,18 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
         })
     }
 
+    pub fn peek_mut_unsafe(&mut self, k: &K) -> Option<UnsafeMutGuard<V>> {
+        let v = self.inner.peek_mut(k);
+        v.map(|inner| {
+            UnsafeMutGuard::new(
+                inner,
+                &mut self.kv_heap_size,
+                &mut self.last_reported_size_bytes,
+                &mut self.memory_usage_metrics,
+            )
+        })
+    }
+
     // pub fn push(&mut self, k: K, v: V) -> Option<(K, V)> {
     //     self.kv_heap_size_inc(k.estimated_size() + v.estimated_size());
 
@@ -294,6 +306,14 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
         Q: Hash + Eq + ?Sized,
     {
         self.inner.contains(k, check_ghost)
+    }
+
+    pub fn contains_sampled<Q>(&mut self, k: &Q, return_distance: bool) -> (bool, Option<(u32, bool)>)
+    where
+        KeyRef<K>: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        self.inner.contains_sampled(k, return_distance)
     }
 
     pub fn len(&self) -> usize {
@@ -387,6 +407,26 @@ pub fn new_indexed_with_hasher_in<
         IndexedLruCache::unbounded_with_hasher_in(
             hasher,
             alloc,
+            ghost_cap,
+            update_interval,
+            ghost_bucket_count,
+        ),
+        watermark_epoch,
+        Some(metrics_info),
+    )
+}
+
+pub fn new_indexed_with_hasher<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher>(
+    watermark_epoch: Arc<AtomicU64>,
+    metrics_info: MetricsInfo,
+    hasher: S,
+    ghost_cap: usize,
+    update_interval: u32,
+    ghost_bucket_count: usize,
+) -> ManagedIndexedLruCache<K, V, S> {
+    ManagedIndexedLruCache::new_inner(
+        IndexedLruCache::unbounded_with_hasher(
+            hasher,
             ghost_cap,
             update_interval,
             ghost_bucket_count,

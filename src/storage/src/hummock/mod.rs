@@ -348,6 +348,7 @@ pub async fn get_from_sstable_info(
     read_options: &ReadOptions,
     dist_key_hash: Option<u64>,
     local_stats: &mut StoreLocalStatistic,
+    uncommitted: bool,
 ) -> HummockResult<Option<(HummockValue<Bytes>, HummockEpoch)>> {
     let sstable = sstable_store_ref.sstable(sstable_info, local_stats).await?;
 
@@ -376,6 +377,9 @@ pub async fn get_from_sstable_info(
         sstable_store_ref.clone(),
         Arc::new(SstableIteratorReadOptions::from_read_options(read_options)),
     );
+    if !uncommitted {
+        local_stats.cache_touch = 1;
+    }
     iter.seek(full_key).await?;
     // Iterator has sought passed the borders.
     if !iter.is_valid() {

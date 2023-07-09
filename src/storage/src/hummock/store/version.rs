@@ -569,6 +569,7 @@ impl HummockVersionReader {
                 &read_options,
                 dist_key_hash,
                 &mut stats_guard.local_stats,
+                true,
             )
             .await?
             {
@@ -606,6 +607,7 @@ impl HummockVersionReader {
                             &read_options,
                             dist_key_hash,
                             &mut stats_guard.local_stats,
+                            false,
                         )
                         .await?
                         {
@@ -643,6 +645,7 @@ impl HummockVersionReader {
                         &read_options,
                         dist_key_hash,
                         &mut stats_guard.local_stats,
+                        false,
                     )
                     .await?
                     {
@@ -856,7 +859,6 @@ impl HummockVersionReader {
                 .iter_slow_fetch_meta_cache_unhits
                 .set(local_stats.cache_meta_block_miss as i64);
         }
-        
         if local_stats.overlapping_iter_count > 0 || local_stats.non_overlapping_iter_count > 0 {
             local_stats.cache_touch = 1;
         }

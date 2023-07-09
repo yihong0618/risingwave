@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
+use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -38,9 +40,9 @@ use super::aggregation::{
 use super::sort_buffer::SortBuffer;
 use super::{
     expect_first_barrier, ActorContextRef, ExecutorInfo, PkIndicesRef, StreamExecutorResult,
-    Watermark,
+    Watermark, AGG_GHOST_CAP, BUCKET_NUMBER, REAL_UPDATE_INTERVAL, SAMPLE_NUM_IN_TEN_K,
 };
-use crate::cache::{cache_may_stale, new_with_hasher, ManagedLruCache};
+use crate::cache::{cache_may_stale, new_indexed_with_hasher, ManagedIndexedLruCache};
 use crate::common::metrics::MetricsInfo;
 use crate::common::table::state_table::StateTable;
 use crate::error::StreamResult;
@@ -51,7 +53,7 @@ use crate::executor::{BoxedMessageStream, Executor, Message};
 use crate::task::AtomicU64Ref;
 
 type AggGroup<S> = GenericAggGroup<S, OnlyOutputIfHasInput>;
-type AggGroupCache<K, S> = ManagedLruCache<K, AggGroup<S>, PrecomputedBuildHasher>;
+type AggGroupCache<K, S> = ManagedIndexedLruCache<K, AggGroup<S>, PrecomputedBuildHasher>;
 
 /// [`HashAggExecutor`] could process large amounts of data using a state backend. It works as
 /// follows:
@@ -164,16 +166,36 @@ struct ExecutionStats {
     /// one StreamChunk.
     chunk_lookup_miss_count: u64,
     chunk_total_lookup_count: u64,
+
+    bucket_size: usize,
+    ghost_bucket_size: usize,
+    ghost_start: usize,
+
+    bucket_ids: Vec<String>,
+    bucket_counts: Vec<usize>,
+    ghost_bucket_counts: Vec<usize>,
 }
 
 impl ExecutionStats {
     fn new() -> Self {
+        let mut bucket_ids = vec![];
+        for i in 0..=BUCKET_NUMBER {
+            bucket_ids.push(i.to_string());
+        }
+        let bucket_counts = vec![0; BUCKET_NUMBER + 1];
+        let ghost_bucket_counts = vec![0; BUCKET_NUMBER + 1];
         Self {
             lookup_miss_count: 0,
             lookup_real_miss_count: 0,
             total_lookup_count: 0,
             chunk_lookup_miss_count: 0,
             chunk_total_lookup_count: 0,
+            bucket_size: 1,
+            ghost_bucket_size: 1,
+            ghost_start: 0,
+            bucket_ids,
+            bucket_counts,
+            ghost_bucket_counts,
         }
     }
 }
@@ -278,7 +300,33 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
             .into_iter()
             .filter_map(|key| {
                 stats.total_lookup_count += 1;
-                if cache.contains(key) {
+                let mut hasher = DefaultHasher::new();
+                key.hash(&mut hasher);
+                let sampled = hasher.finish() % 10000 < SAMPLE_NUM_IN_TEN_K;
+                let (exist, dis) = cache.contains_sampled(key, sampled);
+                if let Some((distance, is_ghost)) = dis {
+                    if is_ghost {
+                        let bucket_index = if distance < stats.ghost_start as u32 {
+                            0
+                        } else if distance
+                            > (stats.ghost_start + stats.ghost_bucket_size * BUCKET_NUMBER) as u32
+                        {
+                            BUCKET_NUMBER
+                        } else {
+                            (distance as usize - stats.ghost_start) / stats.ghost_bucket_size
+                        };
+                        stats.ghost_bucket_counts[bucket_index] += 1;
+                    } else if sampled {
+                        let bucket_index = if distance > (stats.bucket_size * BUCKET_NUMBER) as u32
+                        {
+                            BUCKET_NUMBER
+                        } else {
+                            distance as usize / stats.bucket_size
+                        };
+                        stats.bucket_counts[bucket_index] += 1;
+                    }
+                }
+                if exist {
                     None
                 } else {
                     stats.lookup_miss_count += 1;
@@ -314,6 +362,7 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
                 let (key, agg_group) = result?;
                 if !agg_group.is_uninitialized() {
                     stats.lookup_real_miss_count += 1;
+                    stats.ghost_bucket_counts[BUCKET_NUMBER] += 1;
                 }
                 cache.put(key, agg_group);
             }
@@ -379,7 +428,7 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
 
         // Apply chunk to each of the state (per agg_call), for each group.
         for (key, visibility) in group_visibilities {
-            let mut agg_group = vars.agg_group_cache.get_mut(&key).unwrap();
+            let mut agg_group = vars.agg_group_cache.peek_mut(&key).unwrap();
             let visibilities = call_visibilities
                 .iter()
                 .map(Option::as_ref)
@@ -414,6 +463,11 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
         // Update metrics.
         let actor_id_str = this.actor_ctx.id.to_string();
         let table_id_str = this.result_table.table_id().to_string();
+
+        this.metrics
+            .lookup_new_count
+            .with_label_values(&[&table_id_str, &actor_id_str, "agg"])
+            .inc_by(vars.stats.lookup_miss_count - vars.stats.lookup_real_miss_count);
         this.metrics
             .agg_lookup_miss_count
             .with_label_values(&[&table_id_str, &actor_id_str])
@@ -429,6 +483,7 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
             .with_label_values(&[&table_id_str, &actor_id_str])
             .inc_by(vars.stats.total_lookup_count);
         vars.stats.total_lookup_count = 0;
+        let cache_entry_count = vars.agg_group_cache.len();
         this.metrics
             .agg_cached_keys
             .with_label_values(&[&table_id_str, &actor_id_str])
@@ -444,6 +499,47 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
             .inc_by(vars.stats.chunk_total_lookup_count);
         vars.stats.chunk_total_lookup_count = 0;
 
+        for i in 0..=BUCKET_NUMBER {
+            let count = vars.stats.bucket_counts[i];
+            this.metrics
+                .cache_real_resue_distance_bucket_count
+                .with_label_values(&[
+                    &actor_id_str,
+                    &table_id_str,
+                    "agg",
+                    &vars.stats.bucket_ids[i],
+                ])
+                .inc_by(count as u64);
+            vars.stats.bucket_counts[i] = 0;
+
+            let ghost_count = vars.stats.ghost_bucket_counts[i];
+            this.metrics
+                .cache_ghost_resue_distance_bucket_count
+                .with_label_values(&[
+                    &actor_id_str,
+                    &table_id_str,
+                    "agg",
+                    &vars.stats.bucket_ids[i],
+                ])
+                .inc_by(ghost_count as u64);
+            vars.stats.ghost_bucket_counts[i] = 0;
+        }
+
+        this.metrics
+            .mrc_bucket_info
+            .with_label_values(&[&table_id_str, &actor_id_str, "agg", "bucket"])
+            .set(vars.agg_group_cache.bucket_count() as i64);
+        this.metrics
+            .mrc_bucket_info
+            .with_label_values(&[&table_id_str, &actor_id_str, "agg", "ghost_bucket"])
+            .set(vars.agg_group_cache.ghost_bucket_count() as i64);
+        this.metrics
+            .mrc_bucket_info
+            .with_label_values(&[&table_id_str, &actor_id_str, "agg", "ghost_start"])
+            .set(vars.stats.ghost_start as i64);
+
+        Self::update_bucket_size(&mut vars.stats, cache_entry_count, AGG_GHOST_CAP);
+
         let window_watermark = vars.window_watermark.take();
         let n_dirty_group = vars.group_change_set.len();
 
@@ -451,7 +547,7 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
         for key in &vars.group_change_set {
             let agg_group = vars
                 .agg_group_cache
-                .get_mut(key)
+                .peek_mut(key)
                 .expect("changed group must have corresponding AggGroup");
             agg_group.flush_state_if_needed(&mut this.storages).await?;
         }
@@ -462,7 +558,7 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
             .map(|key| {
                 // Get agg group of the key.
                 vars.agg_group_cache
-                    .get_mut_unsafe(&key)
+                    .peek_mut_unsafe(&key)
                     .expect("changed group must have corresponding AggGroup")
             })
             .map(|mut agg_group| {
@@ -570,13 +666,18 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
             "agg result table",
         );
 
+        let cache = new_indexed_with_hasher(
+            this.watermark_epoch.clone(),
+            agg_group_cache_metrics_info,
+            PrecomputedBuildHasher,
+            AGG_GHOST_CAP,
+            REAL_UPDATE_INTERVAL,
+            BUCKET_NUMBER,
+        );
+
         let mut vars = ExecutionVars {
             stats: ExecutionStats::new(),
-            agg_group_cache: new_with_hasher(
-                this.watermark_epoch.clone(),
-                agg_group_cache_metrics_info,
-                PrecomputedBuildHasher,
-            ),
+            agg_group_cache: cache,
             group_change_set: HashSet::new(),
             distinct_dedup: DistinctDeduplicater::new(
                 &this.agg_calls,
@@ -677,6 +778,28 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
                     yield Message::Barrier(barrier);
                 }
             }
+        }
+    }
+
+    fn update_bucket_size(stats: &mut ExecutionStats, entry_count: usize, ghost_cap: usize) {
+        let old_entry_count = stats.bucket_size * BUCKET_NUMBER;
+        if old_entry_count as f64 * 1.2 < entry_count as f64
+            || old_entry_count as f64 * 0.7 > entry_count as f64
+        {
+            stats.bucket_size = std::cmp::max(
+                (entry_count as f64 * 1.1 / BUCKET_NUMBER as f64).round() as usize,
+                1,
+            );
+            stats.ghost_bucket_size = std::cmp::max(
+                ((entry_count as f64 * 0.3 + ghost_cap as f64) / BUCKET_NUMBER as f64).round()
+                    as usize,
+                1,
+            );
+            stats.ghost_start = std::cmp::max((entry_count as f64 * 0.8).round() as usize, 1);
+            info!(
+                "WKXLOG ghost_start switch to {}, old_entry_count: {}, new_entry_count: {}",
+                stats.ghost_start, old_entry_count, entry_count
+            );
         }
     }
 }

@@ -41,12 +41,10 @@ use crate::common::metrics::MetricsInfo;
 use crate::common::table::state_table::StateTable;
 use crate::executor::error::StreamExecutorResult;
 use crate::executor::monitor::StreamingMetrics;
+use crate::executor::{AGG_GHOST_CAP, BUCKET_NUMBER, REAL_UPDATE_INTERVAL};
 use crate::task::{ActorId, AtomicU64Ref};
 
 type DegreeType = u64;
-const BUCKET_NUMBER: usize = 30;
-const GHOST_CAP: usize = 600000;
-const REAL_UPDATE_INTERVAL: u32 = 20000;
 
 fn build_degree_row(order_key: impl Row, degree: DegreeType) -> impl Row {
     order_key.chain(row::once(Some(ScalarImpl::Int64(degree as i64))))
@@ -235,8 +233,8 @@ impl JoinHashMapMetrics {
             .with_label_values(&[&self.actor_id, self.side])
             .inc_by(self.lookup_real_miss_count as u64);
         self.metrics
-            .join_lookup_new_count
-            .with_label_values(&[&self.actor_id, self.side, &self.join_table_id])
+            .lookup_new_count
+            .with_label_values(&[&self.join_table_id, &self.actor_id, self.side])
             .inc_by((self.lookup_miss_count - self.lookup_real_miss_count) as u64);
         self.metrics
             .join_total_lookup_count
@@ -398,7 +396,7 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
             metrics_info,
             PrecomputedBuildHasher,
             alloc,
-            GHOST_CAP,
+            AGG_GHOST_CAP,
             REAL_UPDATE_INTERVAL,
             BUCKET_NUMBER,
         );
@@ -699,13 +697,8 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
                     } else {
                         (distance as usize - self.ghost_start) / self.ghost_bucket_size
                     };
-
                     self.metrics.ghost_bucket_counts[bucket_index] += 1;
-                } else {
-                    if !sampled {
-                        // not sampled
-                        return;
-                    }
+                } else if sampled {
                     let bucket_index = if distance > (self.bucket_size * BUCKET_NUMBER) as u32 {
                         BUCKET_NUMBER
                     } else {
@@ -794,7 +787,7 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
         &self.null_matched
     }
 
-    pub fn update_bucket_size(&mut self, entry_count: usize) {
+    pub fn update_bucket_size(&mut self, entry_count: usize, ghost_cap: usize) {
         let old_entry_count = self.bucket_size * BUCKET_NUMBER;
         if old_entry_count as f64 * 1.2 < entry_count as f64
             || old_entry_count as f64 * 0.7 > entry_count as f64
@@ -804,7 +797,7 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
                 1,
             );
             self.ghost_bucket_size = std::cmp::max(
-                ((entry_count as f64 * 0.3 + GHOST_CAP as f64) / BUCKET_NUMBER as f64).round()
+                ((entry_count as f64 * 0.3 + ghost_cap as f64) / BUCKET_NUMBER as f64).round()
                     as usize,
                 1,
             );

@@ -891,6 +891,14 @@ def section_streaming_actors(outer_panels):
                         ),
                     ],
                 ),
+                panels.timeseries_count(
+                    "MRC Bucket Info",
+                    "",
+                    [
+                        panels.target(f"{metric('stream_mrc_bucket_info')}",
+                                      "table {{table_id}} actor {{actor_id}} {{desc}} {{type}}"),
+                    ],
+                ),
                 panels.timeseries_percentage(
                     "Actor Input Blocking Time Ratio",
                     "",
@@ -964,7 +972,7 @@ def section_streaming_actors(outer_panels):
                             "cache real miss {{actor_id}} {{side}}",
                         ),
                         panels.target(
-                            f"rate({metric('stream_join_lookup_new_count')}[$__rate_interval])",
+                            f"rate({metric('stream_executor_lookup_new_count')}[$__rate_interval])",
                             "cache new element {{actor_id}} {{side}}",
                         ),
                         panels.target(
@@ -1146,12 +1154,14 @@ def section_streaming_actors(outer_panels):
                             f"rate({metric('stream_agg_lookup_miss_count')}[$__rate_interval])",
                             "stream agg cache miss - table {{table_id}} actor {{actor_id}}",
                         ),
-                        
                         panels.target(
                             f"rate({metric('stream_agg_lookup_real_miss_count')}[$__rate_interval])",
                             "stream agg cache real miss - table {{table_id}} actor {{actor_id}}",
                         ),
-                        
+                        panels.target(
+                            f"rate({metric('stream_executor_lookup_new_count')}[$__rate_interval])",
+                            "cache new element {{actor_id}} {{side}}",
+                        ),
                         panels.target(
                             f"rate({metric('stream_agg_distinct_cache_miss_count')}[$__rate_interval])",
                             "Distinct agg cache miss - table {{table_id}} actor {{actor_id}}",
@@ -1848,6 +1858,14 @@ def section_hummock(panels):
                 panels.target(
                     f"sum(rate({metric('state_store_sst_store_block_request_counts', touch_filter)}[$__rate_interval])) by (job,instance,table_id)",
                     "cache touch count - {{table_id}} @ {{job}} @ {{instance}}",
+                ),
+                panels.target(
+                    f"sum(rate({table_metric('state_store_sst_store_block_request_counts', data_miss_filter)}[$__rate_interval])) by (job,instance,table_id)",
+                    "block cache miss rate - {{table_id}} @ {{job}} @ {{instance}}",
+                ),
+                panels.target(
+                    f"sum(rate({table_metric('state_store_sst_store_block_request_counts', data_total_filter)}[$__rate_interval])) by (job,instance,table_id)",
+                    "block cache total rate - {{table_id}} @ {{job}} @ {{instance}}",
                 ),
             ],
         ),
