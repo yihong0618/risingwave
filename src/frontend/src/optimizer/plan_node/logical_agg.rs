@@ -173,7 +173,7 @@ impl LogicalAgg {
             stream_input.schema().len(),
             &self.group_key().ones().collect_vec(),
         )
-        .enforce_if_not_satisfies(stream_input, &Order::any())?;
+        .enforce_if_not_satisfies_hack(stream_input, &Order::any())?;
         let mut logical = self.core.clone();
         logical.input = input;
         Ok(new_stream_hash_agg(logical, None).into())

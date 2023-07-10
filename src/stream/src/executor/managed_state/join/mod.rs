@@ -41,7 +41,7 @@ use crate::common::metrics::MetricsInfo;
 use crate::common::table::state_table::StateTable;
 use crate::executor::error::StreamExecutorResult;
 use crate::executor::monitor::StreamingMetrics;
-use crate::executor::{AGG_GHOST_CAP, BUCKET_NUMBER, REAL_UPDATE_INTERVAL};
+use crate::executor::{BUCKET_NUMBER, JOIN_GHOST_CAP, REAL_UPDATE_INTERVAL};
 use crate::task::{ActorId, AtomicU64Ref};
 
 type DegreeType = u64;
@@ -396,7 +396,7 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
             metrics_info,
             PrecomputedBuildHasher,
             alloc,
-            AGG_GHOST_CAP,
+            JOIN_GHOST_CAP,
             REAL_UPDATE_INTERVAL,
             BUCKET_NUMBER,
         );

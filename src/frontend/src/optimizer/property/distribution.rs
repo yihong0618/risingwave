@@ -309,6 +309,20 @@ impl RequiredDist {
         }
     }
 
+    pub fn enforce_if_not_satisfies_hack(
+        &self,
+        plan: PlanRef,
+        required_order: &Order,
+    ) -> Result<PlanRef> {
+        if !plan.distribution().satisfies(self) {
+            tracing::info!("WKXLOG FUCK Ok(self.enforce(plan, required_order))");
+            Ok(self.enforce(plan, required_order))
+        } else {
+            tracing::info!("WKXLOG FUCK Ok(plan)");
+            Ok(self.enforce(plan, required_order))
+        }
+    }
+
     pub fn no_shuffle(plan: PlanRef) -> PlanRef {
         match plan.convention() {
             Convention::Stream => StreamExchange::new_no_shuffle(plan).into(),
