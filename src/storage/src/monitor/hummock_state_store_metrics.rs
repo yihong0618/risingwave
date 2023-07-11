@@ -40,6 +40,7 @@ pub struct HummockStateStoreMetrics {
     pub iter_fetch_meta_duration: HistogramVec,
     pub iter_fetch_meta_cache_unhits: IntGauge,
     pub iter_slow_fetch_meta_cache_unhits: IntGauge,
+    pub iter_rewind_duration: HistogramVec,
 
     pub read_req_bloom_filter_positive_counts: GenericCounterVec<AtomicU64>,
     pub read_req_positive_but_non_exist_counts: GenericCounterVec<AtomicU64>,
@@ -133,6 +134,13 @@ impl HummockStateStoreMetrics {
             exponential_buckets(0.0001, 2.0, 21).unwrap() // max 104s
         );
         let iter_fetch_meta_duration =
+            register_histogram_vec_with_registry!(opts, &["table_id"], registry).unwrap();
+        let opts = histogram_opts!(
+            "state_store_iter_rewind_duration",
+            "Histogram of iterator fetch SST meta time that have been issued to state store",
+            exponential_buckets(0.0001, 2.0, 21).unwrap() // max 104s
+        );
+        let iter_rewind_duration =
             register_histogram_vec_with_registry!(opts, &["table_id"], registry).unwrap();
 
         let iter_fetch_meta_cache_unhits = register_int_gauge_with_registry!(
@@ -249,6 +257,7 @@ impl HummockStateStoreMetrics {
             remote_read_time,
             iter_fetch_meta_duration,
             iter_fetch_meta_cache_unhits,
+            iter_rewind_duration,
             iter_slow_fetch_meta_cache_unhits,
             read_req_bloom_filter_positive_counts,
             read_req_positive_but_non_exist_counts,

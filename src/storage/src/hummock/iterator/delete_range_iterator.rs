@@ -228,6 +228,7 @@ pub struct ForwardMergeRangeIterator {
     /// The correctness of the algorithm needs to be guaranteed by "the epoch of the
     /// intervals covering each other must be different".
     current_epochs: BTreeSet<HummockEpoch>,
+    pub(super) skip_delete_count: u64,
 }
 
 impl ForwardMergeRangeIterator {
@@ -238,6 +239,7 @@ impl ForwardMergeRangeIterator {
             tmp_buffer: vec![],
             read_epoch,
             current_epochs: BTreeSet::new(),
+            skip_delete_count: 0,
         }
     }
 
@@ -266,6 +268,7 @@ impl ForwardMergeRangeIterator {
         let target_extended_user_key = PointRange::from_user_key(target_user_key, false);
         while self.is_valid() && self.next_extended_user_key().le(&target_extended_user_key) {
             self.next().await?;
+            self.skip_delete_count += 1;
         }
         Ok(())
     }

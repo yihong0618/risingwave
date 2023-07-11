@@ -39,6 +39,7 @@ pub struct StoreLocalStatistic {
     pub total_key_count: u64,
     pub skip_multi_version_key_count: u64,
     pub skip_delete_key_count: u64,
+    pub skip_delete_range_count: u64,
     pub processed_key_count: u64,
     pub bloom_filter_true_negative_counts: u64,
     pub remote_io_time: Arc<AtomicU64>,
@@ -123,6 +124,13 @@ impl StoreLocalStatistic {
                 .iter_scan_key_counts
                 .with_label_values(&["skip_delete"])
                 .inc_by(self.skip_delete_key_count);
+        }
+
+        if self.skip_delete_range_count > 0 {
+            metrics
+                .iter_scan_key_counts
+                .with_label_values(&["skip_delete_range"])
+                .inc_by(self.skip_delete_range_count);
         }
 
         if self.total_key_count > 0 {
@@ -216,6 +224,7 @@ struct LocalStoreMetrics {
     processed_key_count: GenericLocalCounter<prometheus::core::AtomicU64>,
     skip_multi_version_key_count: GenericLocalCounter<prometheus::core::AtomicU64>,
     skip_delete_key_count: GenericLocalCounter<prometheus::core::AtomicU64>,
+    skip_delete_range_count: GenericLocalCounter<prometheus::core::AtomicU64>,
     total_key_count: GenericLocalCounter<prometheus::core::AtomicU64>,
     get_shared_buffer_hit_counts: GenericLocalCounter<prometheus::core::AtomicU64>,
     staging_imm_iter_count: LocalHistogram,
@@ -272,6 +281,11 @@ impl LocalStoreMetrics {
         let skip_delete_key_count = metrics
             .iter_scan_key_counts
             .with_label_values(&[table_id_label, "skip_delete"])
+            .local();
+
+        let skip_delete_range_count = metrics
+            .iter_scan_key_counts
+            .with_label_values(&[table_id_label, "skip_delete_range"])
             .local();
 
         let total_key_count = metrics
@@ -332,6 +346,7 @@ impl LocalStoreMetrics {
             get_filter_metrics,
             iter_filter_metrics,
             may_exist_filter_metrics,
+            skip_delete_range_count,
             collect_count: 0,
         }
     }
@@ -413,6 +428,7 @@ add_local_metrics_count!(
     cache_meta_block_miss,
     skip_multi_version_key_count,
     skip_delete_key_count,
+    skip_delete_range_count,
     get_shared_buffer_hit_counts,
     total_key_count,
     processed_key_count

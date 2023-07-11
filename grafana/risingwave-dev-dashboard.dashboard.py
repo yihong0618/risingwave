@@ -1661,6 +1661,13 @@ def section_hummock(panels):
                     f"sum by(le, job, instance)(rate({metric('state_store_iter_scan_duration_sum')}[$__rate_interval])) / sum by(le, job,instance) (rate({metric('state_store_iter_scan_duration_count')}[$__rate_interval]))",
                     "pure_scan_time avg - {{job}} @ {{instance}}",
                 ),
+                *quantile(
+                    lambda quantile, legend: panels.target(
+                        f"histogram_quantile({quantile}, sum(rate({table_metric('state_store_iter_rewind_duration_bucket')}[$__rate_interval])) by (le, job, table_id))",
+                        f"create_iter_time p{legend} - {{{{table_id}}}} @ {{{{job}}}}",
+                    ),
+                    [99, "max"],
+                ),
             ],
         ),
         panels.timeseries_bytes(
@@ -1769,8 +1776,8 @@ def section_hummock(panels):
             "",
             [
                 panels.target(
-                    f"sum(rate({table_metric('state_store_iter_scan_key_counts')}[$__rate_interval])) by (instance, type, table_id)",
-                    "iter keys flow - {{table_id}} @ {{type}} @ {{instance}} ",
+                    f"sum(rate({table_metric('state_store_iter_scan_key_counts')}[$__rate_interval])) by (type, table_id)",
+                    "iter keys flow - {{table_id}} @ {{type}}",
                 ),
             ],
         ),

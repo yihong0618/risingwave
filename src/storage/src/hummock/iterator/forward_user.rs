@@ -225,6 +225,7 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
     pub fn collect_local_statistic(&self, stats: &mut StoreLocalStatistic) {
         stats.add(&self.stats);
         self.iterator.collect_local_statistic(stats);
+        stats.skip_delete_key_count += self.delete_range_iter.skip_delete_count;
     }
 }
 
