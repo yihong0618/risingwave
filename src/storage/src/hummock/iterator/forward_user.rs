@@ -103,7 +103,13 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
                 // handle delete operation
                 match self.iterator.value() {
                     HummockValue::Put(val) => {
-                        self.delete_range_iter.next_until(full_key.user_key).await?;
+                        let min_key = match &self.key_range.0 {
+                            Included(begin_key) => Some(begin_key.clone()),
+                            _ => None,
+                        };
+                        self.delete_range_iter
+                            .next_until(min_key, full_key.user_key)
+                            .await?;
                         if self.delete_range_iter.current_epoch() >= epoch {
                             self.stats.skip_delete_key_count += 1;
                         } else {

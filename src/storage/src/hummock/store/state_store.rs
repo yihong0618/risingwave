@@ -38,7 +38,7 @@ use crate::hummock::shared_buffer::shared_buffer_batch::{
 use crate::hummock::store::version::{read_filter_for_local, HummockVersionReader};
 use crate::hummock::utils::{
     cmp_delete_range_left_bounds, do_delete_sanity_check, do_insert_sanity_check,
-    do_update_sanity_check, filter_with_delete_range, ENABLE_SANITY_CHECK,
+    do_update_sanity_check, filter_with_delete_range, range_overlap, ENABLE_SANITY_CHECK,
 };
 use crate::hummock::write_limiter::WriteLimiterRef;
 use crate::hummock::{MemoryLimiter, SstableIterator};
@@ -87,6 +87,7 @@ pub struct LocalHummockStorage {
     stats: Arc<HummockStateStoreMetrics>,
 
     write_limiter: WriteLimiterRef,
+    last_ingest_delete_range: RwLock<(Bound<Bytes>, Bound<Bytes>)>,
 }
 
 impl LocalHummockStorage {
@@ -130,6 +131,26 @@ impl LocalHummockStorage {
             &table_key_range,
             self.read_version.clone(),
         )?;
+        let raw_range = (
+            table_key_range.0.as_ref().map(|k| &k.0),
+            table_key_range.1.as_ref().map(|k| &k.0),
+        );
+
+        let history_range = self.last_ingest_delete_range.read().clone();
+        let overlap = match raw_range.0 {
+            Bound::Included(x) => range_overlap(&history_range, &x, raw_range.1),
+            _ => true,
+        };
+        if overlap {
+            let f = |x: &Bound<&Bytes>| -> Bound<String> { x.map(|k| hex::encode(k.as_ref())) };
+            tracing::info!(
+                "last ingest range: {:?}, {:?}.query range: {:?}, {:?}",
+                f(&history_range.0.as_ref()),
+                f(&history_range.1.as_ref()),
+                f(&raw_range.0),
+                f(&raw_range.1)
+            );
+        }
 
         self.hummock_version_reader
             .iter(table_key_range, epoch, read_options, read_snapshot)
@@ -400,6 +421,39 @@ impl LocalHummockStorage {
         };
 
         let instance_id = self.instance_guard.instance_id;
+        let (mut history_range_left, mut history_range_right) =
+            self.last_ingest_delete_range.read().clone();
+        for range in &delete_ranges {
+            let ret = match &history_range_left {
+                Bound::Included(x) => match &range.0 {
+                    Bound::Included(k) | Bound::Excluded(k) => x.is_empty() || x.gt(k),
+                    Bound::Unbounded => true,
+                },
+                Bound::Excluded(x) => match &range.0 {
+                    Bound::Included(k) | Bound::Excluded(k) => x.is_empty() || x.ge(k),
+                    Bound::Unbounded => true,
+                },
+                _ => false,
+            };
+            if ret {
+                history_range_left = range.0.clone();
+            }
+            let ret = match &history_range_right {
+                Bound::Included(x) => match &range.0 {
+                    Bound::Included(k) | Bound::Excluded(k) => x.lt(k),
+                    Bound::Unbounded => true,
+                },
+                Bound::Excluded(x) => match &range.0 {
+                    Bound::Included(k) | Bound::Excluded(k) => x.le(k),
+                    Bound::Unbounded => true,
+                },
+                _ => false,
+            };
+            if ret {
+                history_range_right = range.0.clone();
+            }
+        }
+        *self.last_ingest_delete_range.write() = (history_range_left, history_range_right);
         let imm = SharedBufferBatch::build_shared_buffer_batch(
             epoch,
             sorted_items,
@@ -410,6 +464,7 @@ impl LocalHummockStorage {
             Some(tracker),
         );
         let imm_size = imm.size();
+
         self.update(VersionUpdate::Staging(StagingData::ImmMem(imm.clone())));
 
         // insert imm to uploader
@@ -455,6 +510,10 @@ impl LocalHummockStorage {
             hummock_version_reader,
             stats,
             write_limiter,
+            last_ingest_delete_range: RwLock::new((
+                Bound::Excluded(Bytes::default()),
+                Bound::Excluded(Bytes::default()),
+            )),
         }
     }
 
