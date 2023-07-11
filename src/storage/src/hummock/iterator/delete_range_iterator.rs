@@ -15,7 +15,6 @@
 use std::collections::{BTreeSet, BinaryHeap};
 use std::future::Future;
 
-use bytes::Bytes;
 use risingwave_hummock_sdk::key::{PointRange, UserKey};
 use risingwave_hummock_sdk::HummockEpoch;
 use risingwave_pb::hummock::SstableInfo;
@@ -264,28 +263,20 @@ impl ForwardMergeRangeIterator {
 impl ForwardMergeRangeIterator {
     pub(super) async fn next_until(
         &mut self,
-        min_key: Option<UserKey<Bytes>>,
         target_user_key: UserKey<&[u8]>,
     ) -> HummockResult<()> {
         let target_extended_user_key = PointRange::from_user_key(target_user_key, false);
+        let mut skip_delete_count = 0;
+        const MAX_SKIP_KEY_COUNT: usize = 16;
         while self.is_valid() && self.next_extended_user_key().le(&target_extended_user_key) {
-            if let Some(start_key) = &min_key {
-                if self
-                    .next_extended_user_key()
-                    .left_user_key
-                    .le(&start_key.as_ref())
-                {
-                    tracing::warn!(
-                        "next key {:?} can not small than left bound: {:?}",
-                        self.next_extended_user_key().left_user_key,
-                        min_key
-                    );
-                }
+            if skip_delete_count > MAX_SKIP_KEY_COUNT {
+                self.seek(target_user_key).await?;
+                break;
             }
-
             self.next().await?;
-            self.skip_delete_count += 1;
+            skip_delete_count += 1;
         }
+        self.skip_delete_count += skip_delete_count as u64;
         Ok(())
     }
 }

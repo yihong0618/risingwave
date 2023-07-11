@@ -103,13 +103,7 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
                 // handle delete operation
                 match self.iterator.value() {
                     HummockValue::Put(val) => {
-                        let min_key = match &self.key_range.0 {
-                            Included(begin_key) => Some(begin_key.clone()),
-                            _ => None,
-                        };
-                        self.delete_range_iter
-                            .next_until(min_key, full_key.user_key)
-                            .await?;
+                        self.delete_range_iter.next_until(full_key.user_key).await?;
                         if self.delete_range_iter.current_epoch() >= epoch {
                             self.stats.skip_delete_key_count += 1;
                         } else {
@@ -172,10 +166,10 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
         match &self.key_range.0 {
             Included(begin_key) => {
                 let full_key = FullKey {
-                    user_key: begin_key.clone(),
+                    user_key: begin_key.as_ref(),
                     epoch: self.read_epoch,
                 };
-                self.iterator.seek(full_key.to_ref()).await?;
+                self.iterator.seek(full_key).await?;
                 self.delete_range_iter.seek(begin_key.as_ref()).await?;
             }
             Excluded(_) => unimplemented!("excluded begin key is not supported"),
@@ -231,7 +225,7 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
     pub fn collect_local_statistic(&self, stats: &mut StoreLocalStatistic) {
         stats.add(&self.stats);
         self.iterator.collect_local_statistic(stats);
-        stats.skip_delete_key_count += self.delete_range_iter.skip_delete_count;
+        stats.skip_delete_range_count += self.delete_range_iter.skip_delete_count;
     }
 }
 

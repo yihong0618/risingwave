@@ -424,33 +424,20 @@ impl LocalHummockStorage {
         let (mut history_range_left, mut history_range_right) =
             self.last_ingest_delete_range.read().clone();
         for range in &delete_ranges {
-            let ret = match &history_range_left {
-                Bound::Included(x) => match &range.0 {
-                    Bound::Included(k) | Bound::Excluded(k) => x.is_empty() || x.gt(k),
-                    Bound::Unbounded => true,
-                },
-                Bound::Excluded(x) => match &range.0 {
-                    Bound::Included(k) | Bound::Excluded(k) => x.is_empty() || x.ge(k),
-                    Bound::Unbounded => true,
-                },
-                _ => false,
-            };
-            if ret {
-                history_range_left = range.0.clone();
-            }
             let ret = match &history_range_right {
-                Bound::Included(x) => match &range.0 {
+                Bound::Included(x) => match &range.1 {
                     Bound::Included(k) | Bound::Excluded(k) => x.lt(k),
                     Bound::Unbounded => true,
                 },
-                Bound::Excluded(x) => match &range.0 {
+                Bound::Excluded(x) => match &range.1 {
                     Bound::Included(k) | Bound::Excluded(k) => x.le(k),
                     Bound::Unbounded => true,
                 },
                 _ => false,
             };
             if ret {
-                history_range_right = range.0.clone();
+                history_range_left = range.0.clone();
+                history_range_right = range.1.clone();
             }
         }
         *self.last_ingest_delete_range.write() = (history_range_left, history_range_right);
