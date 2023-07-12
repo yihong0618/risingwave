@@ -652,7 +652,7 @@ impl HummockTrait for HummockStorage {
     }
 
     fn get_memory_limiter(&self) -> Arc<MemoryLimiter> {
-        self.get_memory_limiter()
+        self.get_buffer_memory_limiter()
     }
 
     fn backup_reader(&self) -> BackupReaderRef {

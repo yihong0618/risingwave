@@ -37,7 +37,9 @@ pub(crate) mod tests {
     };
     use risingwave_meta::hummock::{HummockManagerRef, MockHummockMetaClient};
     use risingwave_meta::storage::MetaStore;
-    use risingwave_pb::hummock::{HummockVersion, TableOption};
+    use risingwave_pb::common::{HostAddress, WorkerType};
+    use risingwave_pb::hummock::{HummockVersion, InputLevel, TableOption};
+    use risingwave_pb::meta::add_worker_node_request::Property;
     use risingwave_rpc_client::HummockMetaClient;
     use risingwave_storage::filter_key_extractor::{
         FilterKeyExtractorImpl, FilterKeyExtractorManagerRef, FixedLengthFilterKeyExtractor,
@@ -197,6 +199,11 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_compaction_watermark() {
+        let config = CompactionConfigBuilder::new()
+            .level0_tier_compact_file_number(1)
+            .level0_max_compact_file_number(130)
+            .level0_overlapping_sub_level_compact_level_count(1)
+            .build();
         let (env, hummock_manager_ref, _cluster_manager_ref, worker_node) =
             setup_compute_env(8080).await;
         let hummock_meta_client: Arc<dyn HummockMetaClient> = Arc::new(MockHummockMetaClient::new(
@@ -220,12 +227,28 @@ pub(crate) mod tests {
             storage.filter_key_extractor_manager().clone(),
         );
 
+        let worker_node2 = hummock_manager_ref
+            .cluster_manager
+            .add_worker_node(
+                WorkerType::ComputeNode,
+                HostAddress::default(),
+                Property::default(),
+            )
+            .await
+            .unwrap();
+        let _snapshot = hummock_manager_ref
+            .pin_snapshot(worker_node2.id)
+            .await
+            .unwrap();
+        let key = key.freeze();
+        const SST_COUNT: u64 = 32;
+        const TEST_WATERMARK: u64 = 8;
         prepare_test_put_data(
             &storage,
             &hummock_meta_client,
             &key,
             1 << 10,
-            (1..129).map(|v| (v * 1000) << 16).collect_vec(),
+            (1..SST_COUNT + 1).map(|v| (v * 1000) << 16).collect_vec(),
         )
         .await;
 
@@ -239,7 +262,7 @@ pub(crate) mod tests {
             .unwrap()
             .unwrap();
         let compaction_filter_flag = CompactionFilterFlag::TTL;
-        compact_task.watermark = (32 * 1000) << 16;
+        compact_task.watermark = (TEST_WATERMARK * 1000) << 16;
         compact_task.compaction_filter_mask = compaction_filter_flag.bits();
         compact_task.table_options = HashMap::from([(
             0,
@@ -259,9 +282,25 @@ pub(crate) mod tests {
             .await
             .unwrap();
         assert_eq!(compactor.context_id(), worker_node.id);
+        let version = hummock_manager_ref.get_current_version().await;
+        let group =
+            version.get_compaction_group_levels(StaticCompactionGroupId::StateDefault.into());
+
+        compact_task.input_ssts = group
+            .l0
+            .as_ref()
+            .unwrap()
+            .sub_levels
+            .iter()
+            .map(|level| InputLevel {
+                level_idx: 0,
+                level_type: level.level_type,
+                table_infos: level.table_infos.clone(),
+            })
+            .collect();
 
         // assert compact_task
-        assert_eq!(compact_task.input_ssts.len(), 128);
+        assert_eq!(compact_task.input_ssts.len(), SST_COUNT as usize);
 
         // 3. compact
         let (_tx, rx) = tokio::sync::oneshot::channel();
@@ -289,7 +328,11 @@ pub(crate) mod tests {
             .unwrap();
 
         // we have removed these 31 keys before watermark 32.
-        assert_eq!(table.value().meta.key_count, 97);
+        assert_eq!(
+            table.value().meta.key_count,
+            (SST_COUNT - TEST_WATERMARK + 1) as u32
+        );
+        let read_epoch = (TEST_WATERMARK * 1000) << 16;
 
         let get_val = storage
             .get(
@@ -315,7 +358,7 @@ pub(crate) mod tests {
         let ret = storage
             .get(
                 key.clone(),
-                (31 * 1000) << 16,
+                ((TEST_WATERMARK - 1) * 1000) << 16,
                 ReadOptions {
                     ignore_range_tombstone: false,
                     prefix_hint: Some(key.clone()),
@@ -353,15 +396,20 @@ pub(crate) mod tests {
         );
 
         // 1. add sstables with 1MB value
-        let key = Bytes::from(&b"same_key"[..]);
+        let mut key = BytesMut::default();
+        key.put_u16(0);
+        key.put_slice(b"same_key");
+        let key = key.freeze();
+        const SST_COUNT: u64 = 16;
+
         let mut val = b"0"[..].repeat(1 << 20);
-        val.extend_from_slice(&128u64.to_be_bytes());
+        val.extend_from_slice(&SST_COUNT.to_be_bytes());
         prepare_test_put_data(
             &storage,
             &hummock_meta_client,
             &key,
             1 << 20,
-            (1..129).collect_vec(),
+            (1..SST_COUNT + 1).collect_vec(),
         )
         .await;
 
@@ -394,7 +442,7 @@ pub(crate) mod tests {
                 .iter()
                 .map(|level| level.table_infos.len())
                 .sum::<usize>(),
-            128
+            SST_COUNT as usize / 2 + 1,
         );
         compact_task.target_level = 6;
 
@@ -431,7 +479,7 @@ pub(crate) mod tests {
         let get_val = storage
             .get(
                 key.clone(),
-                129,
+                SST_COUNT + 1,
                 ReadOptions {
                     ignore_range_tombstone: false,
 

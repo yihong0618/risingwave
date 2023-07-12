@@ -174,8 +174,8 @@ fn calculate_lru_watermark(
         watermark_time_ms += interval_ms as u64 * step;
     }
 
-     // Hack: set watermark > now to evict all caches.
-     watermark_time_ms = physical_now + 10 * interval_ms as u64;
+    // Hack: set watermark > now to evict all caches.
+    watermark_time_ms = physical_now + 10 * interval_ms as u64;
 
     (step, watermark_time_ms, physical_now)
 }
