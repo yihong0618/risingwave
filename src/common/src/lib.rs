@@ -67,6 +67,7 @@ pub mod transaction;
 
 pub mod metrics;
 pub mod test_utils;
+pub mod trace;
 pub mod types;
 pub mod vnode_mapping;
 

@@ -21,6 +21,7 @@ use itertools::Itertools;
 use risingwave_common::array::{ArrayRef, Op, Vis, VisRef};
 use risingwave_common::buffer::{Bitmap, BitmapBuilder};
 use risingwave_common::row::{self, CompactedRow, OwnedRow, Row, RowExt};
+use risingwave_common::trace::collector::{TraceData, TraceSender};
 use risingwave_common::types::{ScalarImpl, ScalarRefImpl};
 use risingwave_common::util::iter_util::ZipEqFast;
 use risingwave_storage::StateStore;
@@ -40,6 +41,7 @@ struct ColumnDeduplicater<S: StateStore> {
     cache: DedupCache,
     metrics_info: MetricsInfo,
     _phantom: PhantomData<S>,
+    trace_sender: TraceSender,
 }
 
 impl<S: StateStore> ColumnDeduplicater<S> {
@@ -48,6 +50,7 @@ impl<S: StateStore> ColumnDeduplicater<S> {
             cache: new_unbounded(watermark_epoch.clone(), metrics_info.clone()),
             metrics_info,
             _phantom: PhantomData,
+            trace_sender: risingwave_common::trace::collector::new_trace_sender(),
         }
     }
 
@@ -90,6 +93,12 @@ impl<S: StateStore> ColumnDeduplicater<S> {
                 .inc();
             // TODO(yuhao): avoid this `contains`.
             // https://github.com/risingwavelabs/risingwave/issues/9233
+            self.trace_sender
+                .send(TraceData::new(
+                    self.metrics_info.table_id.clone(),
+                    cache_key.row.clone().into(),
+                ))
+                .await;
             let mut counts = if self.cache.contains(&cache_key) {
                 self.cache.get_mut(&cache_key).unwrap()
             } else {
