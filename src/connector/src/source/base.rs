@@ -210,7 +210,7 @@ pub trait SplitReader: Sized {
 }
 
 /// The max size of a chunk yielded by source stream.
-pub const MAX_CHUNK_SIZE: usize = 1024;
+pub const MAX_CHUNK_SIZE: usize = 256;
 
 #[derive(Clone, Debug, Deserialize)]
 pub enum ConnectorProperties {

@@ -87,7 +87,7 @@ pub struct BackfillExecutor<S: StateStore> {
     metrics: Arc<StreamingMetrics>,
 }
 
-const CHUNK_SIZE: usize = 1024;
+const CHUNK_SIZE: usize = 256;
 
 impl<S> BackfillExecutor<S>
 where
