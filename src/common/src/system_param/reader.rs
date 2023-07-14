@@ -44,6 +44,10 @@ impl SystemParamsReader {
         self.prost.sstable_size_mb.unwrap()
     }
 
+    pub fn parallel_compact_size_mb(&self) -> u32 {
+        self.prost.parallel_compact_size_mb.unwrap()
+    }
+
     pub fn block_size_kb(&self) -> u32 {
         self.prost.block_size_kb.unwrap()
     }
