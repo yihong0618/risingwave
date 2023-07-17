@@ -311,7 +311,7 @@ impl StreamingMetrics {
         let join_lookup_real_miss_count = register_int_counter_vec_with_registry!(
             "stream_join_lookup_real_miss_count",
             "Join executor lookup real miss count",
-            &["actor_id", "side"],
+            &["side", "join_table_id", "degree_table_id", "actor_id"],
             registry
         )
         .unwrap();

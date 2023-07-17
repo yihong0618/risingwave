@@ -230,7 +230,12 @@ impl JoinHashMapMetrics {
             .inc_by(self.lookup_miss_count as u64);
         self.metrics
             .join_lookup_real_miss_count
-            .with_label_values(&[&self.actor_id, self.side])
+            .with_label_values(&[
+                (self.side),
+                &self.join_table_id,
+                &self.degree_table_id,
+                &self.actor_id,
+            ])
             .inc_by(self.lookup_real_miss_count as u64);
         self.metrics
             .lookup_new_count

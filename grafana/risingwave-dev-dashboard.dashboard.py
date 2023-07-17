@@ -1022,7 +1022,10 @@ def section_streaming_actors(outer_panels):
                             f"(sum(rate({metric('stream_join_lookup_miss_count')}[$__rate_interval])) by (side, join_table_id, degree_table_id, actor_id) ) / (sum(rate({metric('stream_join_lookup_total_count')}[$__rate_interval])) by (side, join_table_id, degree_table_id, actor_id))",
                             "join executor cache miss ratio - - {{side}} side, join_table_id {{join_table_id}} degree_table_id {{degree_table_id}} actor {{actor_id}}",
                         ),
-
+                        panels.target(
+                            f"(sum(rate({metric('stream_join_lookup_real_miss_count')}[$__rate_interval])) by (side, join_table_id, degree_table_id, actor_id) ) / (sum(rate({metric('stream_join_lookup_miss_count')}[$__rate_interval])) by (side, join_table_id, degree_table_id, actor_id))",
+                            "join executor real cache miss ratio - - {{side}} side, join_table_id {{join_table_id}} degree_table_id {{degree_table_id}} actor {{actor_id}}",
+                        ),
                         panels.target(
                             f"(sum(rate({metric('stream_agg_lookup_miss_count')}[$__rate_interval])) by (table_id, actor_id) ) / (sum(rate({metric('stream_agg_lookup_total_count')}[$__rate_interval])) by (table_id, actor_id))",
                             "Agg cache miss ratio - table {{table_id}} actor {{actor_id}} ",
@@ -1062,10 +1065,7 @@ def section_streaming_actors(outer_panels):
                             f"1 - (sum(rate({metric('stream_materialize_cache_hit_count')}[$__rate_interval])) by (table_id, actor_id) ) / (sum(rate({metric('stream_materialize_cache_total_count')}[$__rate_interval])) by (table_id, actor_id))",
                             "materialize executor cache miss ratio - table {{table_id}} actor {{actor_id}}  {{instance}}",
                         ),
-                        panels.target(
-                            f"rate({metric('stream_join_lookup_real_miss_count')}[$__rate_interval]) / rate({metric('stream_join_lookup_total_count')}[$__rate_interval])",
-                            "lookup real miss rate {{actor_id}} {{side}}",
-                        ),
+                        
                         panels.target(
                             f"rate({metric('stream_join_may_exist_true_count')}[$__rate_interval]) / rate({metric('stream_join_insert_cache_miss_count')}[$__rate_interval])",
                             "may exist rate {{actor_id}} {{side}}",
