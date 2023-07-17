@@ -41,6 +41,7 @@ pub async fn list_kv(
                 epoch,
                 None,
                 ReadOptions {
+                    actor_id: None,
                     ignore_range_tombstone: false,
                     prefix_hint: None,
                     table_id: TableId { table_id },

@@ -52,6 +52,7 @@ use tracing::trace;
 use super::watermark::{WatermarkBufferByEpoch, WatermarkBufferStrategy};
 use crate::cache::cache_may_stale;
 use crate::executor::{StreamExecutorError, StreamExecutorResult};
+use crate::task::ActorId;
 
 /// This num is arbitrary and we may want to improve this choice in the future.
 const STATE_CLEANING_PERIOD_EPOCH: usize = 5;
@@ -70,6 +71,8 @@ pub struct StateTableInner<
 {
     /// Id for this table.
     table_id: TableId,
+
+    actor_id: Option<ActorId>,
 
     /// State store backend.
     local_store: S::Local,
@@ -246,6 +249,7 @@ where
 
         Self {
             table_id,
+            actor_id: None,
             local_store: local_state_store,
             pk_serde,
             row_serde,
@@ -445,6 +449,7 @@ where
         };
         Self {
             table_id,
+            actor_id: None,
             local_store: local_state_store,
             pk_serde,
             row_serde: SD::new(&column_ids, Arc::from(data_types.into_boxed_slice())),
@@ -574,6 +579,7 @@ where
         };
 
         let read_options = ReadOptions {
+            actor_id: self.actor_id,
             prefix_hint,
             retention_seconds: self.table_option.retention_seconds,
             table_id: self.table_id,
@@ -688,6 +694,10 @@ where
         self.local_store
             .insert(key_bytes, new_value_bytes, Some(old_value_bytes))
             .unwrap_or_else(|e| self.handle_mem_table_error(e));
+    }
+
+    pub fn set_actor_id(&mut self, actor_id: ActorId) {
+        self.actor_id = Some(actor_id);
     }
 
     /// Insert a row into state table. Must provide a full row corresponding to the column desc of
@@ -1044,6 +1054,7 @@ where
         prefetch_options: PrefetchOptions,
     ) -> StreamExecutorResult<<S::Local as LocalStateStore>::IterStream<'_>> {
         let read_options = ReadOptions {
+            actor_id: self.actor_id,
             prefix_hint,
             ignore_range_tombstone: false,
             retention_seconds: self.table_option.retention_seconds,
@@ -1091,6 +1102,7 @@ where
         };
 
         let read_options = ReadOptions {
+            actor_id: self.actor_id,
             prefix_hint,
             ignore_range_tombstone: false,
             retention_seconds: None,

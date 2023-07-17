@@ -343,7 +343,7 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
         watermark_epoch: AtomicU64Ref,
         join_key_data_types: Vec<DataType>,
         state_all_data_types: Vec<DataType>,
-        state_table: StateTable<S>,
+        mut state_table: StateTable<S>,
         state_pk_indices: Vec<usize>,
         degree_all_data_types: Vec<DataType>,
         degree_table: StateTable<S>,
@@ -365,6 +365,7 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
             pk_data_types,
             vec![OrderType::ascending(); state_pk_indices.len()],
         );
+        state_table.set_actor_id(actor_id);
 
         let join_table_id = state_table.table_id();
         let degree_table_id = degree_table.table_id();

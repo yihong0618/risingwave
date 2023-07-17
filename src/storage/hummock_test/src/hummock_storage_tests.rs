@@ -114,6 +114,7 @@ async fn test_storage_basic() {
             Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"aa"].concat()),
             epoch1,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
                 table_id: TEST_TABLE_ID,
                 retention_seconds: None,
@@ -134,6 +135,7 @@ async fn test_storage_basic() {
             Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"bb"].concat()),
             epoch1,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
                 table_id: TEST_TABLE_ID,
                 retention_seconds: None,
@@ -156,6 +158,7 @@ async fn test_storage_basic() {
             Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"ab"].concat()),
             epoch1,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
                 table_id: TEST_TABLE_ID,
                 retention_seconds: None,
@@ -191,6 +194,7 @@ async fn test_storage_basic() {
             Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"aa"].concat()),
             epoch2,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
                 table_id: TEST_TABLE_ID,
                 retention_seconds: None,
@@ -228,6 +232,7 @@ async fn test_storage_basic() {
             Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"aa"].concat()),
             epoch3,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
                 table_id: TEST_TABLE_ID,
                 retention_seconds: None,
@@ -249,6 +254,7 @@ async fn test_storage_basic() {
             Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"ff"].concat()),
             epoch3,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
                 table_id: TEST_TABLE_ID,
                 retention_seconds: None,
@@ -275,6 +281,7 @@ async fn test_storage_basic() {
             ),
             epoch1,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
                 table_id: TEST_TABLE_ID,
                 retention_seconds: None,
@@ -323,6 +330,7 @@ async fn test_storage_basic() {
             Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"aa"].concat()),
             epoch1,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
                 table_id: TEST_TABLE_ID,
                 retention_seconds: None,
@@ -345,6 +353,7 @@ async fn test_storage_basic() {
             Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"aa"].concat()),
             epoch2,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
                 table_id: TEST_TABLE_ID,
                 retention_seconds: None,
@@ -371,6 +380,7 @@ async fn test_storage_basic() {
             ),
             epoch2,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
                 table_id: TEST_TABLE_ID,
                 retention_seconds: None,
@@ -437,6 +447,7 @@ async fn test_storage_basic() {
             ),
             epoch3,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
                 table_id: TEST_TABLE_ID,
                 retention_seconds: None,
@@ -641,6 +652,7 @@ async fn test_state_store_sync() {
                     k,
                     epoch1,
                     ReadOptions {
+                        actor_id: None,
                         ignore_range_tombstone: false,
                         table_id: TEST_TABLE_ID,
                         retention_seconds: None,
@@ -703,6 +715,7 @@ async fn test_state_store_sync() {
                     k,
                     epoch2,
                     ReadOptions {
+                        actor_id: None,
                         ignore_range_tombstone: false,
                         table_id: TEST_TABLE_ID,
                         retention_seconds: None,
@@ -733,6 +746,7 @@ async fn test_state_store_sync() {
                 ),
                 epoch1,
                 ReadOptions {
+                    actor_id: None,
                     ignore_range_tombstone: false,
                     table_id: TEST_TABLE_ID,
                     retention_seconds: None,
@@ -798,6 +812,7 @@ async fn test_state_store_sync() {
                 ),
                 epoch2,
                 ReadOptions {
+                    actor_id: None,
                     ignore_range_tombstone: false,
                     table_id: TEST_TABLE_ID,
                     retention_seconds: None,
@@ -908,6 +923,7 @@ async fn test_delete_get() {
             Bytes::from("bb"),
             epoch2,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
                 prefix_hint: None,
 
@@ -998,6 +1014,7 @@ async fn test_multiple_epoch_sync() {
                         Bytes::from("bb"),
                         epoch1,
                         ReadOptions {
+                            actor_id: None,
                             ignore_range_tombstone: false,
                             table_id: TEST_TABLE_ID,
                             retention_seconds: None,
@@ -1018,6 +1035,7 @@ async fn test_multiple_epoch_sync() {
                     Bytes::from("bb"),
                     epoch2,
                     ReadOptions {
+                        actor_id: None,
                         ignore_range_tombstone: false,
                         table_id: TEST_TABLE_ID,
                         retention_seconds: None,
@@ -1037,6 +1055,7 @@ async fn test_multiple_epoch_sync() {
                         Bytes::from("bb"),
                         epoch3,
                         ReadOptions {
+                            actor_id: None,
                             ignore_range_tombstone: false,
                             table_id: TEST_TABLE_ID,
                             retention_seconds: None,
@@ -1149,6 +1168,7 @@ async fn test_iter_with_min_epoch() {
                     (Unbounded, Unbounded),
                     epoch1,
                     ReadOptions {
+                        actor_id: None,
                         ignore_range_tombstone: false,
                         table_id: TEST_TABLE_ID,
                         retention_seconds: None,
@@ -1174,6 +1194,7 @@ async fn test_iter_with_min_epoch() {
                     (Unbounded, Unbounded),
                     epoch2,
                     ReadOptions {
+                        actor_id: None,
                         ignore_range_tombstone: false,
                         table_id: TEST_TABLE_ID,
                         retention_seconds: None,
@@ -1197,6 +1218,7 @@ async fn test_iter_with_min_epoch() {
                     (Unbounded, Unbounded),
                     epoch2,
                     ReadOptions {
+                        actor_id: None,
                         ignore_range_tombstone: false,
                         table_id: TEST_TABLE_ID,
                         retention_seconds: Some(0),
@@ -1240,6 +1262,7 @@ async fn test_iter_with_min_epoch() {
                     (Unbounded, Unbounded),
                     epoch1,
                     ReadOptions {
+                        actor_id: None,
                         ignore_range_tombstone: false,
                         table_id: TEST_TABLE_ID,
                         retention_seconds: None,
@@ -1265,6 +1288,7 @@ async fn test_iter_with_min_epoch() {
                     (Unbounded, Unbounded),
                     epoch2,
                     ReadOptions {
+                        actor_id: None,
                         ignore_range_tombstone: false,
                         table_id: TEST_TABLE_ID,
                         retention_seconds: None,
@@ -1290,6 +1314,7 @@ async fn test_iter_with_min_epoch() {
                     (Unbounded, Unbounded),
                     epoch2,
                     ReadOptions {
+                        actor_id: None,
                         ignore_range_tombstone: false,
                         table_id: TEST_TABLE_ID,
                         retention_seconds: Some(0),
@@ -1414,6 +1439,7 @@ async fn test_hummock_version_reader() {
                         (Unbounded, Unbounded),
                         epoch1,
                         ReadOptions {
+                            actor_id: None,
                             ignore_range_tombstone: false,
                             table_id: TEST_TABLE_ID,
                             retention_seconds: None,
@@ -1445,6 +1471,7 @@ async fn test_hummock_version_reader() {
                         (Unbounded, Unbounded),
                         epoch2,
                         ReadOptions {
+                            actor_id: None,
                             ignore_range_tombstone: false,
                             table_id: TEST_TABLE_ID,
                             retention_seconds: None,
@@ -1476,6 +1503,7 @@ async fn test_hummock_version_reader() {
                         (Unbounded, Unbounded),
                         epoch2,
                         ReadOptions {
+                            actor_id: None,
                             ignore_range_tombstone: false,
                             table_id: TEST_TABLE_ID,
                             retention_seconds: Some(0),
@@ -1548,6 +1576,7 @@ async fn test_hummock_version_reader() {
                         (Unbounded, Unbounded),
                         epoch1,
                         ReadOptions {
+                            actor_id: None,
                             ignore_range_tombstone: false,
                             table_id: TEST_TABLE_ID,
                             retention_seconds: None,
@@ -1592,6 +1621,7 @@ async fn test_hummock_version_reader() {
                         (Unbounded, Unbounded),
                         epoch2,
                         ReadOptions {
+                            actor_id: None,
                             ignore_range_tombstone: false,
                             table_id: TEST_TABLE_ID,
                             retention_seconds: None,
@@ -1631,6 +1661,7 @@ async fn test_hummock_version_reader() {
                         (Unbounded, Unbounded),
                         epoch2,
                         ReadOptions {
+                            actor_id: None,
                             ignore_range_tombstone: false,
                             table_id: TEST_TABLE_ID,
                             retention_seconds: Some(0),
@@ -1670,6 +1701,7 @@ async fn test_hummock_version_reader() {
                         (Unbounded, Unbounded),
                         epoch3,
                         ReadOptions {
+                            actor_id: None,
                             ignore_range_tombstone: false,
                             table_id: TEST_TABLE_ID,
                             retention_seconds: None,
@@ -1715,6 +1747,7 @@ async fn test_hummock_version_reader() {
                             key_range.clone(),
                             epoch2,
                             ReadOptions {
+                                actor_id: None,
                                 ignore_range_tombstone: false,
                                 table_id: TEST_TABLE_ID,
                                 retention_seconds: None,
@@ -1754,6 +1787,7 @@ async fn test_hummock_version_reader() {
                             key_range.clone(),
                             epoch3,
                             ReadOptions {
+                                actor_id: None,
                                 ignore_range_tombstone: false,
                                 table_id: TEST_TABLE_ID,
                                 retention_seconds: None,
@@ -1856,6 +1890,7 @@ async fn test_get_with_min_epoch() {
                     k.clone(),
                     epoch1,
                     ReadOptions {
+                        actor_id: None,
                         ignore_range_tombstone: false,
                         table_id: TEST_TABLE_ID,
                         retention_seconds: None,
@@ -1877,6 +1912,7 @@ async fn test_get_with_min_epoch() {
                     k.clone(),
                     epoch1,
                     ReadOptions {
+                        actor_id: None,
                         ignore_range_tombstone: false,
                         table_id: TEST_TABLE_ID,
                         retention_seconds: None,
@@ -1898,6 +1934,7 @@ async fn test_get_with_min_epoch() {
                     k.clone(),
                     epoch2,
                     ReadOptions {
+                        actor_id: None,
                         ignore_range_tombstone: false,
                         table_id: TEST_TABLE_ID,
                         retention_seconds: None,
@@ -1919,6 +1956,7 @@ async fn test_get_with_min_epoch() {
                     k.clone(),
                     epoch2,
                     ReadOptions {
+                        actor_id: None,
                         ignore_range_tombstone: false,
                         table_id: TEST_TABLE_ID,
                         retention_seconds: Some(0),
@@ -1965,6 +2003,7 @@ async fn test_get_with_min_epoch() {
                 k.clone(),
                 epoch1,
                 ReadOptions {
+                    actor_id: None,
                     ignore_range_tombstone: false,
                     table_id: TEST_TABLE_ID,
                     retention_seconds: None,
@@ -1987,6 +2026,7 @@ async fn test_get_with_min_epoch() {
                 k.clone(),
                 epoch1,
                 ReadOptions {
+                    actor_id: None,
                     ignore_range_tombstone: false,
                     table_id: TEST_TABLE_ID,
                     retention_seconds: None,
@@ -2011,6 +2051,7 @@ async fn test_get_with_min_epoch() {
                 k.clone(),
                 epoch2,
                 ReadOptions {
+                    actor_id: None,
                     ignore_range_tombstone: false,
                     table_id: TEST_TABLE_ID,
                     retention_seconds: None,
@@ -2034,6 +2075,7 @@ async fn test_get_with_min_epoch() {
                 k.clone(),
                 epoch2,
                 ReadOptions {
+                    actor_id: None,
                     ignore_range_tombstone: false,
                     table_id: TEST_TABLE_ID,
                     retention_seconds: Some(0),

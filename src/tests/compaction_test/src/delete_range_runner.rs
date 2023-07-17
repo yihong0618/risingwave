@@ -395,6 +395,7 @@ impl NormalState {
             .get(
                 Bytes::copy_from_slice(key),
                 ReadOptions {
+                    actor_id: None,
                     prefix_hint: None,
                     ignore_range_tombstone,
                     retention_seconds: None,
@@ -422,6 +423,7 @@ impl NormalState {
                     Bound::Excluded(Bytes::copy_from_slice(right)),
                 ),
                 ReadOptions {
+                    actor_id: None,
                     prefix_hint: None,
                     ignore_range_tombstone,
                     retention_seconds: None,
@@ -454,6 +456,7 @@ impl CheckState for NormalState {
                         Bound::Excluded(Bytes::copy_from_slice(right)),
                     ),
                     ReadOptions {
+                        actor_id: None,
                         prefix_hint: None,
                         ignore_range_tombstone: true,
                         retention_seconds: None,

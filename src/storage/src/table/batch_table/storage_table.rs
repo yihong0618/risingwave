@@ -337,6 +337,7 @@ impl<S: StateStore, SD: ValueRowSerde> StorageTableInner<S, SD> {
         };
 
         let read_options = ReadOptions {
+            actor_id: None,
             prefix_hint,
             retention_seconds: self.table_option.retention_seconds,
             ignore_range_tombstone: false,
@@ -471,6 +472,7 @@ impl<S: StateStore, SD: ValueRowSerde> StorageTableInner<S, SD> {
             let read_backup = matches!(wait_epoch, HummockReadEpoch::Backup(_));
             async move {
                 let read_options = ReadOptions {
+                    actor_id: None,
                     prefix_hint,
                     ignore_range_tombstone: false,
                     retention_seconds: self.table_option.retention_seconds,

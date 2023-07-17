@@ -101,6 +101,7 @@ async fn test_failpoints_state_store_read_upload() {
             anchor.clone(),
             1,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
                 prefix_hint: Some(Bytes::from(anchor_prefix_hint)),
                 table_id: Default::default(),
@@ -156,6 +157,7 @@ async fn test_failpoints_state_store_read_upload() {
             anchor.clone(),
             2,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
                 prefix_hint: Some(Bytes::from(anchor_prefix_hint)),
                 table_id: Default::default(),
@@ -172,6 +174,7 @@ async fn test_failpoints_state_store_read_upload() {
             (Bound::Unbounded, Bound::Included(Bytes::from("ee"))),
             2,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
                 prefix_hint: None,
                 table_id: Default::default(),
@@ -195,6 +198,7 @@ async fn test_failpoints_state_store_read_upload() {
             Bytes::from("ee"),
             2,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
                 prefix_hint: Some(Bytes::from(bee_prefix_hint)),
                 table_id: Default::default(),
@@ -237,6 +241,7 @@ async fn test_failpoints_state_store_read_upload() {
             anchor.clone(),
             5,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
                 prefix_hint: Some(Bytes::from(anchor_prefix_hint)),
                 table_id: Default::default(),
@@ -255,6 +260,7 @@ async fn test_failpoints_state_store_read_upload() {
             (Bound::Unbounded, Bound::Included(Bytes::from("ee"))),
             5,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
                 prefix_hint: None,
                 table_id: Default::default(),

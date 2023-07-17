@@ -45,6 +45,7 @@ async fn test_empty_read_v2() {
             Bytes::from("test_key"),
             u64::MAX,
             ReadOptions {
+                actor_id: None,
                 prefix_hint: None,
                 ignore_range_tombstone: false,
                 retention_seconds: None,
@@ -62,6 +63,7 @@ async fn test_empty_read_v2() {
             (Unbounded, Unbounded),
             u64::MAX,
             ReadOptions {
+                actor_id: None,
                 prefix_hint: None,
                 ignore_range_tombstone: false,
                 retention_seconds: None,
@@ -160,6 +162,7 @@ async fn test_basic_inner(
             anchor.clone(),
             epoch1,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -179,6 +182,7 @@ async fn test_basic_inner(
             Bytes::from("bb"),
             epoch1,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -200,6 +204,7 @@ async fn test_basic_inner(
             Bytes::from("ab"),
             epoch1,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -236,6 +241,7 @@ async fn test_basic_inner(
             anchor.clone(),
             epoch2,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -273,6 +279,7 @@ async fn test_basic_inner(
             anchor.clone(),
             epoch3,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -293,6 +300,7 @@ async fn test_basic_inner(
             Bytes::from("ff"),
             epoch3,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -313,6 +321,7 @@ async fn test_basic_inner(
             (Bound::Unbounded, Bound::Included(Bytes::from("ee"))),
             epoch1,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -334,6 +343,7 @@ async fn test_basic_inner(
             anchor.clone(),
             epoch1,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -355,6 +365,7 @@ async fn test_basic_inner(
             anchor.clone(),
             epoch2,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -375,6 +386,7 @@ async fn test_basic_inner(
             (Bound::Unbounded, Bound::Included(Bytes::from("ee"))),
             epoch2,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -396,6 +408,7 @@ async fn test_basic_inner(
             (Bound::Unbounded, Bound::Included(Bytes::from("ee"))),
             epoch3,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -425,6 +438,7 @@ async fn test_basic_inner(
             Bytes::from("bb"),
             epoch2,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -444,6 +458,7 @@ async fn test_basic_inner(
             Bytes::from("dd"),
             epoch2,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -627,6 +642,7 @@ async fn test_reload_storage() {
             anchor.clone(),
             epoch1,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -648,6 +664,7 @@ async fn test_reload_storage() {
             Bytes::from("ab"),
             epoch1,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -683,6 +700,7 @@ async fn test_reload_storage() {
             anchor.clone(),
             epoch2,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -704,6 +722,7 @@ async fn test_reload_storage() {
             (Bound::Unbounded, Bound::Included(Bytes::from("ee"))),
             epoch1,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -725,6 +744,7 @@ async fn test_reload_storage() {
             anchor.clone(),
             epoch1,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -746,6 +766,7 @@ async fn test_reload_storage() {
             anchor.clone(),
             epoch2,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -766,6 +787,7 @@ async fn test_reload_storage() {
             (Bound::Unbounded, Bound::Included(Bytes::from("ee"))),
             epoch2,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -807,6 +829,7 @@ async fn test_write_anytime_inner(
                         Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"aa"].concat()),
                         epoch,
                         ReadOptions {
+                            actor_id: None,
                             ignore_range_tombstone: false,
 
                             prefix_hint: None,
@@ -828,6 +851,7 @@ async fn test_write_anytime_inner(
                         Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"bb"].concat()),
                         epoch,
                         ReadOptions {
+                            actor_id: None,
                             ignore_range_tombstone: false,
 
                             prefix_hint: None,
@@ -849,6 +873,7 @@ async fn test_write_anytime_inner(
                         Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"cc"].concat()),
                         epoch,
                         ReadOptions {
+                            actor_id: None,
                             ignore_range_tombstone: false,
 
                             prefix_hint: None,
@@ -876,6 +901,7 @@ async fn test_write_anytime_inner(
                     ),
                     epoch,
                     ReadOptions {
+                        actor_id: None,
                         ignore_range_tombstone: false,
 
                         prefix_hint: None,
@@ -974,6 +1000,7 @@ async fn test_write_anytime_inner(
                         Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"aa"].concat()),
                         epoch,
                         ReadOptions {
+                            actor_id: None,
                             ignore_range_tombstone: false,
 
                             prefix_hint: None,
@@ -994,6 +1021,7 @@ async fn test_write_anytime_inner(
                     Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"bb"].concat()),
                     epoch,
                     ReadOptions {
+                        actor_id: None,
                         ignore_range_tombstone: false,
 
                         prefix_hint: None,
@@ -1014,6 +1042,7 @@ async fn test_write_anytime_inner(
                         Bytes::from([VirtualNode::ZERO.to_be_bytes().as_slice(), b"cc"].concat()),
                         epoch,
                         ReadOptions {
+                            actor_id: None,
                             ignore_range_tombstone: false,
 
                             prefix_hint: None,
@@ -1040,6 +1069,7 @@ async fn test_write_anytime_inner(
                     ),
                     epoch,
                     ReadOptions {
+                        actor_id: None,
                         ignore_range_tombstone: false,
 
                         prefix_hint: None,
@@ -1216,6 +1246,7 @@ async fn test_delete_get_inner(
             Bytes::from("bb"),
             epoch2,
             ReadOptions {
+                actor_id: None,
                 ignore_range_tombstone: false,
 
                 prefix_hint: None,
@@ -1304,6 +1335,7 @@ async fn test_multiple_epoch_sync_inner(
                         Bytes::from("bb"),
                         epoch1,
                         ReadOptions {
+                            actor_id: None,
                             ignore_range_tombstone: false,
 
                             prefix_hint: None,
@@ -1324,6 +1356,7 @@ async fn test_multiple_epoch_sync_inner(
                     Bytes::from("bb"),
                     epoch2,
                     ReadOptions {
+                        actor_id: None,
                         ignore_range_tombstone: false,
 
                         prefix_hint: None,
@@ -1343,6 +1376,7 @@ async fn test_multiple_epoch_sync_inner(
                         Bytes::from("bb"),
                         epoch3,
                         ReadOptions {
+                            actor_id: None,
                             ignore_range_tombstone: false,
 
                             prefix_hint: None,

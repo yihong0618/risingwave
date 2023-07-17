@@ -295,6 +295,7 @@ pub(crate) mod tests {
                 key.clone(),
                 (32 * 1000) << 16,
                 ReadOptions {
+                    actor_id: None,
                     ignore_range_tombstone: false,
 
                     prefix_hint: None,
@@ -316,6 +317,7 @@ pub(crate) mod tests {
                 key.clone(),
                 (31 * 1000) << 16,
                 ReadOptions {
+                    actor_id: None,
                     ignore_range_tombstone: false,
                     prefix_hint: Some(key.clone()),
                     table_id: Default::default(),
@@ -432,6 +434,7 @@ pub(crate) mod tests {
                 key.clone(),
                 129,
                 ReadOptions {
+                    actor_id: None,
                     ignore_range_tombstone: false,
 
                     prefix_hint: None,
@@ -765,6 +768,7 @@ pub(crate) mod tests {
                 epoch,
                 None,
                 ReadOptions {
+                    actor_id: None,
                     ignore_range_tombstone: false,
 
                     prefix_hint: None,
@@ -945,6 +949,7 @@ pub(crate) mod tests {
                 epoch,
                 None,
                 ReadOptions {
+                    actor_id: None,
                     ignore_range_tombstone: false,
 
                     prefix_hint: None,
@@ -1130,6 +1135,7 @@ pub(crate) mod tests {
                 epoch,
                 None,
                 ReadOptions {
+                    actor_id: None,
                     ignore_range_tombstone: false,
                     prefix_hint: Some(Bytes::from(bloom_filter_key)),
                     table_id: TableId::from(existing_table_id),

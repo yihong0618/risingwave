@@ -42,6 +42,7 @@ macro_rules! assert_count_range_scan {
                 bounds,
                 $epoch,
                 ReadOptions {
+                    actor_id: None,
                     ignore_range_tombstone: false,
                     prefix_hint: None,
                     table_id: Default::default(),
@@ -78,6 +79,7 @@ macro_rules! assert_count_backward_range_scan {
             .backward_iter(
                 bounds,
                 ReadOptions {
+                    actor_id: None,
                     ignore_range_tombstone: false,
                     epoch: $epoch,
                     table_id: Default::default(),

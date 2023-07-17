@@ -361,6 +361,7 @@ pub(crate) async fn do_insert_sanity_check(
     table_option: TableOption,
 ) -> StorageResult<()> {
     let read_options = ReadOptions {
+        actor_id: None,
         prefix_hint: None,
         retention_seconds: table_option.retention_seconds,
         table_id,
@@ -392,6 +393,7 @@ pub(crate) async fn do_delete_sanity_check(
     table_option: TableOption,
 ) -> StorageResult<()> {
     let read_options = ReadOptions {
+        actor_id: None,
         prefix_hint: None,
         retention_seconds: table_option.retention_seconds,
         table_id,
@@ -433,6 +435,7 @@ pub(crate) async fn do_update_sanity_check(
     table_option: TableOption,
 ) -> StorageResult<()> {
     let read_options = ReadOptions {
+        actor_id: None,
         prefix_hint: None,
         ignore_range_tombstone: false,
         retention_seconds: table_option.retention_seconds,

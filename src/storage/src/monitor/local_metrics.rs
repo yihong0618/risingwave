@@ -22,11 +22,12 @@ use std::sync::Arc;
 use prometheus::core::GenericLocalCounter;
 use prometheus::local::LocalHistogram;
 use risingwave_common::catalog::TableId;
+use risingwave_common::hash::ActorId;
 
 use super::HummockStateStoreMetrics;
 use crate::monitor::CompactorMetrics;
 
-thread_local!(static LOCAL_METRICS: RefCell<HashMap<u32,LocalStoreMetrics>> = RefCell::new(HashMap::default()));
+thread_local!(static LOCAL_METRICS: RefCell<HashMap<String, LocalStoreMetrics>> = RefCell::new(HashMap::default()));
 
 #[derive(Default, Debug)]
 pub struct StoreLocalStatistic {
@@ -236,6 +237,10 @@ const FLUSH_LOCAL_METRICS_TIMES: usize = 32;
 
 impl LocalStoreMetrics {
     pub fn new(metrics: &HummockStateStoreMetrics, table_id_label: &str) -> Self {
+        // tracing::info!(
+        //     "WKXLOG actor_id: new(metrics: &HummockStateStoreMetrics, table_id_label: &str) :
+        // {:?}",     table_id_label
+        // );
         let cache_data_block_total = metrics
             .sst_store_block_request_counts
             .with_label_values(&[table_id_label, "data_total"])
@@ -461,14 +466,20 @@ define_bloom_filter_metrics!(
 pub struct GetLocalMetricsGuard {
     metrics: Arc<HummockStateStoreMetrics>,
     table_id: TableId,
+    actor_id: Option<ActorId>,
     pub local_stats: StoreLocalStatistic,
 }
 
 impl GetLocalMetricsGuard {
-    pub fn new(metrics: Arc<HummockStateStoreMetrics>, table_id: TableId) -> Self {
+    pub fn new(
+        metrics: Arc<HummockStateStoreMetrics>,
+        table_id: TableId,
+        actor_id: Option<ActorId>,
+    ) -> Self {
         Self {
             metrics,
             table_id,
+            actor_id,
             local_stats: StoreLocalStatistic::default(),
         }
     }
@@ -477,13 +488,19 @@ impl GetLocalMetricsGuard {
 impl Drop for GetLocalMetricsGuard {
     fn drop(&mut self) {
         LOCAL_METRICS.with_borrow_mut(|local_metrics| {
+            let table_id_label = if let Some(actor_id) = self.actor_id {
+                self.table_id.to_string() + "-" + &actor_id.to_string()
+            } else {
+                self.table_id.to_string()
+            };
+            // tracing::info!(
+            //     "WKXLOG actor_id Drop for GetLocalMetricsGuard: table_id_label {}",
+            //     table_id_label
+            // );
             let table_metrics = local_metrics
-                .entry(self.table_id.table_id)
+                .entry(table_id_label.clone())
                 .or_insert_with(|| {
-                    LocalStoreMetrics::new(
-                        self.metrics.as_ref(),
-                        self.table_id.to_string().as_str(),
-                    )
+                    LocalStoreMetrics::new(self.metrics.as_ref(), table_id_label.as_str())
                 });
             self.local_stats.report(table_metrics);
             self.local_stats
@@ -495,6 +512,7 @@ impl Drop for GetLocalMetricsGuard {
 pub struct IterLocalMetricsGuard {
     metrics: Arc<HummockStateStoreMetrics>,
     table_id: TableId,
+    actor_id: Option<ActorId>,
     pub local_stats: StoreLocalStatistic,
 }
 
@@ -502,11 +520,13 @@ impl IterLocalMetricsGuard {
     pub fn new(
         metrics: Arc<HummockStateStoreMetrics>,
         table_id: TableId,
+        actor_id: Option<ActorId>,
         local_stats: StoreLocalStatistic,
     ) -> Self {
         Self {
             metrics,
             table_id,
+            actor_id,
             local_stats,
         }
     }
@@ -515,13 +535,19 @@ impl IterLocalMetricsGuard {
 impl Drop for IterLocalMetricsGuard {
     fn drop(&mut self) {
         LOCAL_METRICS.with_borrow_mut(|local_metrics| {
+            let table_id_label = if let Some(actor_id) = self.actor_id {
+                self.table_id.to_string() + "_" + &actor_id.to_string()
+            } else {
+                self.table_id.to_string()
+            };
+            // tracing::info!(
+            //     "WKXLOG actor_id Drop for IterLocalMetricsGuard: table_id_label {}",
+            //     table_id_label
+            // );
             let table_metrics = local_metrics
-                .entry(self.table_id.table_id)
+                .entry(table_id_label.clone())
                 .or_insert_with(|| {
-                    LocalStoreMetrics::new(
-                        self.metrics.as_ref(),
-                        self.table_id.to_string().as_str(),
-                    )
+                    LocalStoreMetrics::new(self.metrics.as_ref(), table_id_label.as_str())
                 });
             self.local_stats.report(table_metrics);
             self.local_stats
@@ -533,14 +559,20 @@ impl Drop for IterLocalMetricsGuard {
 pub struct MayExistLocalMetricsGuard {
     metrics: Arc<HummockStateStoreMetrics>,
     table_id: TableId,
+    actor_id: Option<ActorId>,
     pub local_stats: StoreLocalStatistic,
 }
 
 impl MayExistLocalMetricsGuard {
-    pub fn new(metrics: Arc<HummockStateStoreMetrics>, table_id: TableId) -> Self {
+    pub fn new(
+        metrics: Arc<HummockStateStoreMetrics>,
+        table_id: TableId,
+        actor_id: Option<ActorId>,
+    ) -> Self {
         Self {
             metrics,
             table_id,
+            actor_id,
             local_stats: StoreLocalStatistic::default(),
         }
     }
@@ -549,13 +581,19 @@ impl MayExistLocalMetricsGuard {
 impl Drop for MayExistLocalMetricsGuard {
     fn drop(&mut self) {
         LOCAL_METRICS.with_borrow_mut(|local_metrics| {
+            let table_id_label = if let Some(actor_id) = self.actor_id {
+                self.table_id.to_string() + "_" + &actor_id.to_string()
+            } else {
+                self.table_id.to_string()
+            };
+            // tracing::info!(
+            //     "WKXLOG actor_id Drop for MayExistLocalMetricsGuard: table_id_label {}",
+            //     table_id_label
+            // );
             let table_metrics = local_metrics
-                .entry(self.table_id.table_id)
+                .entry(table_id_label.clone())
                 .or_insert_with(|| {
-                    LocalStoreMetrics::new(
-                        self.metrics.as_ref(),
-                        self.table_id.to_string().as_str(),
-                    )
+                    LocalStoreMetrics::new(self.metrics.as_ref(), table_id_label.as_str())
                 });
             self.local_stats.report(table_metrics);
             self.local_stats

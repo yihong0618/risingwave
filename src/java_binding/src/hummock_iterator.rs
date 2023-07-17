@@ -103,6 +103,7 @@ impl HummockJavaBindingIterator {
                     ),
                     read_plan.epoch,
                     ReadOptions {
+                        actor_id: None,
                         prefix_hint: None,
                         ignore_range_tombstone: false,
                         retention_seconds: None,

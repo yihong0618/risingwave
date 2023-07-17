@@ -20,6 +20,7 @@ use await_tree::InstrumentAwait;
 use bytes::Bytes;
 use parking_lot::RwLock;
 use risingwave_common::catalog::{TableId, TableOption};
+use risingwave_common::hash::ActorId;
 use risingwave_hummock_sdk::key::{map_table_key_range, TableKey, TableKeyRange};
 use risingwave_hummock_sdk::HummockEpoch;
 use tokio::sync::mpsc;
@@ -500,11 +501,12 @@ impl HummockStorageIterator {
         inner: UserIterator<HummockStorageIteratorPayload>,
         metrics: Arc<HummockStateStoreMetrics>,
         table_id: TableId,
+        actor_id: Option<ActorId>,
         local_stats: StoreLocalStatistic,
     ) -> Self {
         Self {
             inner,
-            stats_guard: IterLocalMetricsGuard::new(metrics, table_id, local_stats),
+            stats_guard: IterLocalMetricsGuard::new(metrics, table_id, actor_id, local_stats),
         }
     }
 }

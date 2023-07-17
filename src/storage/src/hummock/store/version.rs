@@ -528,8 +528,11 @@ impl HummockVersionReader {
     ) -> StorageResult<Option<Bytes>> {
         let (imms, uncommitted_ssts, committed_version) = read_version_tuple;
         let min_epoch = gen_min_epoch(epoch, read_options.retention_seconds.as_ref());
-        let mut stats_guard =
-            GetLocalMetricsGuard::new(self.state_store_metrics.clone(), read_options.table_id);
+        let mut stats_guard = GetLocalMetricsGuard::new(
+            self.state_store_metrics.clone(),
+            read_options.table_id,
+            read_options.actor_id,
+        );
         stats_guard.local_stats.found_key = true;
 
         // 1. read staging data
@@ -907,6 +910,7 @@ impl HummockVersionReader {
             user_iter,
             self.state_store_metrics.clone(),
             read_options.table_id,
+            read_options.actor_id,
             local_stats,
         )
         .into_stream())
@@ -921,8 +925,11 @@ impl HummockVersionReader {
     ) -> StorageResult<bool> {
         let table_id = read_options.table_id;
         let (imms, uncommitted_ssts, committed_version) = read_version_tuple;
-        let mut stats_guard =
-            MayExistLocalMetricsGuard::new(self.state_store_metrics.clone(), table_id);
+        let mut stats_guard = MayExistLocalMetricsGuard::new(
+            self.state_store_metrics.clone(),
+            table_id,
+            read_options.actor_id,
+        );
 
         // 1. check staging data
         for imm in &imms {

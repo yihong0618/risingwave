@@ -382,6 +382,7 @@ async fn test_syncpoints_get_in_delete_range_boundary() {
     );
     storage.wait_version(version).await;
     let read_options = ReadOptions {
+        actor_id: None,
         ignore_range_tombstone: false,
 
         prefix_hint: None,

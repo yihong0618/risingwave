@@ -381,6 +381,7 @@ mod tests {
                 epoch,
                 None,
                 ReadOptions {
+                    actor_id: None,
                     prefix_hint: None,
                     ignore_range_tombstone: false,
                     table_id: Default::default(),
