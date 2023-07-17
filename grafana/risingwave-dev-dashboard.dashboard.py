@@ -1023,7 +1023,7 @@ def section_streaming_actors(outer_panels):
                             "join executor cache miss ratio - - {{side}} side, join_table_id {{join_table_id}} degree_table_id {{degree_table_id}} actor {{actor_id}}",
                         ),
                         panels.target(
-                            f"(sum(rate({metric('stream_join_lookup_real_miss_count')}[$__rate_interval])) by (side, join_table_id, degree_table_id, actor_id) ) / (sum(rate({metric('stream_join_lookup_miss_count')}[$__rate_interval])) by (side, join_table_id, degree_table_id, actor_id))",
+                            f"(sum(rate({metric('stream_join_lookup_real_miss_count')}[$__rate_interval])) by (side, join_table_id, degree_table_id, actor_id) ) / ((sum(rate({metric('stream_join_lookup_total_count')}[$__rate_interval])) by (side, join_table_id, degree_table_id, actor_id)) - (sum(rate({metric('stream_join_lookup_miss_count')}[$__rate_interval])) by (side, join_table_id, degree_table_id, actor_id)) + (sum(rate({metric('stream_join_lookup_real_miss_count')}[$__rate_interval])) by (side, join_table_id, degree_table_id, actor_id)))",
                             "join executor real cache miss ratio - - {{side}} side, join_table_id {{join_table_id}} degree_table_id {{degree_table_id}} actor {{actor_id}}",
                         ),
                         panels.target(
@@ -1032,7 +1032,7 @@ def section_streaming_actors(outer_panels):
                         ),
                         
                         panels.target(
-                            f"(sum(rate({metric('stream_agg_lookup_real_miss_count')}[$__rate_interval])) by (table_id, actor_id) ) / (sum(rate({metric('stream_agg_lookup_total_count')}[$__rate_interval])) by (table_id, actor_id))",
+                            f"(sum(rate({metric('stream_agg_lookup_real_miss_count')}[$__rate_interval])) by (table_id, actor_id) ) / ((sum(rate({metric('stream_agg_lookup_total_count')}[$__rate_interval])) by (table_id, actor_id)) - (sum(rate({metric('stream_agg_lookup_miss_count')}[$__rate_interval])) by (table_id, actor_id)) + (sum(rate({metric('stream_agg_lookup_real_miss_count')}[$__rate_interval])) by (table_id, actor_id)))",
                             "Agg cache real miss ratio - table {{table_id}} actor {{actor_id}} ",
                         ),
 

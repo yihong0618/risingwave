@@ -536,7 +536,7 @@ impl Drop for IterLocalMetricsGuard {
     fn drop(&mut self) {
         LOCAL_METRICS.with_borrow_mut(|local_metrics| {
             let table_id_label = if let Some(actor_id) = self.actor_id {
-                self.table_id.to_string() + "_" + &actor_id.to_string()
+                self.table_id.to_string() + "-" + &actor_id.to_string()
             } else {
                 self.table_id.to_string()
             };
@@ -582,7 +582,7 @@ impl Drop for MayExistLocalMetricsGuard {
     fn drop(&mut self) {
         LOCAL_METRICS.with_borrow_mut(|local_metrics| {
             let table_id_label = if let Some(actor_id) = self.actor_id {
-                self.table_id.to_string() + "_" + &actor_id.to_string()
+                self.table_id.to_string() + "-" + &actor_id.to_string()
             } else {
                 self.table_id.to_string()
             };
