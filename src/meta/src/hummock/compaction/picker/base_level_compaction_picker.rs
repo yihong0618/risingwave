@@ -93,7 +93,9 @@ impl LevelCompactionPicker {
         let base_level_size = target_level.total_file_size
             - level_handlers[target_level.level_idx as usize].get_pending_file_size();
 
-        if l0_size < base_level_size {
+        if l0_size < base_level_size
+            && l0.total_file_size < self.config.max_bytes_for_level_base * 2
+        {
             stats.skip_by_write_amp_limit += 1;
             return None;
         }
