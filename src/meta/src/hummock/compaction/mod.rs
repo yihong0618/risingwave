@@ -245,7 +245,7 @@ impl Default for ManualCompactionOption {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct LocalSelectorStatistic {
     skip_picker: Vec<(usize, usize, LocalPickerStatistic)>,
 }

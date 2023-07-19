@@ -93,10 +93,21 @@ impl LevelCompactionPicker {
         let base_level_size = target_level.total_file_size
             - level_handlers[target_level.level_idx as usize].get_pending_file_size();
 
-        if l0_size < base_level_size
-            && l0.total_file_size < self.config.max_bytes_for_level_base * 2
-        {
-            // just quick fix: loosen this constraint when L0 sst piles up
+        let l0_total_size_check = l0
+            .get_sub_levels()
+            .iter()
+            .map(|sub_level| sub_level.total_file_size)
+            .sum::<u64>();
+
+        assert_eq!(l0.total_file_size, l0_total_size_check);
+
+        if l0_size < base_level_size {
+            println!(
+                "TRACE BASE_COMPACTION l0_size {} base_level_size {} l0.total_file_size {} target_level.total_file_size {} 0_pending {} target_pending {} max_bytes_for_level_base {}",
+                l0_size, base_level_size, l0.total_file_size, target_level.total_file_size, level_handlers[0].get_pending_file_size(), level_handlers[target_level.level_idx as usize].get_pending_file_size(),
+                self.config.max_bytes_for_level_base,
+            );
+
             stats.skip_by_write_amp_limit += 1;
             return None;
         }
