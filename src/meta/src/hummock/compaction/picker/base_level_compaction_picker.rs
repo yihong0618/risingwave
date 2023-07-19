@@ -101,7 +101,9 @@ impl LevelCompactionPicker {
 
         assert_eq!(l0.total_file_size, l0_total_size_check);
 
-        if l0_size < base_level_size {
+        if l0_size < base_level_size
+            && l0.total_file_size < self.config.max_bytes_for_level_base * 2
+        {
             stats.skip_by_write_amp_limit += 1;
             return None;
         }
