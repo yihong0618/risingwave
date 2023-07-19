@@ -102,12 +102,6 @@ impl LevelCompactionPicker {
         assert_eq!(l0.total_file_size, l0_total_size_check);
 
         if l0_size < base_level_size {
-            println!(
-                "TRACE BASE_COMPACTION l0_size {} base_level_size {} l0.total_file_size {} target_level.total_file_size {} 0_pending {} target_pending {} max_bytes_for_level_base {}",
-                l0_size, base_level_size, l0.total_file_size, target_level.total_file_size, level_handlers[0].get_pending_file_size(), level_handlers[target_level.level_idx as usize].get_pending_file_size(),
-                self.config.max_bytes_for_level_base,
-            );
-
             stats.skip_by_write_amp_limit += 1;
             return None;
         }
@@ -164,11 +158,11 @@ impl LevelCompactionPicker {
                 continue;
             }
 
-            // The size of target level may be too large, we shall skip this compact task and wait
-            //  the data in base level compact to lower level.
-            if target_level_size > self.config.max_compaction_bytes {
-                continue;
-            }
+            // // The size of target level may be too large, we shall skip this compact task and
+            // wait //  the data in base level compact to lower level.
+            // if target_level_size > self.config.max_compaction_bytes {
+            //     continue;
+            // }
 
             if input.total_file_size >= target_level_size {
                 min_write_amp_meet = true;

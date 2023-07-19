@@ -398,11 +398,11 @@ impl LevelSelector for DynamicLevelSelector {
                 .push((select_level, target_level, stats));
         }
 
-        println!(
-            "TRACE CG {} skip_compaction selector_stats {:?}",
-            compaction_group.group_id(),
-            selector_stats
-        );
+        // println!(
+        //     "TRACE CG {} skip_compaction selector_stats {:?}",
+        //     compaction_group.group_id(),
+        //     selector_stats
+        // );
         None
     }
 
