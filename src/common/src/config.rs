@@ -322,6 +322,9 @@ pub struct StreamingConfig {
 
     #[serde(default, flatten)]
     pub unrecognized: Unrecognized<Self>,
+
+    #[serde(default = "default::streaming::always_remote_input")]
+    pub always_remote_input: bool,
 }
 
 /// The section `[storage]` in `risingwave.toml`.
@@ -762,6 +765,10 @@ mod default {
 
         pub fn unique_user_stream_errors() -> usize {
             10
+        }
+
+        pub fn always_remote_input() -> bool {
+            false
         }
     }
 

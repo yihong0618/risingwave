@@ -3433,7 +3433,7 @@ dependencies = [
 [[package]]
 name = "lru"
 version = "0.7.6"
-source = "git+https://github.com/risingwavelabs/lru-rs.git?rev=40b9c9bfb93cd973a5e8cb11c6649278f12f91ac#40b9c9bfb93cd973a5e8cb11c6649278f12f91ac"
+source = "git+https://github.com/risingwavelabs/lru-rs.git?rev=58e6f3851e024507128b266ffde836211745e5fc#58e6f3851e024507128b266ffde836211745e5fc"
 dependencies = [
  "hashbrown 0.12.3",
 ]
@@ -5771,7 +5771,7 @@ dependencies = [
  "itertools",
  "itoa",
  "libc",
- "lru 0.7.6 (git+https://github.com/risingwavelabs/lru-rs.git?rev=40b9c9bfb93cd973a5e8cb11c6649278f12f91ac)",
+ "lru 0.7.6 (git+https://github.com/risingwavelabs/lru-rs.git?rev=58e6f3851e024507128b266ffde836211745e5fc)",
  "mach2",
  "madsim-tokio",
  "madsim-tonic",
@@ -6669,7 +6669,7 @@ dependencies = [
  "iter-chunks",
  "itertools",
  "local_stats_alloc",
- "lru 0.7.6 (git+https://github.com/risingwavelabs/lru-rs.git?rev=40b9c9bfb93cd973a5e8cb11c6649278f12f91ac)",
+ "lru 0.7.6 (git+https://github.com/risingwavelabs/lru-rs.git?rev=58e6f3851e024507128b266ffde836211745e5fc)",
  "madsim-tokio",
  "madsim-tonic",
  "maplit",

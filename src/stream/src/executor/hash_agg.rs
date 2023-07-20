@@ -40,7 +40,8 @@ use super::aggregation::{
 use super::sort_buffer::SortBuffer;
 use super::{
     expect_first_barrier, ActorContextRef, ExecutorInfo, PkIndicesRef, StreamExecutorResult,
-    Watermark, AGG_GHOST_CAP, BUCKET_NUMBER, REAL_UPDATE_INTERVAL, SAMPLE_NUM_IN_TEN_K,
+    Watermark, BUCKET_NUMBER, DEFAULT_GHOST_CAP_MUTIPLE, HACK_JOIN_KEY_SIZE, INIT_GHOST_CAP,
+    REAL_UPDATE_INTERVAL, SAMPLE_NUM_IN_TEN_K,
 };
 use crate::cache::{cache_may_stale, new_indexed_with_hasher, ManagedIndexedLruCache};
 use crate::common::metrics::MetricsInfo;
@@ -538,8 +539,16 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
             .mrc_bucket_info
             .with_label_values(&[&table_id_str, &actor_id_str, "agg", "ghost_start"])
             .set(vars.stats.ghost_start as i64);
+        this.metrics
+            .mrc_bucket_info
+            .with_label_values(&[&table_id_str, &actor_id_str, "agg", "ghost_cap"])
+            .set(vars.agg_group_cache.ghost_cap() as i64);
 
-        Self::update_bucket_size(&mut vars.stats, cache_entry_count, AGG_GHOST_CAP);
+        Self::update_bucket_size(
+            &mut vars.agg_group_cache,
+            &mut vars.stats,
+            cache_entry_count,
+        );
 
         let window_watermark = vars.window_watermark.take();
         let n_dirty_group = vars.group_change_set.len();
@@ -671,7 +680,7 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
             this.watermark_epoch.clone(),
             agg_group_cache_metrics_info,
             PrecomputedBuildHasher,
-            AGG_GHOST_CAP,
+            INIT_GHOST_CAP,
             REAL_UPDATE_INTERVAL,
             BUCKET_NUMBER,
         );
@@ -782,11 +791,25 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
         }
     }
 
-    fn update_bucket_size(stats: &mut ExecutionStats, entry_count: usize, ghost_cap: usize) {
+    fn update_bucket_size(
+        agg_group_cache: &mut AggGroupCache<K, S>,
+        stats: &mut ExecutionStats,
+        entry_count: usize,
+    ) {
         let old_entry_count = stats.bucket_size * BUCKET_NUMBER;
-        if old_entry_count as f64 * 1.2 < entry_count as f64
-            || old_entry_count as f64 * 0.7 > entry_count as f64
+        if (old_entry_count as f64 * 1.2 < entry_count as f64
+            || old_entry_count as f64 * 0.7 > entry_count as f64)
+            && entry_count > 100
         {
+            let mut ghost_cap_multiple = DEFAULT_GHOST_CAP_MUTIPLE;
+            let k_size = agg_group_cache.key_size.unwrap_or(HACK_JOIN_KEY_SIZE);
+            if let Some(kv_size) = agg_group_cache.get_avg_kv_size() {
+                let v_size = kv_size - k_size;
+                let multiple = v_size / k_size;
+                ghost_cap_multiple = usize::min((multiple / 2) + 1, ghost_cap_multiple);
+            }
+            let ghost_cap = ghost_cap_multiple * entry_count;
+
             stats.bucket_size = std::cmp::max(
                 (entry_count as f64 * 1.1 / BUCKET_NUMBER as f64).round() as usize,
                 1,
@@ -801,6 +824,7 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
                 "WKXLOG ghost_start switch to {}, old_entry_count: {}, new_entry_count: {}",
                 stats.ghost_start, old_entry_count, entry_count
             );
+            agg_group_cache.set_ghost_cap(ghost_cap);
         }
     }
 }

@@ -251,23 +251,24 @@ pub(crate) fn new_input(
         .get_host()?
         .into();
 
-    let input = if is_local_address(&context.addr, &upstream_addr) {
-        LocalInput::new(
-            context.take_receiver(&(upstream_actor_id, actor_id))?,
-            upstream_actor_id,
-        )
-        .boxed_input()
-    } else {
-        RemoteInput::new(
-            context.compute_client_pool.clone(),
-            upstream_addr,
-            (upstream_actor_id, actor_id),
-            (upstream_fragment_id, fragment_id),
-            metrics,
-            context.config.developer.exchange_batched_permits,
-        )
-        .boxed_input()
-    };
+    let input =
+        if !context.config.always_remote_input && is_local_address(&context.addr, &upstream_addr) {
+            LocalInput::new(
+                context.take_receiver(&(upstream_actor_id, actor_id))?,
+                upstream_actor_id,
+            )
+            .boxed_input()
+        } else {
+            RemoteInput::new(
+                context.compute_client_pool.clone(),
+                upstream_addr,
+                (upstream_actor_id, actor_id),
+                (upstream_fragment_id, fragment_id),
+                metrics,
+                context.config.developer.exchange_batched_permits,
+            )
+            .boxed_input()
+        };
 
     Ok(input)
 }

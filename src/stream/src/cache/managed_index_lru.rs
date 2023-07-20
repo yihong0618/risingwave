@@ -25,6 +25,7 @@ use risingwave_common::estimate_size::EstimateSize;
 
 use super::{MutGuard, UnsafeMutGuard, REPORT_SIZE_EVERY_N_KB_CHANGE};
 use crate::common::metrics::MetricsInfo;
+use crate::executor::HACK_JOIN_KEY_SIZE;
 
 /// The managed cache is a lru cache that bounds the memory usage by epoch.
 /// Should be used with `GlobalMemoryManager`.
@@ -49,6 +50,8 @@ pub struct ManagedIndexedLruCache<K, V, S = DefaultHasher, A: Clone + Allocator 
     key_size_count: usize,
     value_size_sum: usize,
     value_size_count: usize,
+
+    pub key_size: Option<usize>,
 }
 
 impl<K, V, S, A: Clone + Allocator> Drop for ManagedIndexedLruCache<K, V, S, A> {
@@ -123,6 +126,7 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
             key_size_count: 0,
             value_size_sum: 0,
             value_size_count: 0,
+            key_size: None,
         }
     }
 
@@ -142,6 +146,7 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
         let epoch = self.watermark_epoch.load(Ordering::Relaxed);
         let epoch = min(epoch, self.inner.current_epoch());
         self.evict_by_epoch(epoch);
+        self.inner.adjust_counters();
     }
 
     /// Evict epochs lower than the watermark
@@ -162,7 +167,9 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
     }
 
     fn evict_by_size(&mut self) {
-        while self.kv_heap_size > self.size_limit {
+        let size_limit_with_ghost =
+            self.size_limit + self.inner.ghost_cap() * self.key_size.unwrap_or(HACK_JOIN_KEY_SIZE);
+        while self.kv_heap_size > size_limit_with_ghost {
             if let Some((key_op, value)) = self.inner.pop_lru_once() {
                 if let Some(key) = key_op {
                     self.kv_heap_size_dec(key.estimated_size() + value.estimated_size());
@@ -179,6 +186,16 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
                 break;
             }
         }
+    }
+
+    pub fn set_ghost_cap(&mut self, ghost_cap: usize) {
+        let mut current_len = self.inner.ghost_len();
+        while current_len > ghost_cap {
+            let key = self.inner.pop_ghost_once();
+            self.kv_heap_size_dec(key.estimated_size());
+            current_len -= 1;
+        }
+        self.inner.set_ghost_cap(ghost_cap);
     }
 
     pub fn update_epoch(&mut self, epoch: u64) {
@@ -210,6 +227,9 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
 
     pub fn put(&mut self, k: K, v: V) {
         let key_size = k.estimated_size();
+        if self.key_size.is_none() {
+            self.key_size = Some(key_size);
+        }
         self.kv_heap_size_inc(key_size + v.estimated_size());
         let old_val = self.inner.put(k, v);
         if let Some(old_val) = &old_val {
@@ -225,6 +245,9 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
         return_distance: bool,
     ) -> Option<(u32, bool)> {
         let key_size = k.estimated_size();
+        if self.key_size.is_none() {
+            self.key_size = Some(key_size);
+        }
         self.kv_heap_size_inc(key_size + v.estimated_size());
         let (old_val, distance) = self.inner.put_sample(k, v, is_update, return_distance);
         if let Some(old_val) = &old_val {
@@ -234,6 +257,10 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
     }
 
     pub fn get_mut(&mut self, k: &K, check_ghost: bool) -> Option<MutGuard<'_, V>> {
+        if self.key_size.is_none() {
+            let key_size = k.estimated_size();
+            self.key_size = Some(key_size);
+        }
         let v = self.inner.get_mut(k, check_ghost);
         v.map(|inner| {
             MutGuard::new(
@@ -246,6 +273,10 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
     }
 
     pub fn get_mut_unsafe(&mut self, k: &K, check_ghost: bool) -> Option<UnsafeMutGuard<V>> {
+        if self.key_size.is_none() {
+            let key_size = k.estimated_size();
+            self.key_size = Some(key_size);
+        }
         let v = self.inner.get_mut(k, check_ghost);
         v.map(|inner| {
             UnsafeMutGuard::new(
@@ -266,6 +297,10 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
     // }
 
     pub fn peek_mut(&mut self, k: &K) -> Option<MutGuard<'_, V>> {
+        if self.key_size.is_none() {
+            let key_size = k.estimated_size();
+            self.key_size = Some(key_size);
+        }
         let v = self.inner.peek_mut(k);
         v.map(|inner| {
             MutGuard::new(
@@ -278,6 +313,10 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
     }
 
     pub fn peek_mut_unsafe(&mut self, k: &K) -> Option<UnsafeMutGuard<V>> {
+        if self.key_size.is_none() {
+            let key_size = k.estimated_size();
+            self.key_size = Some(key_size);
+        }
         let v = self.inner.peek_mut(k);
         v.map(|inner| {
             UnsafeMutGuard::new(
@@ -308,7 +347,11 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
         self.inner.contains(k, check_ghost)
     }
 
-    pub fn contains_sampled<Q>(&mut self, k: &Q, return_distance: bool) -> (bool, Option<(u32, bool)>)
+    pub fn contains_sampled<Q>(
+        &mut self,
+        k: &Q,
+        return_distance: bool,
+    ) -> (bool, Option<(u32, bool)>)
     where
         KeyRef<K>: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
@@ -318,6 +361,10 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
 
     pub fn len(&self) -> usize {
         self.inner.len()
+    }
+
+    pub fn ghost_cap(&self) -> usize {
+        self.inner.ghost_cap()
     }
 
     pub fn len_with_ghost(&self) -> usize {
@@ -371,20 +418,30 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
             }
 
             if let Some(metrics) = self.memory_avg_kv_size_metrics.as_ref() {
-                let ghost_len = self.inner.ghost_len();
-                let real_len = self.inner.len();
-                let real_kv_size = self.kv_heap_size - ghost_len * 24;
-                if real_len != 0 {
-                    metrics.set((real_kv_size / real_len) as i64);
-                } else {
-                    metrics.set(0);
-                }
+                let avg_kv_size = self.get_avg_kv_size().unwrap_or(0);
+                metrics.set(avg_kv_size as i64);
             }
 
             self.key_size_count = 0;
             self.value_size_count = 0;
             self.key_size_sum = 0;
             self.value_size_sum = 0;
+        }
+    }
+
+    pub fn get_avg_kv_size(&self) -> Option<usize> {
+        let ghost_len = self.inner.ghost_len();
+        let real_len = self.inner.len();
+        let real_kv_size = if let Some(k_size) = self.key_size {
+            self.kv_heap_size - ghost_len * k_size
+        } else {
+            self.kv_heap_size - ghost_len * HACK_JOIN_KEY_SIZE
+        };
+
+        if real_len != 0 {
+            Some(real_kv_size / real_len)
+        } else {
+            None
         }
     }
 }

@@ -49,7 +49,7 @@ use crate::common::table::state_table::StateTable;
 use crate::common::StreamChunkBuilder;
 use crate::executor::JoinType::LeftAnti;
 use crate::executor::{
-    expect_first_barrier_from_aligned_stream, JOIN_GHOST_CAP, SAMPLE_NUM_IN_TEN_K,
+    expect_first_barrier_from_aligned_stream, SAMPLE_NUM_IN_TEN_K,
 };
 use crate::task::AtomicU64Ref;
 
@@ -889,8 +889,12 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                             .mrc_bucket_info
                             .with_label_values(&[table_id, &actor_id_str, side, "ghost_start"])
                             .set(ht.statistic_ghost_start() as i64);
+                        self.metrics
+                            .mrc_bucket_info
+                            .with_label_values(&[table_id, &actor_id_str, side, "ghost_cap"])
+                            .set(ht.ghost_cap() as i64);
 
-                        ht.update_bucket_size(cache_entry_count, JOIN_GHOST_CAP);
+                        ht.update_bucket_size(cache_entry_count);
                         // self.metrics
                         //     .join_cached_estimated_size
                         //     .with_label_values(&[&actor_id_str, side])
