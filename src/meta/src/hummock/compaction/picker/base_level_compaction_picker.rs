@@ -93,23 +93,16 @@ impl LevelCompactionPicker {
         let base_level_size = target_level.total_file_size
             - level_handlers[target_level.level_idx as usize].get_pending_file_size();
 
-        let l0_total_size_check = l0
-            .get_sub_levels()
-            .iter()
-            .map(|sub_level| sub_level.total_file_size)
-            .sum::<u64>();
-
-        assert_eq!(l0.total_file_size, l0_total_size_check);
-
-        let strict_check = level_handlers[0]
-            .get_pending_tasks()
-            .iter()
-            .any(|task| task.target_level != 0);
-
         if l0_size < base_level_size {
             stats.skip_by_write_amp_limit += 1;
             return None;
         }
+
+        // no base_compaction
+        let strict_check = level_handlers[0]
+            .get_pending_tasks()
+            .iter()
+            .all(|task| task.target_level == 0);
 
         let overlap_strategy = create_overlap_strategy(self.config.compaction_mode());
         let min_compaction_bytes = self.config.sub_level_max_compaction_bytes;
