@@ -711,53 +711,6 @@ impl SessionImpl {
         self.clear_notices()
     }
 
-    /// This function only used for test now.
-    /// Maybe we can remove it in the future.
-    pub async fn run_statement(
-        self: Arc<Self>,
-        sql: &str,
-        formats: Vec<Format>,
-    ) -> std::result::Result<PgResponse<PgResponseStream>, BoxedError> {
-        // Parse sql.
-        let mut stmts = Parser::parse_sql(sql)
-            .inspect_err(|e| tracing::error!("failed to parse sql:\n{}:\n{}", sql, e))?;
-        if stmts.is_empty() {
-            return Ok(PgResponse::empty_result(
-                pgwire::pg_response::StatementType::EMPTY,
-            ));
-        }
-        if stmts.len() > 1 {
-            return Ok(
-                PgResponse::builder(pgwire::pg_response::StatementType::EMPTY)
-                    .notice("cannot insert multiple commands into statement")
-                    .into(),
-            );
-        }
-        let stmt = stmts.swap_remove(0);
-        let rsp = {
-            let mut handle_fut = Box::pin(handle(self, stmt, sql, formats));
-            if cfg!(debug_assertions) {
-                // Report the SQL in the log periodically if the query is slow.
-                const SLOW_QUERY_LOG_PERIOD: Duration = Duration::from_secs(60);
-                const SLOW_QUERY_LOG: &str = "risingwave_frontend_slow_query_log";
-                loop {
-                    match tokio::time::timeout(SLOW_QUERY_LOG_PERIOD, &mut handle_fut).await {
-                        Ok(result) => break result,
-                        Err(_) => tracing::warn!(
-                            target: SLOW_QUERY_LOG,
-                            sql,
-                            "slow query has been running for another {SLOW_QUERY_LOG_PERIOD:?}"
-                        ),
-                    }
-                }
-            } else {
-                handle_fut.await
-            }
-        }
-        .inspect_err(|e| tracing::error!("failed to handle sql:\n{}:\n{}", sql, e))?;
-        Ok(rsp)
-    }
-
     pub fn notice_to_user(&self, str: impl Into<String>) {
         let notice = str.into();
         tracing::trace!("notice to user:{}", notice);

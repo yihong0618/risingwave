@@ -44,6 +44,9 @@ pub enum PsqlError {
     /// Include error for describe, bind.
     Internal(BoxedError),
 
+    #[error("current transaction is aborted, commands ignored until end of transaction block")]
+    InFailedTransaction,
+
     #[error("Panicked when processing: {0}.
 This is a bug. We would appreciate a bug report at https://github.com/risingwavelabs/risingwave/issues/new?labels=type%2Fbug&template=bug_report.yml")]
     Panic(String),

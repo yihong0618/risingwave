@@ -439,6 +439,17 @@ where
         stmt: Statement,
         session: Arc<SM::Session>,
     ) -> PsqlResult<()> {
+        // Reject all commands except `COMMIT` and `ABORT` if we're in an aborted transaction.
+        if matches!(
+            session.transaction_status(),
+            TransactionStatus::InFailedTransaction
+        ) && !matches!(
+            stmt,
+            Statement::Rollback { .. } | Statement::Abort | Statement::Commit { .. }
+        ) {
+            return Err(PsqlError::InFailedTransaction);
+        }
+
         let session = session.clone();
         // execute query
         let res = session
@@ -631,6 +642,14 @@ where
         let row_max = msg.max_rows as usize;
         let session = self.session.clone().unwrap();
         let session_id = session.id().0;
+
+        // Reject 
+        if matches!(
+            session.transaction_status(),
+            TransactionStatus::InFailedTransaction
+        ) {
+            return Err(PsqlError::InFailedTransaction);
+        }
 
         if let Some(mut result_cache) = self.result_cache.remove(&portal_name) {
             assert!(self.portal_store.contains_key(&portal_name));

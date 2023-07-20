@@ -19,9 +19,9 @@ use std::sync::Arc;
 
 use futures_async_stream::for_await;
 use parking_lot::RwLock;
-use pgwire::pg_response::StatementType;
-use pgwire::pg_server::{BoxedError, SessionId, SessionManager, UserAuthenticator};
-use pgwire::types::Row;
+use pgwire::pg_response::{PgResponse, StatementType};
+use pgwire::pg_server::{BoxedError, Session, SessionId, SessionManager, UserAuthenticator};
+use pgwire::types::{Format, Row};
 use risingwave_common::catalog::{
     FunctionId, IndexId, TableId, DEFAULT_DATABASE_NAME, DEFAULT_SCHEMA_NAME, DEFAULT_SUPER_USER,
     DEFAULT_SUPER_USER_ID, NON_RESERVED_USER_ID, PG_CATALOG_SCHEMA_NAME, RW_CATALOG_SCHEMA_NAME,
@@ -45,6 +45,7 @@ use risingwave_pb::stream_plan::StreamFragmentGraph;
 use risingwave_pb::user::update_user_request::UpdateField;
 use risingwave_pb::user::{GrantPrivilege, UserInfo};
 use risingwave_rpc_client::error::Result as RpcResult;
+use risingwave_sqlparser::parser::Parser;
 use tempfile::{Builder, NamedTempFile};
 
 use crate::catalog::catalog_service::CatalogWriter;
@@ -88,6 +89,32 @@ impl SessionManager for LocalFrontend {
     }
 }
 
+/// A thin wrapper of `run_one_query` for test. Returns error if there's no exactly one query in the
+/// provided SQL.
+async fn run_statement(
+    session: Arc<SessionImpl>,
+    sql: &str,
+) -> std::result::Result<RwPgResponse, BoxedError> {
+    // Parse sql.
+    let mut stmts = Parser::parse_sql(sql)
+        .inspect_err(|e| tracing::error!("failed to parse sql:\n{}:\n{}", sql, e))?;
+    if stmts.is_empty() {
+        return Ok(PgResponse::empty_result(
+            pgwire::pg_response::StatementType::EMPTY,
+        ));
+    }
+    if stmts.len() > 1 {
+        return Ok(
+            PgResponse::builder(pgwire::pg_response::StatementType::EMPTY)
+                .notice("cannot insert multiple commands into statement")
+                .into(),
+        );
+    }
+    session
+        .run_one_query(stmts.swap_remove(0), Format::Text)
+        .await
+}
+
 impl LocalFrontend {
     #[expect(clippy::unused_async)]
     pub async fn new(opts: FrontendOpts) -> Self {
@@ -100,7 +127,7 @@ impl LocalFrontend {
         sql: impl Into<String>,
     ) -> std::result::Result<RwPgResponse, Box<dyn std::error::Error + Send + Sync>> {
         let sql = sql.into();
-        self.session_ref().run_statement(sql.as_str(), vec![]).await
+        run_statement(self.session_ref(), sql.as_str()).await
     }
 
     pub async fn run_user_sql(
@@ -111,9 +138,11 @@ impl LocalFrontend {
         user_id: UserId,
     ) -> std::result::Result<RwPgResponse, Box<dyn std::error::Error + Send + Sync>> {
         let sql = sql.into();
-        self.session_user_ref(database, user_name, user_id)
-            .run_statement(sql.as_str(), vec![])
-            .await
+        run_statement(
+            self.session_user_ref(database, user_name, user_id),
+            sql.as_str(),
+        )
+        .await
     }
 
     pub async fn query_formatted_result(&self, sql: impl Into<String>) -> Vec<String> {

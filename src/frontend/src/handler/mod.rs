@@ -163,6 +163,7 @@ impl HandlerArgs {
     }
 }
 
+/// Entry point for handling a SQL statement.
 pub async fn handle(
     session: Arc<SessionImpl>,
     stmt: Statement,

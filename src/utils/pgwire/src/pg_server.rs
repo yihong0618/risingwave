@@ -48,12 +48,18 @@ pub trait SessionManager: Send + Sync + 'static {
     fn end_session(&self, session: &Self::Session);
 }
 
+/// A ready-to-execute or already-partially-executed statement.
+pub trait Portal: Send + Clone + std::fmt::Display + 'static {
+    /// The statement in this portal.
+    fn statement(&self) -> Option<&Statement>;
+}
+
 /// A psql connection. Each connection binds with a database. Switching database will need to
 /// recreate another connection.
 pub trait Session: Send + Sync {
     type ValuesStream: ValuesStream;
     type PreparedStatement: Send + Clone + 'static;
-    type Portal: Send + Clone + std::fmt::Display + 'static;
+    type Portal: Portal;
 
     /// The str sql can not use the unparse from AST: There is some problem when dealing with create
     /// view, see  https://github.com/risingwavelabs/risingwave/issues/6801.
@@ -193,6 +199,7 @@ mod tests {
     use risingwave_sqlparser::ast::Statement;
     use tokio_postgres::NoTls;
 
+    use super::Portal;
     use crate::pg_field_descriptor::PgFieldDescriptor;
     use crate::pg_message::TransactionStatus;
     use crate::pg_response::{PgResponse, RowSetResult, StatementType};
@@ -225,6 +232,12 @@ mod tests {
         }
 
         fn end_session(&self, _session: &Self::Session) {}
+    }
+
+    impl Portal for String {
+        fn statement(&self) -> Option<&Statement> {
+            None
+        }
     }
 
     impl Session for MockSession {

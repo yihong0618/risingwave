@@ -169,6 +169,7 @@ pub fn handle_bind(
     }
 }
 
+/// Entry point for handling a SQL statement in the extended query protocol.
 pub async fn handle_execute(session: Arc<SessionImpl>, portal: Portal) -> Result<RwPgResponse> {
     match portal {
         Portal::Empty => Ok(RwPgResponse::empty_result(
