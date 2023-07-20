@@ -102,7 +102,7 @@ impl LevelCompactionPicker {
         let strict_check = level_handlers[0]
             .get_pending_tasks()
             .iter()
-            .all(|task| task.target_level == 0);
+            .any(|task| task.target_level != 0);
 
         let overlap_strategy = create_overlap_strategy(self.config.compaction_mode());
         let min_compaction_bytes = self.config.sub_level_max_compaction_bytes;
