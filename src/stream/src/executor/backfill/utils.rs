@@ -248,6 +248,7 @@ pub(crate) async fn check_all_vnode_finished<S: StateStore, const IS_REPLICATED:
     for vnode in vnodes {
         let key: &[Datum] = &[Some(vnode.into())];
         let row = state_table.get_row(key).await?;
+        println!("row: {:?}", row);
 
         // original_backfill_datum_pos = (state_len - 1)
         // value indices are set, so we can -1 for the pk (a single vnode).

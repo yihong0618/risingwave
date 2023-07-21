@@ -148,6 +148,8 @@ async fn test_backfill_mv() -> Result<()> {
         .await?;
     assert_eq!(results.lines().collect_vec().len(), 256);
 
+    panic!("crash the table");
+
     Ok(())
 }
 
