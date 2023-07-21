@@ -70,6 +70,9 @@ impl SplitReader for KafkaSplitReader {
         config.set("isolation.level", KAFKA_ISOLATION_LEVEL);
         config.set("bootstrap.servers", bootstrap_servers);
 
+        config.set("fetch.max.bytes", "10485760"); // default: 52428800 (50 MB)
+        config.set("receive.message.max.bytes", "20000000"); // default: 100000000 (<100 MB)
+
         properties.common.set_security_properties(&mut config);
 
         if config.get("group.id").is_none() {
