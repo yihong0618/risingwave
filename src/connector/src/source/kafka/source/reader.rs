@@ -72,7 +72,8 @@ impl SplitReader for KafkaSplitReader {
 
         // https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
 
-        // config.set("fetch.max.bytes", "10485760"); // default: 52428800 (50 MB)
+        config.set("fetch.max.bytes", "10485760"); // default: 52428800 (50 MB)
+
         // config.set("receive.message.max.bytes", "20000000"); // default: 100000000 (<100 MB)
         // queued.max.messages.kbytes
 
