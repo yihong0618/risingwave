@@ -31,6 +31,27 @@ impl<'a, R: Rng> SqlGenerator<'a, R> {
         }
     }
 
+    /// Check whether the table has `window_start` or `window_end` column, which indicates that 
+    /// we cannot use time window function over it.
+    pub(crate) fn can_use_time_window(&self) -> bool {
+        for col in self.tables
+    }
+
+    /// Add `window_start` and `window_end` column for time window functions
+    fn add_time_window_generated_columns(mut schema: Vec<Column>) -> Vec<Column> {
+        let window_start = Column {
+            name: "window_start".into(),
+            data_type: DataType::Timestamptz,
+        };
+        let window_end = Column {
+            name: "window_end".into(),
+            data_type: DataType::Timestamptz,
+        };
+        schema.push(window_start);
+        schema.push(window_end);
+        schema
+    }
+
     /// Generates `TUMBLE`.
     /// TUMBLE(data: TABLE, timecol: COLUMN, size: INTERVAL, offset?: INTERVAL)
     fn gen_tumble(&mut self) -> (TableFactor, Table) {
@@ -48,7 +69,8 @@ impl<'a, R: Rng> SqlGenerator<'a, R> {
         let args = create_args(vec![name, time_col, size]);
         let relation = create_tvf("tumble", alias, args);
 
-        let table = Table::new(table_name, schema.clone());
+        let schema = Self::add_time_window_generated_columns(schema.clone());
+        let table = Table::new(table_name, schema);
 
         (relation, table)
     }
@@ -74,7 +96,8 @@ impl<'a, R: Rng> SqlGenerator<'a, R> {
 
         let relation = create_tvf("hop", alias, args);
 
-        let table = Table::new(table_name, schema.clone());
+        let schema = Self::add_time_window_generated_columns(schema.clone());
+        let table = Table::new(table_name, schema);
 
         (relation, table)
     }

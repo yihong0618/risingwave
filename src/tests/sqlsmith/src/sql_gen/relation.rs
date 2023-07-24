@@ -85,7 +85,13 @@ impl<'a, R: Rng> SqlGenerator<'a, R> {
     fn gen_table_factor_inner(&mut self) -> (TableFactor, Table) {
         // TODO: TableFactor::Derived, TableFactor::TableFunction, TableFactor::NestedJoin
         match self.rng.gen_range(0..=2) {
-            0 => self.gen_time_window_func(),
+            0 => {
+                if self.can_use_time_window() {
+                    self.gen_time_window_func()
+                } else {
+                self.gen_simple_table_factor()    
+                }
+            }
             1 => {
                 if self.can_recurse() {
                     self.gen_table_subquery()
