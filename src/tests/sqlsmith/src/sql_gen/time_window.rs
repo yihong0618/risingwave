@@ -31,12 +31,6 @@ impl<'a, R: Rng> SqlGenerator<'a, R> {
         }
     }
 
-    /// Check whether the table has `window_start` or `window_end` column, which indicates that 
-    /// we cannot use time window function over it.
-    pub(crate) fn can_use_time_window(&self) -> bool {
-        for col in self.tables
-    }
-
     /// Add `window_start` and `window_end` column for time window functions
     fn add_time_window_generated_columns(mut schema: Vec<Column>) -> Vec<Column> {
         let window_start = Column {
