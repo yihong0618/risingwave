@@ -87,7 +87,10 @@ pub async fn compute_node_serve(
     let config = load_config(&opts.config_path, Some(opts.override_config.clone()));
 
     info!("Starting compute node",);
-    info!("WKX path :{}", opts.config_path);
+    info!(
+        "WKXLOG path :{}, opts.parallelism: {}",
+        opts.config_path, opts.parallelism
+    );
     info!("> config: {:?}", config);
     info!(
         "> debug assertions: {}",
@@ -99,13 +102,15 @@ pub async fn compute_node_serve(
     let stream_config = Arc::new(config.streaming.clone());
     let batch_config = Arc::new(config.batch.clone());
 
+    info!("WKXLOG stream_config :{}", stream_config.extra_parallelism);
     // Register to the cluster. We're not ready to serve until activate is called.
     let (meta_client, system_params) = MetaClient::register_new(
         &opts.meta_address,
         WorkerType::ComputeNode,
         &advertise_addr,
         Property {
-            worker_node_parallelism: opts.parallelism as u64,
+            worker_node_parallelism: opts.parallelism as u64
+                + stream_config.extra_parallelism as u64,
             is_streaming: opts.role.for_streaming(),
             is_serving: opts.role.for_serving(),
         },
@@ -155,7 +160,8 @@ pub async fn compute_node_serve(
     let wkx_max_memory_manager_step = config.storage.wkx_max_memory_manager_step;
     tracing::info!("WKXLOG compute_memory_bytes: {}, wkx_operator_cache_capacity_mb: {}, wkx_max_memory_manager_step: {}", compute_memory_bytes, wkx_operator_cache_capacity_mb, wkx_max_memory_manager_step);
 
-    let memory_control_policy = build_memory_control_policy(total_memory_bytes, wkx_operator_cache_capacity_mb).unwrap();
+    let memory_control_policy =
+        build_memory_control_policy(total_memory_bytes, wkx_operator_cache_capacity_mb).unwrap();
 
     let storage_opts = Arc::new(StorageOpts::from((
         &config,
@@ -469,7 +475,10 @@ fn total_storage_memory_limit_bytes(storage_memory_config: &StorageMemoryConfig)
         + storage_memory_config.shared_buffer_capacity_mb
         + storage_memory_config.file_cache_total_buffer_capacity_mb
         + storage_memory_config.compactor_memory_limit_mb;
-    tracing::info!("WKXLOG total_storage_memory_mb: {}", total_storage_memory_mb);
+    tracing::info!(
+        "WKXLOG total_storage_memory_mb: {}",
+        total_storage_memory_mb
+    );
     total_storage_memory_mb << 20
 }
 

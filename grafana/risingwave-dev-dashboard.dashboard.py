@@ -1208,7 +1208,7 @@ def section_streaming_actors(outer_panels):
                     [
                         panels.target(f"{metric('stream_agg_cached_keys')}",
                                       "stream agg cached keys count | table {{table_id}} actor {{actor_id}}"),
-                        panels.target(f"{metric('stream_agg_distinct_cached_keys')}",
+                        panels.target(f"{metric('stream_agg_distinct_cached_entry_count')}",
                                       "stream agg distinct cached keys count |table {{table_id}} actor {{actor_id}}"),
                     ],
                 ),

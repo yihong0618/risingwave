@@ -325,6 +325,9 @@ pub struct StreamingConfig {
 
     #[serde(default = "default::streaming::always_remote_input")]
     pub always_remote_input: bool,
+
+    #[serde(default = "default::streaming::extra_parallelism")]
+    pub extra_parallelism: usize,
 }
 
 /// The section `[storage]` in `risingwave.toml`.
@@ -769,6 +772,10 @@ mod default {
 
         pub fn always_remote_input() -> bool {
             false
+        }
+
+        pub fn extra_parallelism() -> usize {
+            0
         }
     }
 
