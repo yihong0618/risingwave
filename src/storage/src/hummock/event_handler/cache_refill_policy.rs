@@ -26,7 +26,7 @@ use crate::hummock::sstable_store::SstableStoreRef;
 use crate::hummock::{HummockResult, TableHolder};
 use crate::monitor::{CompactorMetrics, StoreLocalStatistic};
 
-const REFILL_DATA_FILE_CACHE_CONCURRENCY: usize = 100;
+const REFILL_DATA_FILE_CACHE_CONCURRENCY: usize = 10;
 const REFILL_DATA_FILE_CACHE_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct CacheRefillPolicyConfig {
@@ -187,47 +187,37 @@ impl CacheRefillPolicy {
 
             if refill {
                 for meta in metas {
-                    for block_index in 0..meta.value().block_count() {
-                        let concurrency = self.concurrency.clone();
-                        let meta = meta.value().clone();
-                        let mut stat = StoreLocalStatistic::default();
-                        let sstable_store = self.sstable_store.clone();
-                        let metrics = self.metrics.clone();
+                    let concurrency = self.concurrency.clone();
+                    let meta = meta.value().clone();
+                    let sstable_store = self.sstable_store.clone();
+                    let metrics = self.metrics.clone();
 
-                        concurrency.acquire().await;
-                        if start.elapsed() > REFILL_DATA_FILE_CACHE_TIMEOUT {
-                            self.metrics
-                                .refill_data_file_cache_count
-                                .with_label_values(&["timeout"])
-                                .inc_by(blocks as f64);
-                            continue;
-                        }
-
-                        let future = async move {
-                            let res = sstable_store
-                                .may_fill_data_file_cache(&meta, block_index, &mut stat)
-                                .await;
-                            match res {
-                                Ok(true) => {
-                                    metrics
-                                        .refill_data_file_cache_count
-                                        .with_label_values(&["admitted"])
-                                        .inc();
-                                }
-                                Ok(false) => {
-                                    metrics
-                                        .refill_data_file_cache_count
-                                        .with_label_values(&["rejected"])
-                                        .inc();
-                                }
-                                _ => {}
-                            }
-                            concurrency.release();
-                            res
-                        };
-                        let handle = tokio::spawn(future);
-                        handles.push(handle);
+                    concurrency.acquire().await;
+                    if start.elapsed() > REFILL_DATA_FILE_CACHE_TIMEOUT {
+                        self.metrics
+                            .refill_data_file_cache_count
+                            .with_label_values(&["timeout"])
+                            .inc_by(blocks as f64);
+                        continue;
                     }
+
+                    let future = async move {
+                        let res = sstable_store.may_fill_data_file_cache(&meta).await;
+                        if let Ok((admitted, rejected)) = res {
+                            metrics
+                                .refill_data_file_cache_count
+                                .with_label_values(&["admitted"])
+                                .inc_by(admitted as f64);
+                            metrics
+                                .refill_data_file_cache_count
+                                .with_label_values(&["rejected"])
+                                .inc_by(rejected as f64);
+                        }
+                        concurrency.release();
+                        res
+                    };
+                    let handle = tokio::spawn(future);
+                    handles.push(handle);
                 }
             } else {
                 self.metrics

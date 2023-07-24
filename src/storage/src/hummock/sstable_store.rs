@@ -553,43 +553,35 @@ impl SstableStore {
         &self.data_file_cache
     }
 
-    pub async fn may_fill_data_file_cache(
-        &self,
-        sst: &Sstable,
-        block_index: usize,
-        stats: &mut StoreLocalStatistic,
-    ) -> HummockResult<bool> {
-        let object_id = sst.id;
-        let (block_loc, uncompressed_capacity) = sst.calculate_block_info(block_index);
+    /// returns inserted and filtered
+    pub async fn may_fill_data_file_cache(&self, sst: &Sstable) -> HummockResult<(usize, usize)> {
+        let mut stream = self.get_stream(sst, None).await?;
+        let mut block_idx = 0;
+        let mut inserted = 0;
+        while let Some(block) = stream.next().await? {
+            // TODO(MrCroxx): may fetch blocks filter by rate limiter, waste bandwidth. Refactor
+            // this.
 
-        stats.cache_data_block_total += 1;
-        let fetch_block = move || {
-            stats.cache_data_block_miss += 1;
-            let data_path = self.get_sst_data_path(object_id);
-            let store = self.store.clone();
-
-            async move {
-                let data = store.read(&data_path, Some(block_loc)).await?;
-                let block = Block::decode(data, uncompressed_capacity)?;
-                let block = Box::new(block);
-
-                Ok(block)
+            if let Some(filter) = self.data_file_cache_refill_filter.as_ref() {
+                filter.insert(sst.id);
             }
-        };
 
-        if let Some(filter) = self.data_file_cache_refill_filter.as_ref() {
-            filter.insert(object_id);
+            let key = SstableBlockIndex {
+                sst_id: sst.id,
+                block_idx,
+            };
+
+            if self
+                .data_file_cache
+                .insert(key, block)
+                .await
+                .map_err(HummockError::file_cache)?
+            {
+                inserted += 1;
+            }
+            block_idx += 1;
         }
-
-        let key = SstableBlockIndex {
-            sst_id: object_id,
-            block_idx: block_index as u64,
-        };
-
-        self.data_file_cache
-            .insert_with(key, fetch_block, uncompressed_capacity)
-            .await
-            .map_err(HummockError::file_cache)
+        Ok((inserted, block_idx as usize - inserted))
     }
 }
 
