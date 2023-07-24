@@ -70,8 +70,16 @@ impl SplitReader for KafkaSplitReader {
         config.set("isolation.level", KAFKA_ISOLATION_LEVEL);
         config.set("bootstrap.servers", bootstrap_servers);
 
-        config.set("fetch.max.bytes", "10485760"); // default: 52428800 (50 MB)
-        config.set("receive.message.max.bytes", "20000000"); // default: 100000000 (<100 MB)
+        // https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
+
+        // config.set("fetch.max.bytes", "10485760"); // default: 52428800 (50 MB)
+        // config.set("receive.message.max.bytes", "20000000"); // default: 100000000 (<100 MB)
+        // queued.max.messages.kbytes
+
+        // https://github.com/confluentinc/librdkafka/issues/2076
+        config.set("queued.min.messages", "256"); // default: 100000
+
+        // config.set("queued.max.messages.kbytes", "65536"); // default: 65536
 
         properties.common.set_security_properties(&mut config);
 
