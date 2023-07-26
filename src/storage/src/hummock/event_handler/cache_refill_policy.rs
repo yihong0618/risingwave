@@ -96,7 +96,7 @@ impl CacheRefillPolicy {
                                     return;
                                 }
                             };
-                            if let Some(sst) = sst && refill_data {
+                            if refill_data {
                                 for block_index in 0..sst.block_count() {
                                     policy.concurrency.acquire().await;
 
@@ -105,13 +105,16 @@ impl CacheRefillPolicy {
 
                                     tokio::spawn(async move {
                                         let mut stat = StoreLocalStatistic::default();
-                                        if let Err(e) = policy.sstable_store.may_fill_data_file_cache(&sst, block_index, &mut stat).await {
+                                        if let Err(e) = policy
+                                            .sstable_store
+                                            .may_fill_data_file_cache(&sst, block_index, &mut stat)
+                                            .await
+                                        {
                                             tracing::warn!("refill data error: {}", e);
                                         }
                                         policy.concurrency.release();
                                     });
                                 }
-
                             }
                         });
                     }
