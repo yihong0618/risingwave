@@ -553,6 +553,50 @@ impl SstableStore {
         &self.data_file_cache
     }
 
+    pub async fn may_fill_meta_file_cache(
+        &self,
+        sst: &SstableInfo,
+    ) -> HummockResult<Option<Box<Sstable>>> {
+        let object_id = sst.get_object_id();
+
+        let offset = sst.meta_offset as usize;
+        let size = (sst.file_size - sst.meta_offset) as usize;
+
+        if self.meta_cache.lookup(object_id, &object_id).is_some() {
+            return Ok(None);
+        }
+
+        let fetch = move || {
+            let store = self.store.clone();
+            let path = self.get_sst_data_path(object_id);
+            let loc = BlockLocation { offset, size };
+            async move {
+                let buf = store
+                    .read(&path, Some(loc))
+                    .await
+                    .map_err(HummockError::object_io_error)?;
+                let meta = SstableMeta::decode(&mut &buf[..])?;
+                let sst = Sstable::new(object_id, meta);
+                let sst = Box::new(sst);
+                Ok(sst)
+            }
+        };
+
+        if self
+            .meta_file_cache
+            .insert_with(object_id, fetch, size)
+            .await
+            .map_err(HummockError::file_cache)?
+        {
+            self.meta_file_cache
+                .lookup(&object_id)
+                .await
+                .map_err(HummockError::file_cache)
+        } else {
+            Ok(None)
+        }
+    }
+
     pub async fn may_fill_data_file_cache(
         &self,
         sst: &Sstable,
@@ -562,8 +606,12 @@ impl SstableStore {
         let object_id = sst.id;
         let (block_loc, uncompressed_capacity) = sst.calculate_block_info(block_index);
 
+        if self.block_cache.exists_block(object_id, block_index as u64) {
+            return Ok(false);
+        }
+
         stats.cache_data_block_total += 1;
-        let fetch_block = move || {
+        let fetch = move || {
             stats.cache_data_block_miss += 1;
             let data_path = self.get_sst_data_path(object_id);
             let store = self.store.clone();
@@ -587,7 +635,7 @@ impl SstableStore {
         };
 
         self.data_file_cache
-            .insert_with(key, fetch_block, uncompressed_capacity)
+            .insert_with(key, fetch, uncompressed_capacity)
             .await
             .map_err(HummockError::file_cache)
     }
