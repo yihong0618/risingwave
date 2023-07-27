@@ -315,7 +315,6 @@ impl Compactor {
             return Self::compact_done(compact_task, context.clone(), output_ssts, task_status);
         }
 
-        drop(memory_detector);
         context.compactor_metrics.compact_task_pending_num.inc();
         for (split_index, _) in compact_task.splits.iter().enumerate() {
             let filter = multi_filter.clone();
@@ -384,6 +383,8 @@ impl Compactor {
                 }
             }
         }
+
+        drop(memory_detector);
 
         if task_status != TaskStatus::Success {
             for abort_handle in abort_handles {
