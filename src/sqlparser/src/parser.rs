@@ -184,6 +184,8 @@ impl Parser {
     /// Parse a SQL statement and produce an Abstract Syntax Tree (AST)
     #[instrument(level = "debug")]
     pub fn parse_sql(sql: &str) -> Result<Vec<Statement>, ParserError> {
+        eprintln!("==== !!!! {} !!!!", sql);
+
         let mut tokenizer = Tokenizer::new(sql);
         let tokens = tokenizer.tokenize_with_location()?;
         let mut parser = Parser::new(tokens);

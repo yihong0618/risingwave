@@ -583,6 +583,12 @@ impl ConfigMap {
         } else if key.eq_ignore_ascii_case("bytea_output") {
             // TODO: We only support hex now.
             Ok("hex".to_string())
+        } else if key.eq_ignore_ascii_case("lc_collate") {
+            Ok("C".to_string())
+        } else if key.eq_ignore_ascii_case("lc_ctype") {
+            Ok("UTF-8".to_string())
+        } else if key.eq_ignore_ascii_case("default_tablespace") {
+            Ok("".to_string())
         } else {
             Err(ErrorCode::UnrecognizedConfigurationParameter(key.to_string()).into())
         }

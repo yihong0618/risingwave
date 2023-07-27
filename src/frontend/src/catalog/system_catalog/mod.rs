@@ -381,4 +381,49 @@ prepare_sys_catalog! {
     { BuiltinCatalog::Table(&RW_DDL_PROGRESS), read_ddl_progress await },
     { BuiltinCatalog::Table(&RW_TABLE_STATS), read_table_stats },
     { BuiltinCatalog::Table(&RW_RELATION_INFO), read_relation_info await },
+    { BuiltinCatalog::Table(&PG_SHSECLABEL), read_zero_rows },
+    { BuiltinCatalog::Table(&PG_DEFAULT_ACL), read_zero_rows },
+    { BuiltinCatalog::Table(&PG_DB_ROLE_SETTING), read_zero_rows },
 }
+
+impl SysCatalogReaderImpl {
+    pub fn read_zero_rows(&self) -> Result<Vec<OwnedRow>> {
+        Ok(vec![])
+    }
+}
+
+pub const PG_SHSECLABEL: BuiltinTable = BuiltinTable {
+    name: "pg_shseclabel",
+    schema: risingwave_common::catalog::PG_CATALOG_SCHEMA_NAME,
+    columns: &[
+        (DataType::Int32, "objoid"),
+        (DataType::Int32, "classoid"),
+        (DataType::Varchar, "provider"),
+        (DataType::Varchar, "label"),
+    ],
+    pk: &[0],
+};
+
+pub const PG_DEFAULT_ACL: BuiltinTable = BuiltinTable {
+    name: "pg_default_acl",
+    schema: risingwave_common::catalog::PG_CATALOG_SCHEMA_NAME,
+    columns: &[
+        (DataType::Int32, "oid"),
+        (DataType::Int32, "defaclrole"),
+        (DataType::Int32, "defaclnamespace"),
+        (DataType::Varchar, "defaclobjtype"),
+        (DataType::Varchar, "defaclacl"),
+    ],
+    pk: &[0],
+};
+
+pub const PG_DB_ROLE_SETTING: BuiltinTable = BuiltinTable {
+    name: "pg_db_role_setting",
+    schema: risingwave_common::catalog::PG_CATALOG_SCHEMA_NAME,
+    columns: &[
+        (DataType::Int32, "setdatabase"),
+        (DataType::Int32, "setrole"),
+        (DataType::Varchar, "setconfig"),
+    ],
+    pk: &[],
+};

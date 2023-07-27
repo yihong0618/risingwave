@@ -31,7 +31,7 @@ pub const PG_USER: BuiltinTable = BuiltinTable {
     schema: PG_CATALOG_SCHEMA_NAME,
     columns: &[
         (DataType::Int32, "usesysid"),
-        (DataType::Varchar, "name"),
+        (DataType::Varchar, "usename"),
         (DataType::Boolean, "usecreatedb"),
         (DataType::Boolean, "usesuper"),
         (DataType::Varchar, "passwd"),

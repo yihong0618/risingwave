@@ -589,6 +589,7 @@ pub fn bind_data_type(data_type: &AstDataType) -> Result<DataType> {
             match qualified_type_name.0[0].real_value().as_str() {
                 "int2" => DataType::Int16,
                 "int4" => DataType::Int32,
+                "oid" => DataType::Int32,
                 "int8" => DataType::Int64,
                 "rw_int256" => DataType::Int256,
                 "float4" => DataType::Float32,

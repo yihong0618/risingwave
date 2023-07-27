@@ -117,6 +117,15 @@ impl Binder {
         }
 
         // table function
+        if function_name == "aclexplode" {
+            return Ok(TableFunction::new(TableFunctionType::Unnest, vec![
+                ExprImpl::literal_list(vec![].into(), DataType::new_struct(vec![
+                    DataType::Int32, DataType::Int32, DataType::Varchar, DataType::Boolean,
+                ], vec![
+                   "grantor".into(), "grantee".into(), "privilege_type".into(), "is_grantable".into(),
+                ]))
+            ])?.into());
+        }
         if let Ok(function_type) = TableFunctionType::from_str(function_name.as_str()) {
             self.ensure_table_function_allowed()?;
             return Ok(TableFunction::new(function_type, inputs)?.into());
@@ -939,12 +948,20 @@ impl Binder {
                 ("pg_table_is_visible", raw_literal(ExprImpl::literal_bool(true))),
                 ("pg_encoding_to_char", raw_literal(ExprImpl::literal_varchar("UTF8".into()))),
                 ("has_database_privilege", raw_literal(ExprImpl::literal_bool(true))),
+                ("has_schema_privilege", raw_literal(ExprImpl::literal_bool(true))),
+                ("has_table_privilege", raw_literal(ExprImpl::literal_bool(true))),
                 ("pg_backend_pid", raw(|binder, _inputs| {
                     // FIXME: the session id is not global unique in multi-frontend env.
                     Ok(ExprImpl::literal_int(binder.session_id.0))
                 })),
                 ("pg_cancel_backend", guard_by_len(1, raw(|_binder, _inputs| {
                         // TODO: implement real cancel rather than just return false as an workaround.
+                        Ok(ExprImpl::literal_bool(false))
+                }))),
+                ("pg_is_in_recovery", guard_by_len(0, raw(|_binder, _inputs| {
+                        Ok(ExprImpl::literal_bool(false))
+                }))),
+                ("pg_is_wal_replay_paused", guard_by_len(0, raw(|_binder, _inputs| {
                         Ok(ExprImpl::literal_bool(false))
                 }))),
                 ("pg_terminate_backend", guard_by_len(1, raw(|_binder, _inputs|{
