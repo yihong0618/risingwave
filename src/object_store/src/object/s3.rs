@@ -576,8 +576,8 @@ impl S3ObjectStore {
             let mut http = hyper::client::HttpConnector::new();
             http.set_keepalive(Some(Duration::from_secs(600)));
             http.enforce_http(false);
-            // http.set_nodelay(true);
             http.set_reuse_address(true);
+            http.set_recv_buffer_size(Some(1048576));
             hyper_tls::HttpsConnector::from((http, tls.into()))
         };
         let hyper_adapter = aws_smithy_client::hyper_ext::Adapter::builder()
