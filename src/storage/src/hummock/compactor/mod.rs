@@ -40,7 +40,9 @@ use futures::{pin_mut, stream, FutureExt, StreamExt};
 pub use iterator::ConcatSstableIterator;
 use itertools::Itertools;
 use more_asserts::assert_ge;
-use risingwave_hummock_sdk::compact::{compact_task_to_string, estimate_state_for_compaction};
+use risingwave_hummock_sdk::compact::{
+    compact_task_to_string, estimate_memory_for_compact_task, estimate_state_for_compaction,
+};
 use risingwave_hummock_sdk::key::FullKey;
 use risingwave_hummock_sdk::table_stats::{
     add_table_stats_map, to_prost_table_stats_map, TableStats, TableStatsMap,
@@ -65,7 +67,9 @@ pub use self::compaction_utils::{CompactionStatistics, RemoteBuilderFactory, Tas
 pub use self::task_progress::TaskProgress;
 use super::multi_builder::CapacitySplitTableBuilder;
 use super::value::HummockValue;
-use super::{CompactionDeleteRanges, HummockResult, SstableBuilderOptions, Xor16FilterBuilder};
+use super::{
+    CompactionDeleteRanges, HummockResult, MemoryLimiter, SstableBuilderOptions, Xor16FilterBuilder,
+};
 use crate::filter_key_extractor::FilterKeyExtractorImpl;
 use crate::hummock::compactor::compaction_utils::{
     build_multi_compaction_filter, estimate_task_memory_capacity, generate_splits,
@@ -280,9 +284,14 @@ impl Compactor {
             }
         };
 
-        let (capacity, total_file_size, total_file_size_uncompressed) =
+        let (_capacity, total_file_size, total_file_size_uncompressed) =
             estimate_task_memory_capacity(context.clone(), &compact_task);
-        let task_memory_capacity_with_parallelism = capacity * parallelism;
+        // let task_memory_capacity_with_parallelism = capacity * parallelism;
+
+        let task_memory_capacity_with_parallelism = estimate_memory_for_compact_task(
+            &compact_task,
+            (context.storage_opts.block_size_kb as u64) * (1 << 10),
+        ) * compact_task.splits.len() as u64;
 
         tracing::info!(
                 "Ready to handle compaction task: {} need memory: {} input_file_counts {} input_file_size {} input_file_size_uncompressed {} total_key_count {} target_level {} compression_algorithm {:?} parallelism {} task_memory_capacity_with_parallelism {}",
@@ -302,7 +311,7 @@ impl Compactor {
         // reschedule it, so that it does not occupy the compactor's resources.
         let memory_detector = context
             .output_memory_limiter
-            .try_require_memory(task_memory_capacity_with_parallelism as u64);
+            .try_require_memory(task_memory_capacity_with_parallelism);
         if memory_detector.is_none() {
             tracing::warn!(
                 "Not enough memory to serve the task {} task_memory_capacity_with_parallelism {}  memory_usage {} memory_quota {}",
@@ -940,14 +949,7 @@ impl Compactor {
                 .start_timer()
         };
 
-        let (split_table_outputs, table_stats_map) = if self.options.capacity as u64
-            > self.context.storage_opts.min_sst_size_for_streaming_upload
-            && self
-                .context
-                .sstable_store
-                .store()
-                .support_streaming_upload()
-        {
+        let (split_table_outputs, table_stats_map) = {
             let factory = StreamingSstableWriterFactory::new(self.context.sstable_store.clone());
             self.compact_key_range_impl::<_, Xor16FilterBuilder>(
                 factory,
@@ -959,19 +961,40 @@ impl Compactor {
             )
             .verbose_instrument_await("compact")
             .await?
-        } else {
-            let factory = BatchSstableWriterFactory::new(self.context.sstable_store.clone());
-            self.compact_key_range_impl::<_, Xor16FilterBuilder>(
-                factory,
-                iter,
-                compaction_filter,
-                del_agg,
-                filter_key_extractor,
-                task_progress.clone(),
-            )
-            .verbose_instrument_await("compact")
-            .await?
         };
+
+        // let (split_table_outputs, table_stats_map) = if self.options.capacity as u64
+        //     > self.context.storage_opts.min_sst_size_for_streaming_upload
+        //     && self
+        //         .context
+        //         .sstable_store
+        //         .store()
+        //         .support_streaming_upload()
+        // {
+        //     let factory = StreamingSstableWriterFactory::new(self.context.sstable_store.clone());
+        //     self.compact_key_range_impl::<_, Xor16FilterBuilder>(
+        //         factory,
+        //         iter,
+        //         compaction_filter,
+        //         del_agg,
+        //         filter_key_extractor,
+        //         task_progress.clone(),
+        //     )
+        //     .verbose_instrument_await("compact")
+        //     .await?
+        // } else {
+        //     let factory = BatchSstableWriterFactory::new(self.context.sstable_store.clone());
+        //     self.compact_key_range_impl::<_, Xor16FilterBuilder>(
+        //         factory,
+        //         iter,
+        //         compaction_filter,
+        //         del_agg,
+        //         filter_key_extractor,
+        //         task_progress.clone(),
+        //     )
+        //     .verbose_instrument_await("compact")
+        //     .await?
+        // };
 
         compact_timer.observe_duration();
 
@@ -1050,7 +1073,7 @@ impl Compactor {
     ) -> HummockResult<(Vec<SplitTableOutput>, CompactionStatistics)> {
         let builder_factory = RemoteBuilderFactory::<F, B> {
             sstable_object_id_manager: self.context.sstable_object_id_manager.clone(),
-            limiter: self.context.output_memory_limiter.clone(),
+            limiter: MemoryLimiter::unlimit(), // not limit output
             options: self.options.clone(),
             policy: self.task_config.cache_policy,
             remote_rpc_cost: self.get_id_time.clone(),

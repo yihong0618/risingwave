@@ -123,3 +123,23 @@ pub fn estimate_state_for_compaction(task: &CompactTask) -> (u64, usize, u64) {
 
     (total_memory_size, total_file_count, total_key_count)
 }
+
+pub fn estimate_memory_for_compact_task(task: &CompactTask, block_size: u64) -> u64 {
+    let mut result = 0;
+    const ESTIMATED_META_SIZE: u64 = 6 * 1048576;
+
+    // input
+    for level in &task.input_ssts {
+        if level.level_type() == LevelType::Nonoverlapping {
+            result += ESTIMATED_META_SIZE + block_size;
+            // result += sst_size;
+        } else {
+            result += (ESTIMATED_META_SIZE + block_size) * level.table_infos.len() as u64;
+        }
+    }
+
+    // output
+    result += ESTIMATED_META_SIZE + 2 * block_size;
+
+    result
+}
