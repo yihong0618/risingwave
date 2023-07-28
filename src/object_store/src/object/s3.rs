@@ -574,10 +574,11 @@ impl S3ObjectStore {
                 .build()
                 .unwrap_or_else(|e| panic!("Error while creating TLS connector: {}", e));
             let mut http = hyper::client::HttpConnector::new();
-            http.set_keepalive(Some(Duration::from_secs(600)));
+            http.set_keepalive(Some(Duration::from_secs(90)));
             http.enforce_http(false);
             http.set_reuse_address(true);
             http.set_recv_buffer_size(Some(1048576));
+            http.set_nodelay(true);
             hyper_tls::HttpsConnector::from((http, tls.into()))
         };
         let hyper_adapter = aws_smithy_client::hyper_ext::Adapter::builder()
