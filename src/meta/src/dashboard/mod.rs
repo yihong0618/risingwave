@@ -61,7 +61,8 @@ pub(super) mod handlers {
     use risingwave_pb::common::WorkerNode;
     use risingwave_pb::meta::{ActorLocation, PbTableFragments};
     use risingwave_pb::monitor_service::StackTraceResponse;
-    use risingwave_pb::stream_plan::StreamActor;
+    use risingwave_pb::stream_plan::stream_node::NodeBody;
+    use risingwave_pb::stream_plan::{PbStreamActor, StreamActor};
     use serde_json::json;
 
     use super::*;
@@ -72,6 +73,18 @@ pub(super) mod handlers {
     pub type Result<T> = std::result::Result<T, DashboardError>;
     type TableId = i32;
     type TableActors = (TableId, Vec<StreamActor>);
+
+    fn clear_source_properties(actors: &mut Vec<PbStreamActor>) {
+        actors.iter_mut().for_each(|actor| {
+            if let Some(node) = actor.nodes.as_mut() {
+                if let Some(NodeBody::Source(src_node)) = node.node_body.as_mut() {
+                    if let Some(inner) = src_node.source_inner.as_mut() {
+                        inner.properties.clear()
+                    }
+                }
+            }
+        })
+    }
 
     pub fn err(err: impl Into<anyhow::Error>) -> DashboardError {
         DashboardError(err.into())
@@ -113,12 +126,20 @@ pub(super) mod handlers {
     ) -> Result<Json<Vec<Table>>> {
         use crate::model::MetadataModel;
 
-        let results = Table::list(meta_store)
+        let mut results = Table::list(meta_store)
             .await
             .map_err(err)?
             .into_iter()
             .filter(|t| t.table_type() == table_type)
-            .collect();
+            .collect_vec();
+
+        // remove table definition to prevent leaking source information
+        results.iter_mut().for_each(|t| {
+            // truncate table definition to remove the WITH clause
+            t.definition.find("WITH").map(|idx| {
+                t.definition.truncate(idx);
+            });
+        });
 
         Ok(Json(results))
     }
@@ -151,8 +172,8 @@ pub(super) mod handlers {
         Extension(srv): Extension<Service<S>>,
     ) -> Result<Json<Vec<Source>>> {
         use crate::model::MetadataModel;
-
-        let sources = Source::list(&*srv.meta_store).await.map_err(err)?;
+        let mut sources = Source::list(&*srv.meta_store).await.map_err(err)?;
+        sources.iter_mut().for_each(|src| src.properties.clear());
         Ok(Json(sources))
     }
 
@@ -161,7 +182,14 @@ pub(super) mod handlers {
     ) -> Result<Json<Vec<Sink>>> {
         use crate::model::MetadataModel;
 
-        let sinks = Sink::list(&*srv.meta_store).await.map_err(err)?;
+        let mut sinks = Sink::list(&*srv.meta_store).await.map_err(err)?;
+        for sink in sinks.iter_mut() {
+            sink.definition.find("WITH").map(|idx| {
+                sink.definition.truncate(idx);
+            });
+            sink.properties.clear();
+        }
+
         Ok(Json(sinks))
     }
 
@@ -173,7 +201,7 @@ pub(super) mod handlers {
             .cluster_manager
             .list_active_streaming_compute_nodes()
             .await;
-        let actors = nodes
+        let mut actors = nodes
             .iter()
             .map(|node| ActorLocation {
                 node: Some(node.clone()),
@@ -181,19 +209,27 @@ pub(super) mod handlers {
             })
             .collect::<Vec<_>>();
 
+        actors.iter_mut().for_each(|actor| {
+            clear_source_properties(&mut actor.actors);
+        });
+
         Ok(Json(actors))
     }
 
     pub async fn list_table_fragments<S: MetaStore>(
         Extension(srv): Extension<Service<S>>,
     ) -> Result<Json<Vec<TableActors>>> {
-        let table_fragments = srv
+        let mut table_fragments = srv
             .fragment_manager
             .list_table_fragments()
             .await
             .iter()
             .map(|f| (f.table_id().table_id() as i32, f.actors()))
             .collect::<Vec<_>>();
+
+        table_fragments.iter_mut().for_each(|(_, actors)| {
+            clear_source_properties(actors);
+        });
 
         Ok(Json(table_fragments))
     }
@@ -203,12 +239,18 @@ pub(super) mod handlers {
     ) -> Result<Json<Vec<PbTableFragments>>> {
         use crate::model::MetadataModel;
 
-        let table_fragments = TableFragments::list(&*srv.meta_store)
+        let mut table_fragments = TableFragments::list(&*srv.meta_store)
             .await
             .map_err(err)?
             .into_iter()
             .map(|x| x.to_protobuf())
             .collect_vec();
+
+        for table in table_fragments.iter_mut() {
+            for fragment in table.fragments.values_mut() {
+                clear_source_properties(&mut fragment.actors);
+            }
+        }
         Ok(Json(table_fragments))
     }
 
