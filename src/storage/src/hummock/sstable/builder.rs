@@ -498,12 +498,6 @@ impl<W: SstableWriter, F: FilterBuilder> SstableBuilder<W, F> {
             return Ok(());
         }
 
-        println!(
-            "build_block total_key_count {} delete event {}",
-            self.total_key_count,
-            self.monotonic_deletes.len()
-        );
-
         let block_meta = self.block_metas.last_mut().unwrap();
         block_meta.uncompressed_size = self.block_builder.uncompressed_block_size() as u32;
         let block = self.block_builder.build();
