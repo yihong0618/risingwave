@@ -107,7 +107,7 @@ pub struct SstableBuilder<W: SstableWriter, F: FilterBuilder> {
     /// key wmk1 (5) and till the next event key wmk2 (7) (not inclusive).
     /// If there is no range deletes between current event key and next event key, `new_epoch` will
     /// be `HummockEpoch::MAX`.
-    monotonic_deletes: Vec<MonotonicDeleteEvent>,
+    pub monotonic_deletes: Vec<MonotonicDeleteEvent>,
     /// `table_id` of added keys.
     table_ids: BTreeSet<u32>,
     last_full_key: Vec<u8>,
@@ -118,10 +118,10 @@ pub struct SstableBuilder<W: SstableWriter, F: FilterBuilder> {
     last_table_id: Option<u32>,
     sstable_id: u64,
 
-    /// `stale_key_count` counts range_tombstones as well.
+    /// `stale_key_count` counts range_tombstones as well when finishd.
     stale_key_count: u64,
-    /// `total_key_count` counts range_tombstones as well.
-    total_key_count: u64,
+    /// `total_key_count` counts range_tombstones as well when finishd.
+    pub total_key_count: u64,
     /// Per table stats.
     table_stats: TableStatsMap,
     /// `last_table_stats` accumulates stats for `last_table_id` and finalizes it in `table_stats`
@@ -138,7 +138,7 @@ impl<W: SstableWriter> SstableBuilder<W, Xor16FilterBuilder> {
         Self::new(
             sstable_id,
             writer,
-            Xor16FilterBuilder::new(options.capacity / DEFAULT_ENTRY_SIZE + 1),
+            Xor16FilterBuilder::new(options.capacity / DEFAULT_ENTRY_SIZE + 1, None),
             options,
             Arc::new(FilterKeyExtractorImpl::FullKey(FullKeyFilterKeyExtractor)),
         )
@@ -497,6 +497,12 @@ impl<W: SstableWriter, F: FilterBuilder> SstableBuilder<W, F> {
         if self.block_builder.is_empty() {
             return Ok(());
         }
+
+        println!(
+            "build_block total_key_count {} delete event {}",
+            self.total_key_count,
+            self.monotonic_deletes.len()
+        );
 
         let block_meta = self.block_metas.last_mut().unwrap();
         block_meta.uncompressed_size = self.block_builder.uncompressed_block_size() as u32;

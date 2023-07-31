@@ -216,7 +216,7 @@ pub async fn gen_test_sstable_impl<B: AsRef<[u8]> + Clone + Default + Eq, F: Fil
     let mut b = SstableBuilder::<_, F>::new(
         object_id,
         writer,
-        F::create(opts.bloom_false_positive, opts.capacity / 16),
+        F::create(opts.bloom_false_positive, opts.capacity / 16, None),
         opts,
         Arc::new(FilterKeyExtractorImpl::FullKey(FullKeyFilterKeyExtractor)),
     );

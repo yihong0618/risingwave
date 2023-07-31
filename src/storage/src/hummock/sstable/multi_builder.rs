@@ -181,8 +181,15 @@ where
         value: HummockValue<&[u8]>,
         is_new_user_key: bool,
     ) -> HummockResult<()> {
+        const MAX_KEY_COUNT: u64 = 200 * 10000;
         let mut switch_builder = false;
         let mut vnode_changed = false;
+
+        if let Some(builder) = self.current_builder.as_ref() {
+            switch_builder =
+                builder.total_key_count + builder.monotonic_deletes.len() as u64 > MAX_KEY_COUNT
+        }
+
         if self.split_by_table && full_key.user_key.table_id.table_id != self.last_table_id {
             self.last_table_id = full_key.user_key.table_id.table_id;
             switch_builder = true;

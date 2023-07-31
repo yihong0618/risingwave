@@ -15,11 +15,13 @@
 // Copyright 2021 TiKV Project Authors. Licensed under Apache-2.0.
 
 use std::f64;
+use std::sync::Arc;
 
 use bytes::BufMut;
 
 use super::filter::FilterBuilder;
 use super::Sstable;
+use crate::hummock::MemoryLimiter;
 
 pub trait BitSlice {
     fn get_bit(&self, idx: usize) -> bool;
@@ -176,7 +178,7 @@ impl FilterBuilder for BloomFilterBuilder {
         filter
     }
 
-    fn create(fpr: f64, capacity: usize) -> Self {
+    fn create(fpr: f64, capacity: usize, _memory_limiter: Option<Arc<MemoryLimiter>>) -> Self {
         BloomFilterBuilder::new(fpr, capacity)
     }
 }

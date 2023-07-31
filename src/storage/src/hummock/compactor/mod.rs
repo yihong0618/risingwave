@@ -67,9 +67,7 @@ pub use self::compaction_utils::{CompactionStatistics, RemoteBuilderFactory, Tas
 pub use self::task_progress::TaskProgress;
 use super::multi_builder::CapacitySplitTableBuilder;
 use super::value::HummockValue;
-use super::{
-    CompactionDeleteRanges, HummockResult, MemoryLimiter, SstableBuilderOptions, Xor16FilterBuilder,
-};
+use super::{CompactionDeleteRanges, HummockResult, SstableBuilderOptions, Xor16FilterBuilder};
 use crate::filter_key_extractor::FilterKeyExtractorImpl;
 use crate::hummock::compactor::compaction_utils::{
     build_multi_compaction_filter, estimate_task_memory_capacity, generate_splits,
@@ -1072,7 +1070,7 @@ impl Compactor {
     ) -> HummockResult<(Vec<SplitTableOutput>, CompactionStatistics)> {
         let builder_factory = RemoteBuilderFactory::<F, B> {
             sstable_object_id_manager: self.context.sstable_object_id_manager.clone(),
-            limiter: MemoryLimiter::unlimit(), // not limit output
+            limiter: self.context.output_memory_limiter.clone(),
             options: self.options.clone(),
             policy: self.task_config.cache_policy,
             remote_rpc_cost: self.get_id_time.clone(),

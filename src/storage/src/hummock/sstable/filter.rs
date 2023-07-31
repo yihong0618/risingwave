@@ -14,6 +14,10 @@
 
 // Copyright 2021 TiKV Project Authors. Licensed under Apache-2.0.
 
+use std::sync::Arc;
+
+use crate::hummock::MemoryLimiter;
+
 pub trait FilterBuilder: Send {
     /// add key which need to be filter for construct filter data.
     fn add_key(&mut self, dist_key: &[u8], table_id: u32);
@@ -22,5 +26,5 @@ pub trait FilterBuilder: Send {
     /// approximate memory of filter builder
     fn approximate_len(&self) -> usize;
 
-    fn create(fpr: f64, capacity: usize) -> Self;
+    fn create(fpr: f64, capacity: usize, memory_limiter: Option<Arc<MemoryLimiter>>) -> Self;
 }

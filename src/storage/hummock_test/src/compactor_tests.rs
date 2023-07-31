@@ -1178,7 +1178,10 @@ pub(crate) mod tests {
         let compact_ctx =
             prepare_compactor_and_filter(&storage, &hummock_meta_client, existing_table_id);
 
+        println!("before prepare_data");
         prepare_data(hummock_meta_client.clone(), &storage, existing_table_id, 2).await;
+        println!("after prepare_data");
+
         let mut local = storage
             .new_local(NewLocalOptions::for_test(existing_table_id.into()))
             .await;
@@ -1190,13 +1193,19 @@ pub(crate) mod tests {
                 Bound::Excluded(Bytes::copy_from_slice(next_key(key.as_slice()).as_slice())),
             )
         };
+
+        println!("before flush");
+
         local
             .flush(vec![prefix_key_range(1u16), prefix_key_range(2u16)])
             .await
             .unwrap();
         local.seal_current_epoch(u64::MAX);
+        println!("after flush");
 
+        println!("before flush_and_commit");
         flush_and_commit(&hummock_meta_client, &storage, 130).await;
+        println!("after flush_and_commit");
 
         // 2. get compact task
         let manual_compcation_option = ManualCompactionOption {
@@ -1225,10 +1234,14 @@ pub(crate) mod tests {
             129
         );
 
+        println!("before compact");
+
         // 3. compact
         let (_tx, rx) = tokio::sync::oneshot::channel();
         let (mut result_task, task_stats) =
             Compactor::compact(Arc::new(compact_ctx), compact_task.clone(), rx).await;
+
+        println!("after compact");
 
         hummock_manager_ref
             .report_compact_task(&mut result_task, Some(to_prost_table_stats_map(task_stats)))
