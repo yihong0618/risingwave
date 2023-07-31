@@ -152,6 +152,11 @@ impl FilterBuilder for BloomFilterBuilder {
         self.key_hash_entries.len() * 4
     }
 
+    fn approximate_building_memory(&self) -> usize {
+        // FIXME
+        self.key_hash_entries.len() * 4
+    }
+
     fn finish(&mut self) -> Vec<u8> {
         // 0.69 is approximately ln(2)
         let k = ((self.bits_per_key as f64) * 0.69) as u32;

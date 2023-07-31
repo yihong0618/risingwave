@@ -193,6 +193,9 @@ impl<W: SstableWriter, F: FilterBuilder> SstableBuilder<W, F> {
                     .insert(monotonic_delete.event_key.left_user_key.table_id.table_id());
             }
         }
+
+        self.total_key_count += monotonic_deletes.len() as u64;
+        self.stale_key_count += monotonic_deletes.len() as u64;
         self.monotonic_deletes.extend(monotonic_deletes);
     }
 
@@ -361,8 +364,6 @@ impl<W: SstableWriter, F: FilterBuilder> SstableBuilder<W, F> {
                 .encode();
             }
         }
-        self.total_key_count += self.monotonic_deletes.len() as u64;
-        self.stale_key_count += self.monotonic_deletes.len() as u64;
         let bloom_filter = if self.options.bloom_false_positive > 0.0 {
             self.filter_builder.finish()
         } else {

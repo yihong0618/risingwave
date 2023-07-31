@@ -27,4 +27,7 @@ pub trait FilterBuilder: Send {
     fn approximate_len(&self) -> usize;
 
     fn create(fpr: f64, capacity: usize, memory_limiter: Option<Arc<MemoryLimiter>>) -> Self;
+
+    /// approximate memory when finish filter
+    fn approximate_building_memory(&self) -> usize;
 }

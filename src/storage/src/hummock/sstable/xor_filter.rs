@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::mem::size_of;
 use std::sync::Arc;
 
 use bytes::{Buf, BufMut};
@@ -69,21 +68,21 @@ impl FilterBuilder for Xor16FilterBuilder {
             .push(Sstable::hash_for_bloom_filter(key, table_id));
     }
 
-    fn approximate_len(&self) -> usize {
-        let approximate_size = self.key_hash_entries.len()
-            * (3 * (size_of::<u64>() + size_of::<u32>())
-                + 3 * (size_of::<u64>() + size_of::<usize>()));
+    fn approximate_building_memory(&self) -> usize {
+        const XOR_MEMORY_PROPORTION: usize = 123;
+        self.key_hash_entries.len() * XOR_MEMORY_PROPORTION
+    }
 
-        (approximate_size as f64 * 1.23).ceil() as usize
+    fn approximate_len(&self) -> usize {
+        self.key_hash_entries.len() * 4
     }
 
     fn finish(&mut self) -> Vec<u8> {
         self.key_hash_entries.sort();
         self.key_hash_entries.dedup();
-        let _memory_tracker = self
-            .memory_limiter
-            .as_ref()
-            .map(|memory_limit| memory_limit.must_require_memory(self.approximate_len() as u64));
+        let _memory_tracker = self.memory_limiter.as_ref().map(|memory_limit| {
+            memory_limit.must_require_memory(self.approximate_building_memory() as u64)
+        });
 
         let xor_filter = Xor16::from(&self.key_hash_entries);
         let mut buf = Vec::with_capacity(8 + 4 + xor_filter.fingerprints.len() * 2 + 1);
@@ -136,6 +135,11 @@ impl FilterBuilder for Xor8FilterBuilder {
 
     fn create(_fpr: f64, capacity: usize, memory_limiter: Option<Arc<MemoryLimiter>>) -> Self {
         Xor8FilterBuilder::new(capacity, memory_limiter)
+    }
+
+    fn approximate_building_memory(&self) -> usize {
+        const XOR_MEMORY_PROPORTION: usize = 123;
+        self.key_hash_entries.len() * XOR_MEMORY_PROPORTION
     }
 }
 
