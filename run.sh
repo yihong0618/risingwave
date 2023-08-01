@@ -11,7 +11,7 @@ RUST_LOG="risingwave_stream=trace" ./risedev d full
 f queries.sql </dev/null
 
 sleep 100
-./risedev k
+# ./risedev k
 
 echo -n "number of delete_ranges: "
 cat .risingwave/log/compute-node*.log | rg "state_table: delete range" | wc -l
