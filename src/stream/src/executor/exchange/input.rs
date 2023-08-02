@@ -143,10 +143,14 @@ impl RemoteInput {
         metrics: Arc<StreamingMetrics>,
         batched_permits_limit: usize,
     ) {
-        let client = client_pool.get_by_addr(upstream_addr).await?;
+        let client = client_pool
+            .get_by_addr(upstream_addr)
+            .await
+            .map_err(StreamExecutorError::exchange)?;
         let (stream, permits_tx) = client
             .get_stream(up_down_ids.0, up_down_ids.1, up_down_frag.0, up_down_frag.1)
-            .await?;
+            .await
+            .map_err(StreamExecutorError::exchange)?;
 
         let up_actor_id = up_down_ids.0.to_string();
         let down_actor_id = up_down_ids.1.to_string();
@@ -212,10 +216,10 @@ impl RemoteInput {
                     }
                 }
                 Err(e) => {
-                    return Err(StreamExecutorError::channel_closed(format!(
-                        "RemoteInput tonic error: {}",
-                        e
-                    )))
+                    return Err(StreamExecutorError::channel_closed_with_source(
+                        "exchange remote input",
+                        e,
+                    ))
                 }
             }
         }

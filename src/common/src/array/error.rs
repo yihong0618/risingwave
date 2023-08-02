@@ -31,10 +31,10 @@ pub enum ArrayError {
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 
-    #[error("Convert from arrow error: {0}")]
+    #[error("failed to convert from arrow: {0}")]
     FromArrow(String),
 
-    #[error("Convert to arrow error: {0}")]
+    #[error("failed to convert to arrow: {0}")]
     ToArrow(String),
 }
 

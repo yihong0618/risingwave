@@ -41,6 +41,7 @@
 #![feature(impl_trait_in_assoc_type)]
 #![feature(result_option_inspect)]
 #![feature(negative_impls)]
+#![feature(error_iter)]
 
 #[macro_use]
 pub mod jemalloc;

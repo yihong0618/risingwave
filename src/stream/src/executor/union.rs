@@ -155,7 +155,7 @@ async fn merge(inputs: Vec<BoxedMessageStream>) {
             Some((None, remaining)) => {
                 // tracing::error!("Union from upstream {} closed unexpectedly", remaining.id);
                 return Err(StreamExecutorError::channel_closed(format!(
-                    "Union from upstream {} closed unexpectedly",
+                    "union from upstream {}",
                     remaining.id,
                 )));
             }

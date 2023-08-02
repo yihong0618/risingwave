@@ -330,7 +330,7 @@ impl Stream for SelectReceivers {
                 // should not happen normally as we use the barrier as the control message.
                 Some((None, r)) => {
                     return Poll::Ready(Some(Err(StreamExecutorError::channel_closed(format!(
-                        "exchange from actor {} to actor {} closed unexpectedly",
+                        "exchange from actor {} to actor {}",
                         r.actor_id(),
                         self.actor_id
                     )))))
