@@ -123,7 +123,7 @@ impl<'a> TryFrom<&'a ExprNode> for UdfExpression {
                         "",
                         DataType::from(t)
                             .try_into()
-                            .map_err(risingwave_udf::Error::Unsupported)?,
+                            .map_err(risingwave_udf::Error::unsupported)?,
                         true,
                     ))
                 })

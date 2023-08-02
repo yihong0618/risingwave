@@ -55,13 +55,13 @@ impl ArrowFlightUdfClient {
         let expect_input_types: Vec<_> = args.fields.iter().map(|f| f.data_type()).collect();
         let expect_result_types: Vec<_> = returns.fields.iter().map(|f| f.data_type()).collect();
         if !data_types_match(&expect_input_types, &actual_input_types) {
-            return Err(Error::TypeMismatch(format!(
+            return Err(Error::type_mismatch(format!(
                 "function: {:?}, expect arguments: {:?}, actual: {:?}",
                 id, expect_input_types, actual_input_types
             )));
         }
         if !data_types_match(&expect_result_types, &actual_result_types) {
-            return Err(Error::TypeMismatch(format!(
+            return Err(Error::type_mismatch(format!(
                 "function: {:?}, expect return: {:?}, actual: {:?}",
                 id, expect_result_types, actual_result_types
             )));
@@ -73,7 +73,7 @@ impl ArrowFlightUdfClient {
     pub async fn call(&self, id: &str, input: RecordBatch) -> Result<RecordBatch> {
         let mut output_stream = self.call_stream(id, stream::once(async { input })).await?;
         // TODO: support no output
-        let head = output_stream.next().await.ok_or(Error::NoReturned)??;
+        let head = output_stream.next().await.ok_or(Error::no_returned())??;
         let mut remaining = vec![];
         while let Some(batch) = output_stream.next().await {
             remaining.push(batch?);

@@ -2338,6 +2338,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "error-stack"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f00447f331c7f726db5b8532ebc9163519eed03c6d7c8b73c90b3ff5646ac85"
+dependencies = [
+ "anyhow",
+ "rustc_version",
+]
+
+[[package]]
 name = "etcd-client"
 version = "0.11.1"
 source = "git+https://github.com/risingwavelabs/etcd-client.git?rev=d55550a#d55550a182f2119e39e64858771468e1b26f6777"
@@ -6884,6 +6894,7 @@ dependencies = [
  "arrow-flight",
  "arrow-schema",
  "arrow-select",
+ "error-stack",
  "futures-util",
  "madsim-tokio",
  "madsim-tonic",
