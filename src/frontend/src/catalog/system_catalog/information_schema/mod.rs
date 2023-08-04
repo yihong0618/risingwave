@@ -13,7 +13,9 @@
 // limitations under the License.
 
 pub mod columns;
+pub mod table_constraints;
 pub mod tables;
 
 pub use columns::*;
+pub use table_constraints::*;
 pub use tables::*;
