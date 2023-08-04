@@ -159,10 +159,10 @@ pub fn estimate_memory_for_compact_task(
     // output
     // builder will maintain SstableInfo + block_builder(block) + writer (block to vec)
     if support_streaming_upload {
-        result += ESTIMATED_META_SIZE + 2 * block_size
+        result += ESTIMATED_META_SIZE * 2 + 2 * block_size
     } else {
-        result += ESTIMATED_META_SIZE + sst_capacity; // Use sst_capacity to avoid BatchUploader
-                                                      // memory bursts.
+        result += ESTIMATED_META_SIZE * 2 + sst_capacity; // Use sst_capacity to avoid BatchUploader
+                                                          // memory bursts.
     }
 
     result
