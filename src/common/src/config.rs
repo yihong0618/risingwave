@@ -1188,8 +1188,8 @@ pub mod default {
             DEFAULT_MAX_COMPACTION_BYTES
         }
         pub fn sub_level_max_compaction_bytes() -> u64 {
-            // DEFAULT_MIN_COMPACTION_BYTES
-            DEFAULT_MAX_BYTES_FOR_LEVEL_BASE
+            DEFAULT_MIN_COMPACTION_BYTES
+            // DEFAULT_MAX_BYTES_FOR_LEVEL_BASE
         }
         pub fn level0_tier_compact_file_number() -> u64 {
             DEFAULT_TIER_COMPACT_TRIGGER_NUMBER

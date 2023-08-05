@@ -177,17 +177,29 @@ where
         let mut last_range_tombstone_epoch = HummockEpoch::MAX;
         if let Some(builder) = self.current_builder.as_mut() {
             if is_new_user_key {
-                // if switch_builder {
-                //     need_seal_current = true;
-                // } else if builder.reach_capacity() || builder.reach_key_count() {
-                //     need_seal_current = self.split_weight_by_vnode == 0
-                //         || (self.is_target_level_l0_or_lbase && vnode_changed);
-                // }
+                if switch_builder {
+                    need_seal_current = true;
+                } else if builder.reach_capacity() || builder.reach_key_count() {
+                    if self.split_weight_by_vnode == 0 {
+                        // not spli tgroup
+                        need_seal_current = true
+                    } else {
+                        // split group
+                        if self.is_target_level_l0_or_lbase {
+                            if vnode_changed {
+                                need_seal_current = true;
+                            } else {
+                                need_seal_current = builder.approximate_len() > 512 * 1024 * 1024
+                                    || builder.reach_key_count();
+                            }
+                        } else {
+                            need_seal_current = true;
+                        }
+                    }
 
-                need_seal_current = switch_builder
-                    || builder.reach_capacity()
-                    || builder.reach_key_count()
-                    || (self.is_target_level_l0_or_lbase && vnode_changed);
+                    // need_seal_current = self.split_weight_by_vnode == 0
+                    //     || (self.is_target_level_l0_or_lbase && vnode_changed);
+                }
             }
             if need_seal_current && let Some(event) = builder.last_range_tombstone() && event.new_epoch != HummockEpoch::MAX {
                 last_range_tombstone_epoch = event.new_epoch;
