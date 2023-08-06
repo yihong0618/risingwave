@@ -2040,12 +2040,16 @@ where
         let database_core = &mut core.database;
         let mut tables = BTreeMapTransaction::new(&mut database_core.tables);
         let mut indexes = BTreeMapTransaction::new(&mut database_core.indexes);
+        let mut sources = BTreeMapTransaction::new(&mut database_core.sources);
         let key = (table.database_id, table.schema_id, table.name.clone());
         assert!(
             tables.contains_key(&table.id)
                 && database_core.in_progress_creation_tracker.contains(&key),
             "table must exist and be in altering procedure"
         );
+        if let Ok(OptionalAssociatedSourceId::AssociatedSourceId(old_source_id)) = tables.get(&table.id).unwrap().get_optional_associated_source_id() {
+            sources.remove(*old_source_id);
+        }
 
         let index_ids: Vec<_> = indexes
             .tree_ref()
@@ -2073,7 +2077,7 @@ where
         database_core.in_progress_creation_tracker.remove(&key);
 
         tables.insert(table.id, table.clone());
-        commit_meta!(self, tables, indexes)?;
+        commit_meta!(self, tables, indexes, sources)?;
 
         // Group notification
         let version = self

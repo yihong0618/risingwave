@@ -93,7 +93,7 @@ pub enum DdlCommand {
     DropView(ViewId, DropMode),
     CreateStreamingJob(StreamingJob, StreamFragmentGraphProto),
     DropStreamingJob(StreamingJobId, DropMode),
-    ReplaceTable(StreamingJob, StreamFragmentGraphProto, ColIndexMapping),
+    ReplaceTable(StreamingJob, StreamFragmentGraphProto, ColIndexMapping, Option<SourceId>),
     AlterRelationName(Relation, String),
     CreateConnection(Connection),
     DropConnection(ConnectionId),
@@ -179,8 +179,8 @@ where
                 DdlCommand::DropStreamingJob(job_id, drop_mode) => {
                     ctrl.drop_streaming_job(job_id, drop_mode).await
                 }
-                DdlCommand::ReplaceTable(stream_job, fragment_graph, table_col_index_mapping) => {
-                    ctrl.replace_table(stream_job, fragment_graph, table_col_index_mapping)
+                DdlCommand::ReplaceTable(stream_job, fragment_graph, table_col_index_mapping, old_source_id) => {
+                    ctrl.replace_table(stream_job, fragment_graph, table_col_index_mapping, old_source_id)
                         .await
                 }
                 DdlCommand::AlterRelationName(relation, name) => {
@@ -707,6 +707,7 @@ where
         mut stream_job: StreamingJob,
         fragment_graph: StreamFragmentGraphProto,
         table_col_index_mapping: ColIndexMapping,
+        old_source_id: Option<SourceId>,
     ) -> MetaResult<NotificationVersion> {
         let _reschedule_job_lock = self.stream_manager.reschedule_lock.read().await;
         let env = StreamEnvironment::from_protobuf(fragment_graph.get_env().unwrap());
@@ -714,6 +715,9 @@ where
         let fragment_graph = self
             .prepare_replace_table(&mut stream_job, fragment_graph)
             .await?;
+
+        // TODO: fix `mark_initialized`
+        // stream_job.mark_initialized();
 
         let result = try {
             let (ctx, table_fragments) = self
@@ -725,6 +729,14 @@ where
                 )
                 .await?;
 
+            match &stream_job {
+                StreamingJob::Table(Some(source), _) => {
+                    // Register the source on the connector node.
+                    self.source_manager.register_source(source).await?;
+                }
+                _ => {}
+            }
+
             self.stream_manager
                 .replace_table(table_fragments, ctx)
                 .await?;
@@ -732,7 +744,7 @@ where
 
         match result {
             Ok(_) => {
-                self.finish_replace_table(&stream_job, table_col_index_mapping)
+                self.finish_replace_table(&stream_job, table_col_index_mapping, old_source_id)
                     .await
             }
             Err(err) => {
@@ -754,8 +766,8 @@ where
         let fragment_graph =
             StreamFragmentGraph::new(fragment_graph, self.env.id_gen_manager_ref(), stream_job)
                 .await?;
-        assert!(fragment_graph.internal_tables().is_empty());
-        assert!(fragment_graph.dependent_table_ids().is_empty());
+        // assert!(fragment_graph.internal_tables().is_empty());
+        // assert!(fragment_graph.dependent_table_ids().is_empty());
 
         // 2. Set the graph-related fields and freeze the `stream_job`.
         stream_job.set_table_fragment_id(fragment_graph.table_fragment_id());
@@ -866,14 +878,21 @@ where
         &self,
         stream_job: &StreamingJob,
         table_col_index_mapping: ColIndexMapping,
+        old_source_id: Option<SourceId>,
     ) -> MetaResult<NotificationVersion> {
-        let StreamingJob::Table(None, table) = stream_job else {
+        let StreamingJob::Table(_, table) = stream_job else {
             unreachable!("unexpected job: {stream_job:?}")
         };
 
-        self.catalog_manager
+        let res = self.catalog_manager
             .finish_replace_table_procedure(table, table_col_index_mapping)
-            .await
+            .await?;
+
+        if let Some(source_id) = old_source_id {
+            self.drop_source(source_id, DropMode::Restrict).await
+        } else {
+            Ok(res)
+        }
     }
 
     async fn cancel_replace_table(&self, stream_job: &StreamingJob) -> MetaResult<()> {

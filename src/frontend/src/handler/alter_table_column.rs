@@ -23,11 +23,17 @@ use risingwave_pb::stream_plan::StreamFragmentGraph;
 use risingwave_sqlparser::ast::{AlterTableOperation, ColumnOption, ObjectName, Statement};
 use risingwave_sqlparser::parser::Parser;
 
-use super::create_table::{gen_create_table_plan, ColumnIdGenerator};
+use super::create_table::{
+    gen_create_table_plan, gen_create_table_plan_with_source, ColumnIdGenerator,
+};
 use super::{HandlerArgs, RwPgResponse};
 use crate::catalog::root_catalog::SchemaPath;
 use crate::catalog::table_catalog::TableType;
 use crate::{build_graph, Binder, OptimizerContext, TableCatalog};
+
+// TODO:
+// 1. alter only add
+// 2. assert!(fragment_graph.internal_tables().is_empty());
 
 /// Handle `ALTER TABLE [ADD|DROP] COLUMN` statements. The `operation` must be either `AddColumn` or
 /// `DropColumn`.
@@ -50,20 +56,27 @@ pub async fn handle_alter_table_column(
         let (table, schema_name) =
             reader.get_table_by_name(db_name, schema_path, &real_table_name)?;
 
-        match table.table_type() {
-            // Do not allow altering a table with a connector. It should be done passively according
-            // to the messages from the connector.
-            TableType::Table if table.has_associated_source() => {
-                Err(ErrorCode::InvalidInputSyntax(format!(
-                    "cannot alter table \"{table_name}\" because it has a connector"
-                )))?
-            }
-            TableType::Table => {}
+        // match table.table_type() {
+        //     // Possible methods:
+        //     // 1. (simple) build a new source and delete the old one
+        //     // 2. restart the old source with new column
+        //     //    <- reset split reader / new split reader
+        //     //    <- reset strategy for each split reader (hard way)
 
-            _ => Err(ErrorCode::InvalidInputSyntax(format!(
-                "\"{table_name}\" is not a table or cannot be altered"
-            )))?,
-        }
+        //     // Summary:
+        //     // 1. build table with new source definition
+        //     // 2. replace table and delete old source
+        //     TableType::Table if table.has_associated_source() => {
+        //         Err(ErrorCode::InvalidInputSyntax(format!(
+        //             "cannot alter table \"{table_name}\" because it has a connector"
+        //         )))?
+        //     }
+        //     TableType::Table => {}
+
+        //     _ => Err(ErrorCode::InvalidInputSyntax(format!(
+        //         "\"{table_name}\" is not a table or cannot be altered"
+        //     )))?,
+        // }
 
         session.check_privilege_for_drop_alter(schema_name, &**table)?;
 
@@ -82,9 +95,12 @@ pub async fn handle_alter_table_column(
         .context("unable to parse original table definition")?
         .try_into()
         .unwrap();
-    let Statement::CreateTable { columns, .. } = &mut definition else {
+    let Statement::CreateTable { columns, source_schema, .. } = &mut definition else {
         panic!("unexpected statement: {:?}", definition);
     };
+    let source_schema = source_schema
+        .clone()
+        .map(|source_schema| source_schema.into_source_schema_v2());
 
     match operation {
         AlterTableOperation::AddColumn {
@@ -170,20 +186,32 @@ pub async fn handle_alter_table_column(
         panic!("unexpected statement type: {:?}", definition);
     };
 
-    let (graph, table) = {
+    let (graph, table, source) = {
         let context = OptimizerContext::from_handler_args(handler_args);
-        let (plan, source, table) = gen_create_table_plan(
-            context,
-            table_name,
-            columns,
-            constraints,
-            col_id_gen,
-            source_watermarks,
-            append_only,
-        )?;
-
-        // We should already have rejected the case where the table has a connector.
-        assert!(source.is_none());
+        let (plan, source, table) = match source_schema {
+            Some(source_schema) => {
+                gen_create_table_plan_with_source(
+                    context,
+                    table_name,
+                    columns,
+                    constraints,
+                    source_schema,
+                    source_watermarks,
+                    col_id_gen,
+                    append_only,
+                )
+                .await?
+            }
+            None => gen_create_table_plan(
+                context,
+                table_name,
+                columns,
+                constraints,
+                col_id_gen,
+                source_watermarks,
+                append_only,
+            )?,
+        };
 
         // TODO: avoid this backward conversion.
         if TableCatalog::from(&table).pk_column_ids() != original_catalog.pk_column_ids() {
@@ -206,7 +234,7 @@ pub async fn handle_alter_table_column(
             ..table
         };
 
-        (graph, table)
+        (graph, table, source)
     };
 
     // Calculate the mapping from the original columns to the new columns.
@@ -226,7 +254,7 @@ pub async fn handle_alter_table_column(
     let catalog_writer = session.catalog_writer()?;
 
     catalog_writer
-        .replace_table(table, graph, col_index_mapping)
+        .replace_table(source, table, graph, col_index_mapping)
         .await?;
 
     Ok(PgResponse::empty_result(StatementType::ALTER_TABLE))
