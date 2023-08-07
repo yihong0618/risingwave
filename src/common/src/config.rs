@@ -1162,7 +1162,7 @@ pub mod default {
 
     pub mod compaction_config {
         const DEFAULT_MAX_COMPACTION_BYTES: u64 = 2 * 1024 * 1024 * 1024; // 2GB
-        pub const DEFAULT_MIN_COMPACTION_BYTES: u64 = 128 * 1024 * 1024; // 128MB
+        const DEFAULT_MIN_COMPACTION_BYTES: u64 = 128 * 1024 * 1024; // 128MB
         const DEFAULT_MAX_BYTES_FOR_LEVEL_BASE: u64 = 512 * 1024 * 1024; // 512MB
 
         // decrease this configure when the generation of checkpoint barrier is not frequent.
@@ -1189,7 +1189,6 @@ pub mod default {
         }
         pub fn sub_level_max_compaction_bytes() -> u64 {
             DEFAULT_MIN_COMPACTION_BYTES
-            // DEFAULT_MAX_BYTES_FOR_LEVEL_BASE
         }
         pub fn level0_tier_compact_file_number() -> u64 {
             DEFAULT_TIER_COMPACT_TRIGGER_NUMBER

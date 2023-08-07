@@ -15,7 +15,6 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
-use risingwave_common::config::default::compaction_config;
 use risingwave_hummock_sdk::compaction_group::hummock_version_ext::HummockLevelsExt;
 use risingwave_pb::hummock::hummock_version::Levels;
 use risingwave_pb::hummock::{CompactionConfig, InputLevel, Level, LevelType, OverlappingLevel};
@@ -90,12 +89,6 @@ impl LevelCompactionPicker {
         level_handlers: &[LevelHandler],
         stats: &mut LocalPickerStatistic,
     ) -> Option<CompactionInput> {
-        // no running base_compaction
-        let strict_check = level_handlers[0]
-            .get_pending_tasks()
-            .iter()
-            .any(|task| task.target_level != 0);
-
         let l0_size = l0.total_file_size - level_handlers[0].get_pending_file_size();
         let base_level_size = target_level.total_file_size
             - level_handlers[target_level.level_idx as usize].get_pending_file_size();
@@ -105,8 +98,14 @@ impl LevelCompactionPicker {
             return None;
         }
 
+        // no running base_compaction
+        let strict_check = level_handlers[0]
+            .get_pending_tasks()
+            .iter()
+            .any(|task| task.target_level != 0);
+
         let overlap_strategy = create_overlap_strategy(self.config.compaction_mode());
-        let min_compaction_bytes = compaction_config::DEFAULT_MIN_COMPACTION_BYTES; // TEST 128m
+        let min_compaction_bytes = self.config.sub_level_max_compaction_bytes;
         let non_overlap_sub_level_picker = NonOverlapSubLevelPicker::new(
             min_compaction_bytes,
             // divide by 2 because we need to select files of base level and it need use the other
@@ -224,7 +223,6 @@ impl LevelCompactionPicker {
     ) -> Option<CompactionInput> {
         let overlap_strategy = create_overlap_strategy(self.config.compaction_mode());
 
-        let strict_check = !level_handler.get_pending_tasks().is_empty();
         for (idx, level) in l0.sub_levels.iter().enumerate() {
             if level.level_type() != LevelType::Nonoverlapping
                 || level.total_file_size > self.config.sub_level_max_compaction_bytes
@@ -243,15 +241,10 @@ impl LevelCompactionPicker {
 
             let tier_sub_level_compact_level_count =
                 self.config.level0_sub_level_compact_level_count as usize;
-            let min_depth = if strict_check {
-                tier_sub_level_compact_level_count
-            } else {
-                0
-            };
             let non_overlap_sub_level_picker = NonOverlapSubLevelPicker::new(
-                0,
+                self.config.sub_level_max_compaction_bytes / 2,
                 max_compaction_bytes,
-                min_depth,
+                self.config.level0_sub_level_compact_level_count as usize,
                 self.config.level0_max_compact_file_number,
                 overlap_strategy.clone(),
             );
@@ -293,11 +286,9 @@ impl LevelCompactionPicker {
                     max_level_size * self.config.level0_sub_level_compact_level_count as u64 / 2
                         >= input.total_file_size;
 
-                if strict_check
-                    && (is_write_amp_large
-                        || input.sstable_infos.len() < tier_sub_level_compact_level_count)
-                    && (input.total_file_count
-                        < self.config.level0_max_compact_file_number as usize)
+                if (is_write_amp_large
+                    || input.sstable_infos.len() < tier_sub_level_compact_level_count)
+                    && input.total_file_count < self.config.level0_max_compact_file_number as usize
                 {
                     skip_by_write_amp = true;
                     continue;
