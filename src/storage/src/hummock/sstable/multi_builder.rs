@@ -163,8 +163,7 @@ where
         value: HummockValue<&[u8]>,
         is_new_user_key: bool,
     ) -> HummockResult<()> {
-        let (switch_builder, _vnode_changed) =
-            self.check_table_and_vnode_change(&full_key.user_key);
+        let (switch_builder, vnode_changed) = self.check_table_and_vnode_change(&full_key.user_key);
 
         // We use this `need_seal_current` flag to store whether we need to call `seal_current` and
         // then call `seal_current` later outside the `if let` instead of calling
@@ -178,15 +177,25 @@ where
         let mut last_range_tombstone_epoch = HummockEpoch::MAX;
         if let Some(builder) = self.current_builder.as_mut() {
             if is_new_user_key {
-                // if switch_builder {
-                //     need_seal_current = true;
-                // } else if builder.reach_capacity() || builder.reach_key_count() {
-                //     need_seal_current = self.split_weight_by_vnode == 0
-                //         || (self.is_target_level_l0_or_lbase && vnode_changed);
-                // }
+                if switch_builder {
+                    need_seal_current = true;
+                } else if builder.reach_capacity() || builder.reach_key_count() {
+                    // need_seal_current = self.split_weight_by_vnode == 0
+                    //     || (self.is_target_level_l0_or_lbase && vnode_changed);
 
-                need_seal_current =
-                    switch_builder || builder.reach_capacity() || builder.reach_key_count();
+                    if self.split_weight_by_vnode == 0 {
+                        need_seal_current = true;
+                    } else if builder.approximate_len() > 512 * 1024 * 1024
+                        || builder.reach_key_count()
+                    {
+                        need_seal_current = true;
+                    } else {
+                        need_seal_current = self.is_target_level_l0_or_lbase && vnode_changed;
+                    }
+                }
+
+                // need_seal_current =
+                //     switch_builder || builder.reach_capacity() || builder.reach_key_count();
             }
             if need_seal_current && let Some(event) = builder.last_range_tombstone() && event.new_epoch != HummockEpoch::MAX {
                 last_range_tombstone_epoch = event.new_epoch;
