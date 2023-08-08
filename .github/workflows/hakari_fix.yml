@@ -1,0 +1,26 @@
+name: Hakari Fix
+
+on:
+  push:
+    paths: ["Cargo.lock", "**/Cargo.toml"]
+
+jobs:
+  format-code:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install cargo-hakari
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hakari
+
+      - name: Hakari generate
+        run: cargo hakari generate
+
+      # Commit all changed files back to the repository
+      - uses: stefanzweifel/git-auto-commit-action@v4
