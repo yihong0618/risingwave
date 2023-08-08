@@ -4682,7 +4682,7 @@ dependencies = [
 [[package]]
 name = "otlp-tempo-dump"
 version = "0.1.0"
-source = "git+https://github.com/BugenZhao/otlp-tempo-dump.git?rev=2983d0a#2983d0ae8c837fed7750175e071cbdffe12ba842"
+source = "git+https://github.com/BugenZhao/otlp-tempo-dump.git?rev=a0366e7f04e16af43b8af8975f64a50bdad06ea2#a0366e7f04e16af43b8af8975f64a50bdad06ea2"
 dependencies = [
  "futures",
  "indextree",
