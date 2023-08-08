@@ -31,9 +31,13 @@ use crate::catalog::root_catalog::SchemaPath;
 use crate::catalog::table_catalog::TableType;
 use crate::{build_graph, Binder, OptimizerContext, TableCatalog};
 
+// Methods:
+// 1. start new source
+// 2. restart old source
+
 // TODO:
 // 1. alter only add
-// 2. assert!(fragment_graph.internal_tables().is_empty());
+// 3. remove data
 
 /// Handle `ALTER TABLE [ADD|DROP] COLUMN` statements. The `operation` must be either `AddColumn` or
 /// `DropColumn`.
@@ -174,6 +178,7 @@ pub async fn handle_alter_table_column(
 
     // Create handler args as if we're creating a new table with the altered definition.
     let handler_args = HandlerArgs::new(session.clone(), &definition, "")?;
+    // If we are altering table with source, we should create a new col id generator
     let col_id_gen = ColumnIdGenerator::new_alter(&original_catalog);
     let Statement::CreateTable {
         columns,

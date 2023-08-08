@@ -31,7 +31,7 @@ use risingwave_common::catalog::{
     DEFAULT_SCHEMA_NAME, DEFAULT_SUPER_USER, DEFAULT_SUPER_USER_FOR_PG,
     DEFAULT_SUPER_USER_FOR_PG_ID, DEFAULT_SUPER_USER_ID, SYSTEM_SCHEMAS,
 };
-use risingwave_common::{bail, ensure};
+use risingwave_common::{bail, ensure, try_match_expand};
 use risingwave_pb::catalog::table::OptionalAssociatedSourceId;
 use risingwave_pb::catalog::{
     Connection, Database, Function, Index, Schema, Sink, Source, Table, View,
@@ -2002,9 +2002,14 @@ where
     }
 
     /// This is used for `ALTER TABLE ADD/DROP COLUMN`.
-    pub async fn start_replace_table_procedure(&self, table: &Table) -> MetaResult<()> {
+    pub async fn start_replace_table_procedure(
+        &self,
+        source: &Option<Source>,
+        table: &Table,
+    ) -> MetaResult<()> {
         let core = &mut *self.core.lock().await;
         let database_core = &mut core.database;
+        let user_core = &mut core.user;
         database_core.ensure_database_id(table.database_id)?;
         database_core.ensure_schema_id(table.schema_id)?;
 
@@ -2025,6 +2030,15 @@ where
         if database_core.has_in_progress_creation(&key) {
             bail!("table is in altering procedure");
         } else {
+            if let Some(source) = source.as_ref() {
+                let source_key = (source.database_id, source.schema_id, source.name.clone());
+                if database_core.has_in_progress_creation(&source_key) {
+                    bail!("source is in creating procedure while altering table");
+                }
+                database_core.mark_creating(&source_key);
+                // a new source
+                user_core.increase_ref_count(source.owner, 1);
+            }
             database_core.mark_creating(&key);
             Ok(())
         }
@@ -2035,6 +2049,7 @@ where
         &self,
         table: &Table,
         table_col_index_mapping: ColIndexMapping,
+        internal_tables: Vec<Table>,
     ) -> MetaResult<NotificationVersion> {
         let core = &mut *self.core.lock().await;
         let database_core = &mut core.database;
@@ -2047,7 +2062,11 @@ where
                 && database_core.in_progress_creation_tracker.contains(&key),
             "table must exist and be in altering procedure"
         );
-        if let Ok(OptionalAssociatedSourceId::AssociatedSourceId(old_source_id)) = tables.get(&table.id).unwrap().get_optional_associated_source_id() {
+        if let Ok(OptionalAssociatedSourceId::AssociatedSourceId(old_source_id)) = tables
+            .get(&table.id)
+            .unwrap()
+            .get_optional_associated_source_id()
+        {
             sources.remove(*old_source_id);
         }
 
@@ -2077,25 +2096,43 @@ where
         database_core.in_progress_creation_tracker.remove(&key);
 
         tables.insert(table.id, table.clone());
+        for table in &internal_tables {
+            tables.insert(table.id, table.clone());
+        }
         commit_meta!(self, tables, indexes, sources)?;
 
         // Group notification
+        // 1. update table
+        // 2. delete old internal tables
+        // 3. create new internal tables
+        // Question: can we update the internal tables? It seems there is only one
+        self.notify_frontend(
+            Operation::Update,
+            Info::RelationGroup(RelationGroup {
+                relations: vec![Relation {
+                    relation_info: RelationInfo::Table(table.to_owned()).into(),
+                }]
+                .into_iter()
+                .chain(updated_indexes.into_iter().map(|index| Relation {
+                    relation_info: RelationInfo::Index(index).into(),
+                }))
+                .collect_vec(),
+            }),
+        )
+        .await;
         let version = self
             .notify_frontend(
-                Operation::Update,
+                Operation::Add,
                 Info::RelationGroup(RelationGroup {
-                    relations: vec![Relation {
-                        relation_info: RelationInfo::Table(table.to_owned()).into(),
-                    }]
-                    .into_iter()
-                    .chain(updated_indexes.into_iter().map(|index| Relation {
-                        relation_info: RelationInfo::Index(index).into(),
-                    }))
-                    .collect_vec(),
+                    relations: internal_tables
+                        .into_iter()
+                        .map(|internal_table| Relation {
+                            relation_info: RelationInfo::Table(internal_table).into(),
+                        })
+                        .collect_vec(),
                 }),
             )
             .await;
-
         Ok(version)
     }
 

@@ -120,6 +120,7 @@ pub enum Command {
         reschedules: HashMap<FragmentId, Reschedule>,
     },
 
+    // TODO(qiao): more explanation
     /// `ReplaceTable` command generates a `Update` barrier with the given `merge_updates`. This is
     /// essentially switching the downstream of the old table fragments to the new ones, and
     /// dropping the old table fragments. Used for table schema change.
@@ -130,6 +131,7 @@ pub enum Command {
         old_table_fragments: TableFragments,
         new_table_fragments: TableFragments,
         merge_updates: Vec<MergeUpdate>,
+        init_split_assignment: SplitAssignment,
     },
 
     /// `SourceSplitAssignment` generates Plain(Mutation::Splits) for pushing initialized splits or
@@ -319,13 +321,19 @@ where
             Command::ReplaceTable {
                 old_table_fragments,
                 merge_updates,
+                init_split_assignment,
                 ..
             } => {
                 let dropped_actors = old_table_fragments.actor_ids();
+                let actor_splits = init_split_assignment
+                    .values()
+                    .flat_map(build_actor_connector_splits)
+                    .collect();
 
                 Some(Mutation::Update(UpdateMutation {
                     merge_update: merge_updates.clone(),
                     dropped_actors,
+                    actor_splits,
                     ..Default::default()
                 }))
             }
@@ -681,10 +689,12 @@ where
                 }
             }
 
+            // TODO(qiao): drop source info?
             Command::ReplaceTable {
                 old_table_fragments,
                 new_table_fragments,
                 merge_updates,
+                init_split_assignment: _,
             } => {
                 let table_ids = HashSet::from_iter(std::iter::once(old_table_fragments.table_id()));
 

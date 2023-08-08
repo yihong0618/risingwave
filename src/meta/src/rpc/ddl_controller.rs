@@ -16,6 +16,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use itertools::Itertools;
+use risingwave_common::bail;
 use risingwave_common::config::DefaultParallelism;
 use risingwave_common::hash::VirtualNode;
 use risingwave_common::util::column_index_mapping::ColIndexMapping;
@@ -93,7 +94,12 @@ pub enum DdlCommand {
     DropView(ViewId, DropMode),
     CreateStreamingJob(StreamingJob, StreamFragmentGraphProto),
     DropStreamingJob(StreamingJobId, DropMode),
-    ReplaceTable(StreamingJob, StreamFragmentGraphProto, ColIndexMapping, Option<SourceId>),
+    ReplaceTable(
+        StreamingJob,
+        StreamFragmentGraphProto,
+        ColIndexMapping,
+        Option<SourceId>,
+    ),
     AlterRelationName(Relation, String),
     CreateConnection(Connection),
     DropConnection(ConnectionId),
@@ -179,9 +185,19 @@ where
                 DdlCommand::DropStreamingJob(job_id, drop_mode) => {
                     ctrl.drop_streaming_job(job_id, drop_mode).await
                 }
-                DdlCommand::ReplaceTable(stream_job, fragment_graph, table_col_index_mapping, old_source_id) => {
-                    ctrl.replace_table(stream_job, fragment_graph, table_col_index_mapping, old_source_id)
-                        .await
+                DdlCommand::ReplaceTable(
+                    stream_job,
+                    fragment_graph,
+                    table_col_index_mapping,
+                    old_source_id,
+                ) => {
+                    ctrl.replace_table(
+                        stream_job,
+                        fragment_graph,
+                        table_col_index_mapping,
+                        old_source_id,
+                    )
+                    .await
                 }
                 DdlCommand::AlterRelationName(relation, name) => {
                     ctrl.alter_relation_name(relation, &name).await
@@ -702,6 +718,13 @@ where
         }
     }
 
+    // TODO(qiao):
+    // 1. fix `mark_initialized`
+    // 2. Clean old internal tables
+    // 3. stream manager
+
+    // 1. After `prepare_replace_table`, `stream_job` table id is the real table ID, 
+    // 2. After `build_replace_table`, table_fragment has dummy id
     async fn replace_table(
         &self,
         mut stream_job: StreamingJob,
@@ -713,12 +736,12 @@ where
         let env = StreamEnvironment::from_protobuf(fragment_graph.get_env().unwrap());
 
         let fragment_graph = self
-            .prepare_replace_table(&mut stream_job, fragment_graph)
-            .await?;
+                .prepare_replace_table(&mut stream_job, fragment_graph)
+                .await?;
 
-        // TODO: fix `mark_initialized`
         // stream_job.mark_initialized();
 
+        let mut internal_tables = vec![];
         let result = try {
             let (ctx, table_fragments) = self
                 .build_replace_table(
@@ -728,6 +751,8 @@ where
                     table_col_index_mapping.clone(),
                 )
                 .await?;
+
+            internal_tables = ctx.internal_tables();
 
             match &stream_job {
                 StreamingJob::Table(Some(source), _) => {
@@ -744,8 +769,13 @@ where
 
         match result {
             Ok(_) => {
-                self.finish_replace_table(&stream_job, table_col_index_mapping, old_source_id)
-                    .await
+                self.finish_replace_table(
+                    &stream_job,
+                    table_col_index_mapping,
+                    old_source_id,
+                    internal_tables,
+                )
+                .await
             }
             Err(err) => {
                 self.cancel_replace_table(&stream_job).await?;
@@ -775,9 +805,13 @@ where
         let stream_job = &*stream_job;
 
         // 3. Mark current relation as "updating".
-        self.catalog_manager
-            .start_replace_table_procedure(stream_job.table().unwrap())
-            .await?;
+        if let StreamingJob::Table(source, table) = stream_job {
+            self.catalog_manager
+                .start_replace_table_procedure(source, table)
+                .await?;
+        } else {
+            bail!("Only support replace with table");
+        }
 
         Ok(fragment_graph)
     }
@@ -793,6 +827,7 @@ where
     ) -> MetaResult<(ReplaceTableContext, TableFragments)> {
         let id = stream_job.id();
         let default_parallelism = fragment_graph.default_parallelism();
+        let internal_tables = fragment_graph.internal_tables();
 
         // 1. Resolve the edges to the downstream fragments, extend the fragment graph to a complete
         // graph that contains all information needed for building the actor graph.
@@ -869,6 +904,7 @@ where
             building_locations,
             existing_locations,
             table_properties: stream_job.properties(),
+            internal_tables,
         };
 
         Ok((ctx, table_fragments))
@@ -879,14 +915,22 @@ where
         stream_job: &StreamingJob,
         table_col_index_mapping: ColIndexMapping,
         old_source_id: Option<SourceId>,
+        internal_tables: Vec<Table>,
     ) -> MetaResult<NotificationVersion> {
         let StreamingJob::Table(_, table) = stream_job else {
             unreachable!("unexpected job: {stream_job:?}")
         };
 
-        let res = self.catalog_manager
-            .finish_replace_table_procedure(table, table_col_index_mapping)
+        let creating_internal_table_ids = internal_tables.iter().map(|t| t.id).collect_vec();
+
+        let res = self
+            .catalog_manager
+            .finish_replace_table_procedure(table, table_col_index_mapping, internal_tables)
             .await?;
+
+        self.catalog_manager
+            .unmark_creating_tables(&creating_internal_table_ids, false)
+            .await;
 
         if let Some(source_id) = old_source_id {
             self.drop_source(source_id, DropMode::Restrict).await
@@ -896,7 +940,7 @@ where
     }
 
     async fn cancel_replace_table(&self, stream_job: &StreamingJob) -> MetaResult<()> {
-        let StreamingJob::Table(None, table) = stream_job else {
+        let StreamingJob::Table(_, table) = stream_job else {
             unreachable!("unexpected job: {stream_job:?}")
         };
 

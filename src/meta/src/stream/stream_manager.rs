@@ -150,6 +150,15 @@ pub struct ReplaceTableContext {
     /// The properties of the streaming job.
     // TODO: directly store `StreamingJob here.
     pub table_properties: HashMap<String, String>,
+
+    /// Internal tables in the streaming job.
+    pub internal_tables: HashMap<u32, Table>,
+}
+
+impl ReplaceTableContext {
+    pub fn internal_tables(&self) -> Vec<Table> {
+        self.internal_tables.values().cloned().collect()
+    }
 }
 
 /// `GlobalStreamManager` manages all the streams in the system.
@@ -457,6 +466,11 @@ where
         Ok(())
     }
 
+    // Problem: 
+    // 1. Does not check the whether we correctly build the actors
+
+    // TODO(qiao)
+    // 1. fail to create corresponding source and internal tables
     pub async fn replace_table(
         &self,
         table_fragments: TableFragments,
@@ -466,6 +480,7 @@ where
             building_locations,
             existing_locations,
             table_properties: _,
+            internal_tables: _,
         }: ReplaceTableContext,
     ) -> MetaResult<()> {
         self.build_actors(&table_fragments, &building_locations, &existing_locations)
@@ -477,13 +492,18 @@ where
             .await?;
 
         let dummy_table_id = table_fragments.table_id();
+        // let table_id = old_table_fragments.table_id();
 
+        let init_split_assignment = self.source_manager.pre_allocate_splits(&dummy_table_id).await?;
+
+        println!("SPLIT ASSIGNMENT: {:?}", init_split_assignment);
         if let Err(err) = self
             .barrier_scheduler
             .run_command_with_paused(Command::ReplaceTable {
                 old_table_fragments,
                 new_table_fragments: table_fragments,
                 merge_updates,
+                init_split_assignment,
             })
             .await
         {
