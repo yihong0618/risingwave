@@ -324,7 +324,8 @@ pub fn init_risingwave_logger(settings: LoggerSettings, registry: prometheus::Re
 
     // Tracing layer
     #[cfg(not(madsim))]
-    if let Ok(endpoint) = std::env::var("RW_TRACING_ENDPOINT") {
+    {
+        let endpoint = "http://benchmark-risingwave-meta:5690";
         println!("tracing enabled, exported to `{endpoint}`");
 
         use opentelemetry::{sdk, KeyValue};
