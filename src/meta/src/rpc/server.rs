@@ -686,6 +686,9 @@ pub async fn start_service_as_election_leader<S: MetaStore>(
     tonic::transport::Server::builder()
         .layer(MetricsMiddlewareLayer::new(meta_metrics))
         .layer(TracingExtractLayer::new())
+        .add_service(otlp_tempo_dump::TraceServiceServer::new(
+            otlp_tempo_dump::MyServer::new(),
+        ))
         .add_service(HeartbeatServiceServer::new(heartbeat_srv))
         .add_service(ClusterServiceServer::new(cluster_srv))
         .add_service(StreamManagerServiceServer::new(stream_srv))

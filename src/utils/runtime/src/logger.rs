@@ -117,6 +117,9 @@ impl LoggerSettings {
 
 /// Init logger for RisingWave binaries.
 ///
+/// Note: this function will register the global default dipatcher (subscriber) for tracing, so it
+/// will panic if it's called more than once.
+///
 /// ## Environment variables to configure logger dynamically
 ///
 /// ### `RUST_LOG`

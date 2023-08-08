@@ -4680,6 +4680,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "otlp-tempo-dump"
+version = "0.1.0"
+source = "git+https://github.com/BugenZhao/otlp-tempo-dump.git?rev=2983d0a#2983d0ae8c837fed7750175e071cbdffe12ba842"
+dependencies = [
+ "futures",
+ "indextree",
+ "itertools 0.11.0",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "pbjson",
+ "pbjson-build",
+ "prost",
+ "schnellru",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tonic",
+ "tonic-build",
+ "tracing",
+]
+
+[[package]]
 name = "outref"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6625,6 +6647,7 @@ dependencies = [
  "mime_guess",
  "num-integer",
  "num-traits",
+ "otlp-tempo-dump",
  "parking_lot 0.12.1",
  "prometheus",
  "prometheus-http-query",
@@ -7330,6 +7353,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3cbc66816425a074528352f5789333ecff06ca41b36b0b0efdfbb29edc391a19"
 dependencies = [
  "parking_lot 0.12.1",
+]
+
+[[package]]
+name = "schnellru"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "772575a524feeb803e5b0fcbc6dd9f367e579488197c94c6e4023aad2305774d"
+dependencies = [
+ "ahash 0.8.3",
+ "cfg-if",
+ "hashbrown 0.13.2",
 ]
 
 [[package]]
