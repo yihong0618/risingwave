@@ -251,7 +251,7 @@ pub(crate) fn new_input(
         .get_host()?
         .into();
 
-    let input = if is_local_address(&context.addr, &upstream_addr) {
+    let input = if false && is_local_address(&context.addr, &upstream_addr) {
         LocalInput::new(
             context.take_receiver(&(upstream_actor_id, actor_id))?,
             upstream_actor_id,
