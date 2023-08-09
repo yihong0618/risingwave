@@ -302,32 +302,32 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
             .into_iter()
             .filter_map(|key| {
                 stats.total_lookup_count += 1;
-                let mut hasher = DefaultHasher::new();
-                key.hash(&mut hasher);
-                let sampled = hasher.finish() % 10000 < SAMPLE_NUM_IN_TEN_K;
-                let (exist, dis) = cache.contains_sampled(key, sampled);
-                if let Some((distance, is_ghost)) = dis {
-                    if is_ghost {
-                        let bucket_index = if distance < stats.ghost_start as u32 {
-                            0
-                        } else if distance
-                            > (stats.ghost_start + stats.ghost_bucket_size * BUCKET_NUMBER) as u32
-                        {
-                            BUCKET_NUMBER
-                        } else {
-                            (distance as usize - stats.ghost_start) / stats.ghost_bucket_size
-                        };
-                        stats.ghost_bucket_counts[bucket_index] += 1;
-                    } else if sampled {
-                        let bucket_index = if distance > (stats.bucket_size * BUCKET_NUMBER) as u32
-                        {
-                            BUCKET_NUMBER
-                        } else {
-                            distance as usize / stats.bucket_size
-                        };
-                        stats.bucket_counts[bucket_index] += 1;
-                    }
-                }
+                // let mut hasher = DefaultHasher::new();
+                // key.hash(&mut hasher);
+                // let sampled = hasher.finish() % 10000 < SAMPLE_NUM_IN_TEN_K;
+                let (exist, _dis) = cache.contains_sampled(key, false);
+                // if let Some((distance, is_ghost)) = dis {
+                //     if is_ghost {
+                //         let bucket_index = if distance < stats.ghost_start as u32 {
+                //             0
+                //         } else if distance
+                //             > (stats.ghost_start + stats.ghost_bucket_size * BUCKET_NUMBER) as u32
+                //         {
+                //             BUCKET_NUMBER
+                //         } else {
+                //             (distance as usize - stats.ghost_start) / stats.ghost_bucket_size
+                //         };
+                //         stats.ghost_bucket_counts[bucket_index] += 1;
+                //     } else if sampled {
+                //         let bucket_index = if distance > (stats.bucket_size * BUCKET_NUMBER) as u32
+                //         {
+                //             BUCKET_NUMBER
+                //         } else {
+                //             distance as usize / stats.bucket_size
+                //         };
+                //         stats.bucket_counts[bucket_index] += 1;
+                //     }
+                // }
                 if exist {
                     None
                 } else {
@@ -501,31 +501,31 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
             .inc_by(vars.stats.chunk_total_lookup_count);
         vars.stats.chunk_total_lookup_count = 0;
 
-        for i in 0..=BUCKET_NUMBER {
-            let count = vars.stats.bucket_counts[i];
-            this.metrics
-                .cache_real_resue_distance_bucket_count
-                .with_label_values(&[
-                    &actor_id_str,
-                    &table_id_str,
-                    "agg",
-                    &vars.stats.bucket_ids[i],
-                ])
-                .inc_by(count as u64);
-            vars.stats.bucket_counts[i] = 0;
+        // for i in 0..=BUCKET_NUMBER {
+        //     let count = vars.stats.bucket_counts[i];
+        //     this.metrics
+        //         .cache_real_resue_distance_bucket_count
+        //         .with_label_values(&[
+        //             &actor_id_str,
+        //             &table_id_str,
+        //             "agg",
+        //             &vars.stats.bucket_ids[i],
+        //         ])
+        //         .inc_by(count as u64);
+        //     vars.stats.bucket_counts[i] = 0;
 
-            let ghost_count = vars.stats.ghost_bucket_counts[i];
-            this.metrics
-                .cache_ghost_resue_distance_bucket_count
-                .with_label_values(&[
-                    &actor_id_str,
-                    &table_id_str,
-                    "agg",
-                    &vars.stats.bucket_ids[i],
-                ])
-                .inc_by(ghost_count as u64);
-            vars.stats.ghost_bucket_counts[i] = 0;
-        }
+        //     let ghost_count = vars.stats.ghost_bucket_counts[i];
+        //     this.metrics
+        //         .cache_ghost_resue_distance_bucket_count
+        //         .with_label_values(&[
+        //             &actor_id_str,
+        //             &table_id_str,
+        //             "agg",
+        //             &vars.stats.bucket_ids[i],
+        //         ])
+        //         .inc_by(ghost_count as u64);
+        //     vars.stats.ghost_bucket_counts[i] = 0;
+        // }
 
         this.metrics
             .mrc_bucket_info
