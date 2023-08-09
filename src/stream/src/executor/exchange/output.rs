@@ -158,8 +158,8 @@ pub fn new_output(
         // This may happen when we create a mv-on-mv on different workers from the upstream. #4153
         Err(_) => false,
     };
-
-    let output = if is_local_address {
+    info!("WKXLOG always_remote_input :{}", context.config.always_remote_input);
+    let output = if !context.config.always_remote_input && is_local_address {
         LocalOutput::new(down_id, tx).boxed()
     } else {
         RemoteOutput::new(down_id, tx).boxed()
