@@ -481,6 +481,15 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
             let mut state = JoinEntryState::default();
             state.insert(pk, value.encode());
             self.update_state(key, state.into());
+        } else {
+            let prefix = key.deserialize(&self.join_key_data_types)?;
+            self.metrics.insert_cache_miss_count += 1;
+            // Refill cache when the join key exists in neither cache or storage.
+            if !self.state.table.may_exist(&prefix).await? {
+                let mut state = JoinEntryState::default();
+                state.insert(pk, value.encode());
+                self.update_state(key, state.into());
+            }
         }
 
         // Update the flush buffer.
@@ -511,6 +520,15 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
             let mut state = JoinEntryState::default();
             state.insert(pk, join_row.encode());
             self.update_state(key, state.into());
+        } else {
+            let prefix = key.deserialize(&self.join_key_data_types)?;
+            self.metrics.insert_cache_miss_count += 1;
+            // Refill cache when the join key exists in neither cache or storage.
+            if !self.state.table.may_exist(&prefix).await? {
+                let mut state = JoinEntryState::default();
+                state.insert(pk, join_row.encode());
+                self.update_state(key, state.into());
+            }
         }
 
         // Update the flush buffer.
