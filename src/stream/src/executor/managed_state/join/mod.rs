@@ -266,31 +266,31 @@ impl JoinHashMapMetrics {
             .join_may_exist_true_count
             .with_label_values(&[&self.actor_id, self.side])
             .inc_by(self.may_exist_true_count as u64);
-        for i in 0..=BUCKET_NUMBER {
-            let count = self.bucket_counts[i];
-            self.metrics
-                .cache_real_resue_distance_bucket_count
-                .with_label_values(&[
-                    &self.actor_id,
-                    &self.join_table_id,
-                    self.side,
-                    &self.bucket_ids[i],
-                ])
-                .inc_by(count as u64);
-            self.bucket_counts[i] = 0;
+        // for i in 0..=BUCKET_NUMBER {
+        //     let count = self.bucket_counts[i];
+        //     self.metrics
+        //         .cache_real_resue_distance_bucket_count
+        //         .with_label_values(&[
+        //             &self.actor_id,
+        //             &self.join_table_id,
+        //             self.side,
+        //             &self.bucket_ids[i],
+        //         ])
+        //         .inc_by(count as u64);
+        //     self.bucket_counts[i] = 0;
 
-            let ghost_count = self.ghost_bucket_counts[i];
-            self.metrics
-                .cache_ghost_resue_distance_bucket_count
-                .with_label_values(&[
-                    &self.actor_id,
-                    &self.join_table_id,
-                    self.side,
-                    &self.bucket_ids[i],
-                ])
-                .inc_by(ghost_count as u64);
-            self.ghost_bucket_counts[i] = 0;
-        }
+        //     let ghost_count = self.ghost_bucket_counts[i];
+        //     self.metrics
+        //         .cache_ghost_resue_distance_bucket_count
+        //         .with_label_values(&[
+        //             &self.actor_id,
+        //             &self.join_table_id,
+        //             self.side,
+        //             &self.bucket_ids[i],
+        //         ])
+        //         .inc_by(ghost_count as u64);
+        //     self.ghost_bucket_counts[i] = 0;
+        // }
         self.total_lookup_count = 0;
         self.lookup_miss_count = 0;
         self.lookup_real_miss_count = 0;
@@ -692,33 +692,33 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
     /// Update a [`JoinEntryState`] into the hash table.
     pub fn update_state(&mut self, key: &K, state: HashValueType, is_read: bool, sampled: bool) {
         if is_read {
-            let res =
+            let _res =
                 self.inner
                     .put_sample(key.clone(), HashValueWrapper(Some(state)), true, sampled);
-            if let Some((distance, is_ghost)) = res {
-                if is_ghost {
-                    let bucket_index = if distance < self.ghost_start as u32 {
-                        0
-                    } else if distance
-                        > (self.ghost_start + self.ghost_bucket_size * BUCKET_NUMBER) as u32
-                    {
-                        BUCKET_NUMBER
-                    } else {
-                        (distance as usize - self.ghost_start) / self.ghost_bucket_size
-                    };
-                    self.metrics.ghost_bucket_counts[bucket_index] += 1;
-                } else if sampled {
-                    let bucket_index = if distance > (self.bucket_size * BUCKET_NUMBER) as u32 {
-                        BUCKET_NUMBER
-                    } else {
-                        distance as usize / self.bucket_size
-                    };
-                    self.metrics.bucket_counts[bucket_index] += 1;
-                }
-            } else {
-                // out of cache
-                self.metrics.ghost_bucket_counts[BUCKET_NUMBER] += 1;
-            }
+            // if let Some((distance, is_ghost)) = res {
+            //     if is_ghost {
+            //         let bucket_index = if distance < self.ghost_start as u32 {
+            //             0
+            //         } else if distance
+            //             > (self.ghost_start + self.ghost_bucket_size * BUCKET_NUMBER) as u32
+            //         {
+            //             BUCKET_NUMBER
+            //         } else {
+            //             (distance as usize - self.ghost_start) / self.ghost_bucket_size
+            //         };
+            //         self.metrics.ghost_bucket_counts[bucket_index] += 1;
+            //     } else if sampled {
+            //         let bucket_index = if distance > (self.bucket_size * BUCKET_NUMBER) as u32 {
+            //             BUCKET_NUMBER
+            //         } else {
+            //             distance as usize / self.bucket_size
+            //         };
+            //         self.metrics.bucket_counts[bucket_index] += 1;
+            //     }
+            // } else {
+            //     // out of cache
+            //     self.metrics.ghost_bucket_counts[BUCKET_NUMBER] += 1;
+            // }
         } else {
             self.inner.put(key.clone(), HashValueWrapper(Some(state)));
         }

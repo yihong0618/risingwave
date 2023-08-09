@@ -1097,10 +1097,10 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
             Self::evict_cache(side_update, side_match, cnt_rows_received);
 
             // let sampled = hasher.hash_one(&key);
-            let mut hasher = DefaultHasher::new();
-            key.hash(&mut hasher);
-            let sampled = hasher.finish() % 10000 < SAMPLE_NUM_IN_TEN_K;
-
+            // let mut hasher = DefaultHasher::new();
+            // key.hash(&mut hasher);
+            // let sampled = hasher.finish() % 10000 < SAMPLE_NUM_IN_TEN_K;
+            let sampled = false;
             let matched_rows: Option<(HashValueType, bool)> = if side_update
                 .non_null_fields
                 .iter()
