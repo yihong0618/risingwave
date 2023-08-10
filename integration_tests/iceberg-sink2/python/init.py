@@ -64,6 +64,7 @@ def init_risingwave_mv(args):
             warehouse.path = 's3a://renjie-iceberg-bench/wh',
             s3.access.key = '{aws_key}',
             s3.secret.key = '{aws_secret}',
+            s3.region = 'ap-southeast-1',
             database.name='s1',
             table.name='t1');
         """
