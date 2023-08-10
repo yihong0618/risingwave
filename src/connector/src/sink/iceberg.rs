@@ -57,7 +57,7 @@ pub struct IcebergConfig {
     pub region: Option<String>,
 
     #[serde(rename = "s3.endpoint")]
-    pub endpoint: String,
+    pub endpoint: Option<String>,
 
     #[serde(rename = "s3.access.key")]
     pub access_key: String,
@@ -114,9 +114,12 @@ impl IcebergSink {
         builder
             .root(&self.table_root)
             .bucket(&self.bucket_name)
-            .endpoint(&self.config.endpoint)
             .access_key_id(&self.config.access_key)
             .secret_access_key(&self.config.secret_key);
+
+        if let Some(s3_endpoint) = self.config.endpoint.as_ref() {
+            builder.endpoint(s3_endpoint.as_str());
+        }
 
         if let Some(region) = &self.config.region {
             builder.region(region);
