@@ -79,7 +79,7 @@ criterion = { version = "0.5", features = ["async_futures"] }
 tonic = { package = "madsim-tonic", version = "0.3.1" }
 tonic-build = { package = "madsim-tonic-build", version = "0.3.1" }
 #icelake = { git = "https://github.com/icelake-io/icelake", rev = "26b7a0c99c690b1e8ed57a5fc5a29c8ef0caacb3" }
-icelake = { git = "https://github.com/liurenjie1024/icelake", branch = "renjie/optimize" }
+icelake = { git = "https://github.com/liurenjie1024/icelake", rev = "d90725736b9231b29a353f66d194855c9aa1c131" }
 risingwave_backup = { path = "./src/storage/backup" }
 risingwave_batch = { path = "./src/batch" }
 risingwave_cmd = { path = "./src/cmd" }
