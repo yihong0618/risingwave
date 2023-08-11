@@ -3419,7 +3419,7 @@ dependencies = [
 [[package]]
 name = "icelake"
 version = "0.0.9"
-source = "git+https://github.com/icelake-io/icelake?rev=26b7a0c99c690b1e8ed57a5fc5a29c8ef0caacb3#26b7a0c99c690b1e8ed57a5fc5a29c8ef0caacb3"
+source = "git+https://github.com/liurenjie1024/icelake?branch=renjie/optimize#9d5bb8edcbb9bff11a3ed21191a93615a9ee77de"
 dependencies = [
  "anyhow",
  "apache-avro 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)",

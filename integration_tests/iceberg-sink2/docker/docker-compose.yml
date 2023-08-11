@@ -15,7 +15,7 @@ services:
       iceberg_net:
     environment:
       - SPARK_HOME=/opt/spark
-      - PYSPARK_PYTON=/usr/bin/python3.9
+      - PYSPARK_PYTHON=/usr/bin/python3.9
       - PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/spark/bin:/opt/spark/sbin
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password

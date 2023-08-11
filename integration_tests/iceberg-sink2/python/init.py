@@ -41,21 +41,21 @@ def init_risingwave_mv(args):
             "distance" BIGINT,
         ) with (
             connector = 'datagen',
-            
+
             fields.id.kind = 'random',
             fields.id.min = '0',
             fields.id.max = '1000000000',
             fields.id.seed = '100',
-            
+
             fields.name.kind = 'random',
             fields.name.length = '15',
-            fields.name.seed = '100', 
-            
+            fields.name.seed = '100',
+
             fields.distance.kind = 'random',
             fields.distance.min = '0',
             fields.distance.max = '100000',
             fields.distance.seed = '100',
-            
+
             datagen.rows.per.second = '500000'
         ) FORMAT PLAIN ENCODE JSON;
         """,

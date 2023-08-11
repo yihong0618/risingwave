@@ -1,52 +1,52 @@
 [workspace]
 members = [
-  "scripts/source/prepare_ci_pubsub",
-  "src/batch",
-  "src/bench",
-  "src/cmd",
-  "src/cmd_all",
-  "src/common",
-  "src/common/common_service",
-  "src/compute",
-  "src/connector",
-  "src/ctl",
-  "src/expr",
-  "src/expr/macro",
-  "src/frontend",
-  "src/frontend/planner_test",
-  "src/java_binding",
-  "src/meta",
-  "src/object_store",
-  "src/prost",
-  "src/prost/helpers",
-  "src/risedevtool",
-  "src/risedevtool/config",
-  "src/rpc_client",
-  "src/source",
-  "src/sqlparser",
-  "src/sqlparser/test_runner",
-  "src/storage",
-  "src/storage/backup",
-  "src/storage/backup/cmd",
-  "src/storage/compactor",
-  "src/storage/hummock_sdk",
-  "src/storage/hummock_test",
-  "src/stream",
-  "src/test_runner",
-  "src/tests/compaction_test",
-  "src/tests/e2e_extended_mode",
-  "src/tests/regress",
-  "src/tests/simulation",
-  "src/tests/sqlsmith",
-  "src/tests/state_cleaning_test",
-  "src/udf",
-  "src/utils/local_stats_alloc",
-  "src/utils/pgwire",
-  "src/utils/runtime",
-  "src/utils/sync-point",
-  "src/utils/variables",
-  "src/utils/workspace-config",
-  "src/workspace-hack",
+    "scripts/source/prepare_ci_pubsub",
+    "src/batch",
+    "src/bench",
+    "src/cmd",
+    "src/cmd_all",
+    "src/common",
+    "src/common/common_service",
+    "src/compute",
+    "src/connector",
+    "src/ctl",
+    "src/expr",
+    "src/expr/macro",
+    "src/frontend",
+    "src/frontend/planner_test",
+    "src/java_binding",
+    "src/meta",
+    "src/object_store",
+    "src/prost",
+    "src/prost/helpers",
+    "src/risedevtool",
+    "src/risedevtool/config",
+    "src/rpc_client",
+    "src/source",
+    "src/sqlparser",
+    "src/sqlparser/test_runner",
+    "src/storage",
+    "src/storage/backup",
+    "src/storage/backup/cmd",
+    "src/storage/compactor",
+    "src/storage/hummock_sdk",
+    "src/storage/hummock_test",
+    "src/stream",
+    "src/test_runner",
+    "src/tests/compaction_test",
+    "src/tests/e2e_extended_mode",
+    "src/tests/regress",
+    "src/tests/simulation",
+    "src/tests/sqlsmith",
+    "src/tests/state_cleaning_test",
+    "src/udf",
+    "src/utils/local_stats_alloc",
+    "src/utils/pgwire",
+    "src/utils/runtime",
+    "src/utils/sync-point",
+    "src/utils/variables",
+    "src/utils/workspace-config",
+    "src/workspace-hack",
 ]
 
 [workspace.package]
@@ -62,8 +62,8 @@ await-tree = "0.1.1"
 aws-config = { version = "0.55", default-features = false, features = ["rt-tokio", "native-tls"] }
 aws-credential-types = { version = "0.55", default-features = false, features = ["hardcoded-credentials"] }
 aws-sdk-kinesis = { version = "0.28", default-features = false, features = ["rt-tokio", "native-tls"] }
-aws-sdk-s3 = { version = "0.28", default-features = false, features = ["rt-tokio","native-tls"] }
-aws-sdk-ec2 = { version = "0.28", default-features = false, features = ["rt-tokio","native-tls"] }
+aws-sdk-s3 = { version = "0.28", default-features = false, features = ["rt-tokio", "native-tls"] }
+aws-sdk-ec2 = { version = "0.28", default-features = false, features = ["rt-tokio", "native-tls"] }
 aws-sdk-sqs = { version = "0.28", default-features = false, features = ["rt-tokio", "native-tls"] }
 aws-smithy-client = { version = "0.55", default-features = false, features = ["rt-tokio", "native-tls"] }
 aws-smithy-http = "0.55"
@@ -78,7 +78,8 @@ hashbrown = { version = "0.14.0", features = ["ahash", "inline-more", "nightly"]
 criterion = { version = "0.5", features = ["async_futures"] }
 tonic = { package = "madsim-tonic", version = "0.3.1" }
 tonic-build = { package = "madsim-tonic-build", version = "0.3.1" }
-
+#icelake = { git = "https://github.com/icelake-io/icelake", rev = "26b7a0c99c690b1e8ed57a5fc5a29c8ef0caacb3" }
+icelake = { git = "https://github.com/liurenjie1024/icelake", branch = "renjie/optimize" }
 risingwave_backup = { path = "./src/storage/backup" }
 risingwave_batch = { path = "./src/batch" }
 risingwave_cmd = { path = "./src/cmd" }
