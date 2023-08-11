@@ -18,7 +18,8 @@ def init_spark_table(args):
           distance bigint
         ) USING iceberg
         TBLPROPERTIES ('format-version'='2');
-        """
+        """,
+        """INSERT INTO s1.t1 VALUES (1, 'test', 100);"""
     ]
 
     for sql in init_table_sqls:
@@ -35,24 +36,32 @@ def init_risingwave_mv(args):
         "set streaming_parallelism = 1",
         """
         CREATE SOURCE bid (
-            "auction" BIGINT,
-            "bidder" BIGINT,
-            "price" BIGINT,
-            "channel" VARCHAR,
-            "url" VARCHAR,
-            "date_time" TIMESTAMP,
-            "extra" VARCHAR
+            "id" BIGINT,
+            "name" VARCHAR,
+            "distance" BIGINT,
         ) with (
-            connector = 'nexmark',
-            nexmark.table.type = 'Bid',
-            nexmark.split.num = '4',
-            nexmark.min.event.gap.in.ns = '500000'
-        )
+            connector = 'datagen',
+            
+            fields.id.kind = 'random',
+            fields.id.min = '0',
+            fields.id.max = '1000000000',
+            fields.id.seed = '100',
+            
+            fields.name.kind = 'random',
+            fields.name.length = '15',
+            fields.name.seed = '100', 
+            
+            fields.distance.kind = 'random',
+            fields.distance.min = '0',
+            fields.distance.max = '100000',
+            fields.distance.seed = '100',
+            
+            datagen.rows.per.second = '10000'
+        ) FORMAT PLAIN ENCODE JSON;
         """,
         """
         CREATE MATERIALIZED VIEW mv1 AS
-        SELECT auction as id, channel as name, price as distance
-        FROM bid;
+        SELECT * FROM bid;
         """,
         f"""
         CREATE SINK s1
