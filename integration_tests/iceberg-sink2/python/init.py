@@ -59,24 +59,24 @@ def init_risingwave_mv(args):
             datagen.rows.per.second = '500000'
         ) FORMAT PLAIN ENCODE JSON;
         """,
-        """
-        CREATE MATERIALIZED VIEW mv1 AS
-        SELECT * FROM bid;
-        """,
-        # f"""
-        # CREATE SINK s1
-        # FROM mv1
-        # WITH (
-        #     connector='iceberg_v2',
-        #     type='append-only',
-        #     force_append_only = 'true',
-        #     warehouse.path = 's3a://renjie-iceberg-bench/wh',
-        #     s3.access.key = '{aws_key}',
-        #     s3.secret.key = '{aws_secret}',
-        #     s3.region = 'ap-southeast-1',
-        #     database.name='s1',
-        #     table.name='t1');
         # """
+        # CREATE MATERIALIZED VIEW mv1 AS
+        # SELECT * FROM bid;
+        # """,
+        f"""
+        CREATE SINK s1
+        AS SELECT * FROM bid
+        WITH (
+            connector='iceberg_v2',
+            type='append-only',
+            force_append_only = 'true',
+            warehouse.path = 's3a://renjie-iceberg-bench/wh',
+            s3.access.key = '{aws_key}',
+            s3.secret.key = '{aws_secret}',
+            s3.region = 'ap-southeast-1',
+            database.name='s1',
+            table.name='t1');
+        """
     ]
     with psycopg2.connect(database=rw_config['db'], user=rw_config['user'], host=rw_config['host'],
                           port=rw_config['port']) as conn:
