@@ -2,7 +2,7 @@ from pyspark.sql import SparkSession
 import configparser
 
 
-def init_spark_table(args):
+def check_spark_table(args):
     spark_config = args['spark']
     spark = SparkSession.builder.remote(spark_config['url']).getOrCreate()
 
@@ -20,3 +20,4 @@ if __name__ == "__main__":
     config = configparser.ConfigParser()
     config.read("config.ini")
     print({section: dict(config[section]) for section in config.sections()})
+    check_spark_table(config)
