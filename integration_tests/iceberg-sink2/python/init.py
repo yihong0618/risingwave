@@ -56,7 +56,7 @@ def init_risingwave_mv(args):
             fields.distance.max = '100000',
             fields.distance.seed = '100',
             
-            datagen.rows.per.second = '10000'
+            datagen.rows.per.second = '100000'
         ) FORMAT PLAIN ENCODE JSON;
         """,
         """
