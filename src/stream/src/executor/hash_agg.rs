@@ -806,7 +806,7 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
             if let Some(kv_size) = agg_group_cache.get_avg_kv_size() {
                 let v_size = kv_size - k_size;
                 let multiple = v_size / k_size;
-                ghost_cap_multiple = usize::min((multiple / 2) + 1, ghost_cap_multiple);
+                ghost_cap_multiple = usize::min(usize::max(multiple, 1), ghost_cap_multiple);
             }
             let ghost_cap = ghost_cap_multiple * entry_count;
 

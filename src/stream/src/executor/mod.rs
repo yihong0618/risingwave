@@ -155,7 +155,7 @@ pub trait MessageStream = futures::Stream<Item = MessageStreamItem> + Send;
 
 pub const BUCKET_NUMBER: usize = 30;
 pub const HACK_JOIN_KEY_SIZE: usize = 24;
-pub const DEFAULT_GHOST_CAP_MUTIPLE: usize = 4;
+pub const DEFAULT_GHOST_CAP_MUTIPLE: usize = 1;
 pub const INIT_GHOST_CAP: usize = 30;
 // pub const JOIN_GHOST_CAP: usize = 600000;
 // pub const AGG_GHOST_CAP: usize = 60000;
