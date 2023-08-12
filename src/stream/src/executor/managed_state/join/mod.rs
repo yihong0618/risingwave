@@ -407,7 +407,7 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
             alloc,
             INIT_GHOST_CAP,
             REAL_UPDATE_INTERVAL,
-            BUCKET_NUMBER,
+            1,
         );
 
         Self {
@@ -797,37 +797,37 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
     }
 
     pub fn update_bucket_size(&mut self, entry_count: usize) {
-        let old_entry_count = self.bucket_size * BUCKET_NUMBER;
-        if (old_entry_count as f64 * 1.2 < entry_count as f64
-            || old_entry_count as f64 * 0.7 > entry_count as f64)
-            && entry_count > 100
-        {
-            let mut ghost_cap_multiple = DEFAULT_GHOST_CAP_MUTIPLE;
-            let k_size = self.inner.key_size.unwrap_or(HACK_JOIN_KEY_SIZE);
-            if let Some(kv_size) = self.inner.get_avg_kv_size() {
-                let v_size = kv_size - k_size;
-                let multiple = v_size / k_size;
-                ghost_cap_multiple = usize::min(usize::max(multiple, 1), ghost_cap_multiple);
-            }
-            let ghost_cap = ghost_cap_multiple * entry_count;
+        // let old_entry_count = self.bucket_size * BUCKET_NUMBER;
+        // if (old_entry_count as f64 * 1.2 < entry_count as f64
+        //     || old_entry_count as f64 * 0.7 > entry_count as f64)
+        //     && entry_count > 100
+        // {
+        //     let mut ghost_cap_multiple = DEFAULT_GHOST_CAP_MUTIPLE;
+        //     let k_size = self.inner.key_size.unwrap_or(HACK_JOIN_KEY_SIZE);
+        //     if let Some(kv_size) = self.inner.get_avg_kv_size() {
+        //         let v_size = kv_size - k_size;
+        //         let multiple = v_size / k_size;
+        //         ghost_cap_multiple = usize::min(usize::max(multiple, 1), ghost_cap_multiple);
+        //     }
+        //     let ghost_cap = ghost_cap_multiple * entry_count;
 
-            self.bucket_size = std::cmp::max(
-                (entry_count as f64 * 1.1 / BUCKET_NUMBER as f64).round() as usize,
-                1,
-            );
-            self.ghost_bucket_size = std::cmp::max(
-                ((entry_count as f64 * 0.3 + ghost_cap as f64) / BUCKET_NUMBER as f64).round()
-                    as usize,
-                1,
-            );
-            self.ghost_start = std::cmp::max((entry_count as f64 * 0.8).round() as usize, 1);
-            info!(
-                "WKXLOG ghost_start switch to {}, old_entry_count: {}, new_entry_count: {}",
-                self.ghost_start, old_entry_count, entry_count
-            );
+        //     self.bucket_size = std::cmp::max(
+        //         (entry_count as f64 * 1.1 / BUCKET_NUMBER as f64).round() as usize,
+        //         1,
+        //     );
+        //     self.ghost_bucket_size = std::cmp::max(
+        //         ((entry_count as f64 * 0.3 + ghost_cap as f64) / BUCKET_NUMBER as f64).round()
+        //             as usize,
+        //         1,
+        //     );
+        //     self.ghost_start = std::cmp::max((entry_count as f64 * 0.8).round() as usize, 1);
+        //     info!(
+        //         "WKXLOG ghost_start switch to {}, old_entry_count: {}, new_entry_count: {}",
+        //         self.ghost_start, old_entry_count, entry_count
+        //     );
 
-            self.inner.set_ghost_cap(ghost_cap);
-        }
+        //     self.inner.set_ghost_cap(ghost_cap);
+        // }
     }
 
     pub fn ghost_cap(&self) -> usize {
