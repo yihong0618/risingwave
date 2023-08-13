@@ -226,15 +226,7 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
     // }
 
     pub fn put(&mut self, k: K, v: V) {
-        let key_size = k.estimated_size();
-        if self.key_size.is_none() {
-            self.key_size = Some(key_size);
-        }
-        self.kv_heap_size_inc(key_size + v.estimated_size());
-        let old_val = self.inner.put(k, v);
-        if let Some(old_val) = &old_val {
-            self.kv_heap_size_dec(key_size + old_val.estimated_size());
-        }
+        self.put_sample(k, v, false, false);
     }
 
     pub fn put_sample(
@@ -248,10 +240,20 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
         if self.key_size.is_none() {
             self.key_size = Some(key_size);
         }
-        self.kv_heap_size_inc(key_size + v.estimated_size());
+        let mut to_inc = key_size + v.estimated_size();
         let (old_val, distance) = self.inner.put_sample(k, v, is_update, return_distance);
+        if distance.is_some() {
+            to_inc -= key_size;
+        }
         if let Some(old_val) = &old_val {
-            self.kv_heap_size_dec(key_size + old_val.estimated_size());
+            let old_k_size = old_val.estimated_size();
+            if old_k_size > to_inc {
+                self.kv_heap_size_dec(old_k_size - to_inc);
+            } else {
+                self.kv_heap_size_inc(to_inc - old_k_size);
+            }
+        } else {
+            self.kv_heap_size_inc(to_inc);
         }
         distance
     }

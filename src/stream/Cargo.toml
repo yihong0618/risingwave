@@ -32,7 +32,7 @@ hytra = "0.1.2"
 iter-chunks = "0.1"
 itertools = "0.10"
 local_stats_alloc = { path = "../utils/local_stats_alloc" }
-lru = { git = "https://github.com/risingwavelabs/lru-rs.git", rev = "58e6f3851e024507128b266ffde836211745e5fc" }
+lru = { git = "https://github.com/risingwavelabs/lru-rs.git", rev = "16435a234dddf8ea7fdbfd1990e65e093702947b" }
 maplit = "1.0.2"
 memcomparable = "0.2"
 multimap = "0.8"
