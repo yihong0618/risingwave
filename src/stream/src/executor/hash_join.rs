@@ -14,7 +14,9 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashSet};
+use std::fs::File;
 use std::hash::Hasher;
+use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -48,9 +50,7 @@ use super::{
 use crate::common::table::state_table::StateTable;
 use crate::common::StreamChunkBuilder;
 use crate::executor::JoinType::LeftAnti;
-use crate::executor::{
-    expect_first_barrier_from_aligned_stream, SAMPLE_NUM_IN_TEN_K,
-};
+use crate::executor::{expect_first_barrier_from_aligned_stream, SAMPLE_NUM_IN_TEN_K};
 use crate::task::AtomicU64Ref;
 
 /// The `JoinType` and `SideType` are to mimic a enum, because currently
@@ -723,6 +723,13 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
         let mut start_time = Instant::now();
         let mut epoch_start_time = Instant::now();
 
+        let mut traces: Vec<u64> = vec![];
+        let mut cur_count = 0;
+
+        let filename = "data.bin";
+        let mut file = File::create(filename).expect("Error creating file");
+        let mut trace_status = 0;
+
         while let Some(msg) = aligned_stream
             .next()
             .instrument_await("hash_join_barrier_align")
@@ -732,6 +739,23 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                 .join_actor_input_waiting_duration_ns
                 .with_label_values(&[&actor_id_str])
                 .inc_by(start_time.elapsed().as_nanos() as u64);
+            if cur_count < 26000000 + 16384 && traces.len() >= 16384 {
+                write_u64_array_to_file(&mut file, &traces).expect("Error writing file");
+                traces.clear();
+                if trace_status == 0 {
+                    tracing::info!("[WKXLOG]_trace Started to output traces");
+                    trace_status += 1;
+                }
+            }
+
+            if cur_count >= 26000000 + 16384 && trace_status == 1 {
+                trace_status += 1;
+            }
+
+            if trace_status == 2 {
+                tracing::info!("[WKXLOG]_trace Finished to output traces");
+                trace_status += 1;
+            }
             match msg? {
                 AlignedMessage::WatermarkLeft(watermark) => {
                     for watermark_to_emit in
@@ -763,6 +787,8 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                         self.append_only_optimize,
                         self.chunk_size,
                         &mut self.cnt_rows_received,
+                        &mut traces,
+                        &mut cur_count,
                     ) {
                         left_time += left_start_time.elapsed();
                         yield Message::Chunk(chunk?);
@@ -790,6 +816,8 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                         self.append_only_optimize,
                         self.chunk_size,
                         &mut self.cnt_rows_received,
+                        &mut traces,
+                        &mut cur_count,
                     ) {
                         right_time += right_start_time.elapsed();
                         yield Message::Chunk(chunk?);
@@ -1064,6 +1092,8 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
         append_only_optimize: bool,
         chunk_size: usize,
         cnt_rows_received: &'a mut u32,
+        trace: &'a mut Vec<u64>,
+        cur_count: &'a mut u32,
     ) {
         let chunk = chunk.compact();
 
@@ -1095,11 +1125,16 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
         let keys = K::build(&side_update.join_key_indices, chunk.data_chunk())?;
         for ((op, row), key) in chunk.rows().zip_eq_debug(keys.iter()) {
             Self::evict_cache(side_update, side_match, cnt_rows_received);
-
+            *cur_count += 1;
             // let sampled = hasher.hash_one(&key);
             let mut hasher = DefaultHasher::new();
             key.hash(&mut hasher);
-            let sampled = hasher.finish() % 10000 < SAMPLE_NUM_IN_TEN_K;
+            let hashed_key = hasher.finish();
+            let sampled = hashed_key % 10000 < SAMPLE_NUM_IN_TEN_K;
+
+            if *cur_count > 15000000 && *cur_count < 26000000 {
+                trace.push(hashed_key);
+            }
 
             let matched_rows: Option<(HashValueType, bool)> = if side_update
                 .non_null_fields
@@ -1331,6 +1366,11 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
             yield chunk;
         }
     }
+}
+
+fn write_u64_array_to_file(file: &mut File, data: &[u64]) -> std::io::Result<()> {
+    file.write_all(bytemuck::cast_slice(data))?;
+    Ok(())
 }
 
 #[cfg(test)]

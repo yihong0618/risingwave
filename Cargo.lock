@@ -6704,6 +6704,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "await-tree",
+ "bytemuck",
  "bytes",
  "criterion 0.4.0",
  "dyn-clone",
