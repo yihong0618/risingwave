@@ -48,9 +48,7 @@ use super::{
 use crate::common::table::state_table::StateTable;
 use crate::common::StreamChunkBuilder;
 use crate::executor::JoinType::LeftAnti;
-use crate::executor::{
-    expect_first_barrier_from_aligned_stream, SAMPLE_NUM_IN_TEN_K,
-};
+use crate::executor::{expect_first_barrier_from_aligned_stream, SAMPLE_NUM_IN_TEN_K};
 use crate::task::AtomicU64Ref;
 
 /// The `JoinType` and `SideType` are to mimic a enum, because currently
@@ -1095,8 +1093,8 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
         let keys = K::build(&side_update.join_key_indices, chunk.data_chunk())?;
         for ((op, row), key) in chunk.rows().zip_eq_debug(keys.iter()) {
             Self::evict_cache(side_update, side_match, cnt_rows_received);
-
             // let sampled = hasher.hash_one(&key);
+
             let mut hasher = DefaultHasher::new();
             key.hash(&mut hasher);
             let sampled = hasher.finish() % 10000 < SAMPLE_NUM_IN_TEN_K;
@@ -1332,7 +1330,6 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicU64;
