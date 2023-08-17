@@ -739,7 +739,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                 .join_actor_input_waiting_duration_ns
                 .with_label_values(&[&actor_id_str])
                 .inc_by(start_time.elapsed().as_nanos() as u64);
-            if cur_count < 26000000 + 16384 && traces.len() >= 16384 {
+            if cur_count < 23000000 + 16384 && traces.len() >= 16384 {
                 write_u64_array_to_file(&mut file, &traces).expect("Error writing file");
                 traces.clear();
                 if trace_status == 0 {
@@ -748,7 +748,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                 }
             }
 
-            if cur_count >= 26000000 + 16384 && trace_status == 1 {
+            if cur_count >= 23000000 + 16384 && trace_status == 1 {
                 trace_status += 1;
             }
 
@@ -1132,7 +1132,7 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
             let hashed_key = hasher.finish();
             let sampled = hashed_key % 10000 < SAMPLE_NUM_IN_TEN_K;
 
-            if *cur_count > 15000000 && *cur_count < 26000000 {
+            if *cur_count > 12000000 && *cur_count < 23000000 {
                 trace.push(hashed_key);
             }
 
