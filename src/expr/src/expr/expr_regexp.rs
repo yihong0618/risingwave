@@ -138,7 +138,7 @@ impl<'a> TryFrom<&'a ExprNode> for RegexpMatchExpression {
                     Some(ScalarImpl::Utf8(pattern)) => pattern.to_string(),
                     // NULL pattern
                     None => NULL_PATTERN.to_string(),
-                    _ => bail!("Expected pattern to be an String"),
+                    _ => bail!("Expected pattern to be a String"),
                 }
             }
             _ => {
@@ -164,7 +164,7 @@ impl<'a> TryFrom<&'a ExprNode> for RegexpMatchExpression {
                             pattern = NULL_PATTERN.to_string();
                             "".to_string()
                         }
-                        _ => bail!("Expected flags to be an String"),
+                        _ => bail!("Expected flags to be a String"),
                     }
                 }
                 _ => {
@@ -243,6 +243,164 @@ impl Expression for RegexpMatchExpression {
         let text = self.child.eval_row(input).await?;
         Ok(if let Some(ScalarImpl::Utf8(text)) = text {
             self.match_one(Some(&text)).map(Into::into)
+        } else {
+            None
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct RegexpReplaceExpression {
+    /// The source to be matched and replaced
+    pub child: Box<dyn Expression>,
+    /// The regex context, used to match the given pattern
+    pub ctx: RegexpContext,
+    /// The replacement string
+    pub replacement: String,
+}
+
+/// This trait provides the transformation from `ExprNode` to `RegexpReplaceExpression`
+impl<'a> TryFrom<&'a ExprNode> for RegexpReplaceExpression {
+    type Error = ExprError;
+
+    /// Try to convert the given `ExprNode` to the replace expression
+    fn try_from(prost: &'a ExprNode) -> Result<Self> {
+        // The function type must be of Type::RegexpReplace
+        ensure!(prost.get_function_type().unwrap() == Type::RegexpReplace);
+
+        // Get the top node, which is function call node in this case
+        let RexNode::FuncCall(func_call_node) = prost.get_rex_node().unwrap() else {
+            bail!("Expected RexNode::FuncCall");
+        };
+
+        // The children node, must contain `source`, `pattern`, `replacement`
+        // `start, N`, `flags` are optional
+        let mut children = func_call_node.children.iter();
+
+        // Get the source expression, will be used as the `child` in replace expr
+        let Some(text_node) = children.next() else {
+            bail!("Expected argument text");
+        };
+        let text_expr = expr_build_from_prost(text_node)?;
+
+        // Get the regex pattern of this call
+        let Some(pattern_node) = children.next() else {
+            bail!("Expected argument pattern");
+        };
+        let pattern = match &pattern_node.get_rex_node()? {
+            RexNode::Constant(pattern_value) => {
+                let pattern_datum = deserialize_datum(
+                    pattern_value.get_body().as_slice(),
+                    &DataType::from(pattern_node.get_return_type().unwrap()),
+                )
+                .map_err(|e| ExprError::Internal(e.into()))?;
+
+                match pattern_datum {
+                    Some(ScalarImpl::Utf8(pattern)) => pattern.to_string(),
+                    // NULL pattern
+                    None => NULL_PATTERN.to_string(),
+                    _ => bail!("Expected pattern to be a String"),
+                }
+            }
+            _ => {
+                return Err(ExprError::UnsupportedFunction(
+                    "non-constant pattern in regexp_replace".to_string()
+                ))
+            }
+        };
+
+        // Get the replacement string of this call
+        let Some(replacement_node) = children.next() else {
+            bail!("Expected argument replacement");
+        };
+        let replacement = match &replacement_node.get_rex_node()? {
+            RexNode::Constant(replacement_value) => {
+                let replacement_datum = deserialize_datum(
+                    replacement_value.get_body().as_slice(),
+                    &DataType::from(replacement_node.get_return_type().unwrap()),
+                )
+                .map_err(|e| ExprError::Internal(e.into()))?;
+
+                match replacement_datum {
+                    Some(ScalarImpl::Utf8(replacement)) => replacement.to_string(),
+                    // NULL replacement
+                    None => NULL_PATTERN.to_string(),
+                    _ => bail!("Expected replacement to be a String"),
+                }
+            }
+            _ => {
+                return Err(ExprError::UnsupportedFunction(
+                    "non-constant in regexp_replace".to_string()
+                ))
+            }
+        };
+
+        // TODO: [, start [, N ]] [, flags ] nodes support
+        let flags = String::from("");
+
+        // Construct the final `RegexpReplaceExpression`
+        let ctx = RegexpContext::new(&pattern, &flags)?;
+
+        Ok(Self {
+            child: text_expr,
+            ctx,
+            replacement,
+        })
+    }
+}
+
+impl RegexpReplaceExpression {
+    /// Match one row and return the result
+    fn match_row(&self, text: Option<&str>) -> Option<ListValue> {
+        if let Some(text) = text {
+            if let Some(capture) = self.ctx.0.captures(text) {
+                let replaced = capture[0].replace(&capture[0], &self.replacement);
+                let list = ListValue::new(vec![Some(replaced.into())]);
+                Some(list)
+            } else {
+                // There exists no match
+                // Just return the original text string
+                Some(ListValue::new(vec![Some(text.into())]))
+            }
+        } else {
+            // The input string is None
+            None
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Expression for RegexpReplaceExpression {
+    fn return_type(&self) -> DataType {
+        DataType::Varchar
+    }
+
+    async fn eval(&self, input: &DataChunk) -> Result<ArrayRef> {
+        let text_arr = self.child.eval_checked(input).await?;
+        let text_arr: &Utf8Array = text_arr.as_ref().into();
+        let mut output = ListArrayBuilder::with_type(
+            input.capacity(),
+            DataType::Varchar,
+        );
+
+        for (text, vis) in text_arr.iter().zip_eq_fast(input.vis().iter()) {
+            if !vis {
+                output.append_null();
+            } else if let Some(list) = self.match_row(text) {
+                let list_ref = ListRef::ValueRef { val: &list };
+                output.append(Some(list_ref));
+            } else {
+                output.append_null();
+            }
+        }
+
+        Ok(Arc::new(output.finish().into()))
+    }
+
+    async fn eval_row(&self, input: &OwnedRow) -> Result<Datum> {
+        let text = self.child.eval_row(input).await?;
+        Ok(if let Some(ScalarImpl::Utf8(text)) = text {
+            self.match_row(Some(&text)).map(Into::into)
         } else {
             None
         })
