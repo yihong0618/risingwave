@@ -785,6 +785,43 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
                         cache.update_epoch(barrier.epoch.curr);
                     });
 
+                    if barrier.is_cache() {
+                        if let Some(mutation) = barrier.mutation.as_deref() {
+                            match mutation {
+                                crate::executor::Mutation::Cache {
+                                    new_fragment_cache_sizes,
+                                } => {
+                                    if let Some(table_cache_sizes) =
+                                        new_fragment_cache_sizes.get(&this.actor_ctx.fragment_id)
+                                    {
+                                        let table_id = this.result_table.table_id();
+                                        if let Some(cache_size) = table_cache_sizes.get(&table_id) {
+                                            vars.agg_group_cache
+                                                .update_size_limit(*cache_size as usize);
+                                            tracing::info!(
+                                                    "WKXLOG: Success update_size_limit table_id {}, to cache size: {}",
+                                                    table_id,
+                                                    cache_size
+                                                );
+                                        } else {
+                                            tracing::warn!(
+                                                    "WKXLOG: WARN!!! update_size_limit cannot find table_id {} in table_cache_size: {:?}",
+                                                    table_id,
+                                                    table_cache_sizes
+                                                );
+                                        }
+                                        tracing::info!(
+                                            "WKXNB! agg table cache updated! table_cache_sizes: {:?}, fragment_id: {}",
+                                            table_cache_sizes,
+                                            this.actor_ctx.fragment_id
+                                        );
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+
                     yield Message::Barrier(barrier);
                 }
             }
