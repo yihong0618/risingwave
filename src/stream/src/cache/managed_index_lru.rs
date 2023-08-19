@@ -145,7 +145,11 @@ impl<K: Hash + Eq + EstimateSize, V: EstimateSize, S: BuildHasher, A: Clone + Al
     pub fn evict_except_cur_epoch(&mut self) {
         let epoch = self.watermark_epoch.load(Ordering::Relaxed);
         let epoch = min(epoch, self.inner.current_epoch());
-        self.evict_by_epoch(epoch);
+        if self.size_limit == 0 {
+            self.evict_by_epoch(epoch);
+        } else {
+            self.evict_by_size();
+        }
         self.inner.adjust_counters();
     }
 
