@@ -307,7 +307,7 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
         if !futs.is_empty() {
             // If not all the required states/keys are in the cache, it's a chunk-level cache miss.
             stats.chunk_lookup_miss_count += 1;
-            let mut buffered = stream::iter(futs).buffer_unordered(10).fuse();
+            let mut buffered = stream::iter(futs).buffer_unordered(1).fuse();
             while let Some(result) = buffered.next().await {
                 let (key, agg_group) = result?;
                 cache.put(key, agg_group);
