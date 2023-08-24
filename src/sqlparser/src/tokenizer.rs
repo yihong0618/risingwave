@@ -164,6 +164,8 @@ pub enum Token {
     HashArrow,
     /// `#>>`, extract JSON sub-object at the specified path as text in PostgreSQL
     HashLongArrow,
+    /// `=>`, define lambda function in RisingWave
+    EqArrow,
 }
 
 impl fmt::Display for Token {
@@ -231,6 +233,7 @@ impl fmt::Display for Token {
             Token::LongArrow => f.write_str("->>"),
             Token::HashArrow => f.write_str("#>"),
             Token::HashLongArrow => f.write_str("#>>"),
+            Token::EqArrow => f.write_str("=>"),
         }
     }
 }

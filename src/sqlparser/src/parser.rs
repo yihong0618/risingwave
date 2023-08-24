@@ -137,6 +137,7 @@ type ColumnsDefTuple = (Vec<ColumnDef>, Vec<TableConstraint>, Vec<SourceWatermar
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Precedence {
     Zero = 0,
+    LambdaDef,
     LogicalOr, // 5 in upstream
     LogicalXor,
     LogicalAnd, // 10 in upstream
@@ -679,9 +680,25 @@ impl Parser {
                             Expr::Row(exprs)
                         }
                     };
+
+                dbg!(&self.peek_token());
                 self.expect_token(&Token::RParen)?;
+                dbg!(&self.peek_token());
                 if self.peek_token() == Token::Period && matches!(expr, Expr::Nested(_)) {
                     self.parse_struct_selection(expr)
+                } else if self.peek_token() == Token::EqArrow && let Expr::Row(args) = expr {
+                    let args: Vec<_> = args.into_iter().map(|arg| {
+                        let Expr::Identifier(name) = arg else {
+                            return parser_err!(format!(
+                                "Expected `Ident` as lambda function arg, found: {}", arg
+                            ));
+                        };
+
+                        Ok(name)
+                    }).try_collect()?;
+                    self.expect_token(&Token::EqArrow)?;
+                    let body = self.parse_expr()?;
+                    Ok(Expr::LambdaFunction { args, body: Box::new(body) })
                 } else {
                     Ok(expr)
                 }
@@ -1625,6 +1642,7 @@ impl Parser {
             Token::Word(w) if w.keyword == Keyword::LIKE => Ok(P::Between),
             Token::Word(w) if w.keyword == Keyword::ILIKE => Ok(P::Between),
             Token::Word(w) if w.keyword == Keyword::SIMILAR => Ok(P::Between),
+            Token::EqArrow => Ok(P::LambdaDef),
             Token::Tilde
             | Token::TildeAsterisk
             | Token::ExclamationMarkTilde

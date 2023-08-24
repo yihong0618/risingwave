@@ -49,6 +49,12 @@ async fn main() -> Result<()> {
             && path.extension().map_or(false, |p| {
                 p.eq_ignore_ascii_case("yml") || p.eq_ignore_ascii_case("yaml")
             })
+            && path
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("lambda")
             && !path
                 .file_name()
                 .unwrap()
