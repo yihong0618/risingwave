@@ -53,6 +53,11 @@ pub const SYS_FUNCTION_WITHOUT_ARGS: &[&str] = &[
     "current_timestamp",
 ];
 
+struct BoundLambdaFunction {
+    args: Vec<(String, DataType)>,
+    ret_ty: DataType,
+}
+
 impl Binder {
     pub(in crate::binder) fn bind_function(&mut self, f: Function) -> Result<ExprImpl> {
         let function_name = match f.name.0.as_slice() {
@@ -99,6 +104,10 @@ impl Binder {
         // bind its arguments.
         if function_name == "obj_description" || function_name == "col_description" {
             return Ok(ExprImpl::literal_varchar("".to_string()));
+        }
+
+        if function_name == "array_transform" {
+            // For type inference, we need to bind the array type first.
         }
 
         let inputs = f
@@ -152,6 +161,17 @@ impl Binder {
         }
 
         self.bind_builtin_scalar_function(function_name.as_str(), inputs)
+    }
+
+    fn bind_unary_lambda_function(
+        &mut self,
+        input_ty: DataType,
+        arg: Ident,
+        body: Expr,
+    ) -> Result<BoundLambdaFunction> {
+        let args = args.iter().map(|ident| ident.real_value())
+        inputs.push(self.bind_expr_inner(body)?);
+        Ok(FunctionCall::new(ExprType::Lambda, inputs)?.into())
     }
 
     pub(super) fn bind_agg(&mut self, f: Function, kind: AggKind) -> Result<ExprImpl> {
