@@ -17,6 +17,7 @@ use std::fmt::Debug;
 use std::time::Duration;
 
 use anyhow::anyhow;
+use itertools::Itertools;
 use risingwave_common::config::{MAX_CONNECTION_WINDOW_SIZE, STREAM_WINDOW_SIZE};
 use risingwave_pb::connector_service::connector_service_client::ConnectorServiceClient;
 use risingwave_pb::connector_service::sink_coordinator_stream_request::{
@@ -150,26 +151,37 @@ impl ConnectorClient {
 
     #[allow(clippy::unused_async)]
     pub async fn new(connector_endpoint: &String) -> Result<Self> {
-        let endpoint = Endpoint::from_shared(format!("http://{}", connector_endpoint))
-            .map_err(|e| {
-                RpcError::Internal(anyhow!(format!(
-                    "invalid connector endpoint `{}`: {:?}",
-                    &connector_endpoint, e
-                )))
-            })?
-            .initial_connection_window_size(MAX_CONNECTION_WINDOW_SIZE)
-            .initial_stream_window_size(STREAM_WINDOW_SIZE)
-            .tcp_nodelay(true)
-            .connect_timeout(Duration::from_secs(5));
+        let make_endpoint = |endpoint_str: &str| {
+            Endpoint::from_shared(format!("http://{}", endpoint_str))
+                .map(|endpoint| {
+                    endpoint
+                        .initial_connection_window_size(MAX_CONNECTION_WINDOW_SIZE)
+                        .initial_stream_window_size(STREAM_WINDOW_SIZE)
+                        .tcp_nodelay(true)
+                        .connect_timeout(Duration::from_secs(5))
+                })
+                .map_err(|e| {
+                    RpcError::Internal(anyhow!(format!(
+                        "invalid connector endpoint `{}`: {:?}",
+                        endpoint_str, e
+                    )))
+                })
+        };
 
         let channel = {
             #[cfg(madsim)]
             {
-                endpoint.connect().await?
+                make_endpoint(connector_endpoint.as_str())?
+                    .connect()
+                    .await?
             }
             #[cfg(not(madsim))]
             {
-                endpoint.connect_lazy()
+                let endpoints: Vec<Endpoint> = connector_endpoint
+                    .split(',')
+                    .map(|endpoint_str| make_endpoint(endpoint_str.trim()))
+                    .try_collect()?;
+                Channel::balance_list(endpoints.into_iter())
             }
         };
         Ok(Self {
