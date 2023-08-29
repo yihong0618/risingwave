@@ -17,6 +17,7 @@
 #![feature(lazy_cell)]
 #![feature(once_cell_try)]
 #![feature(type_alias_impl_trait)]
+#![feature(bound_map)]
 
 mod hummock_iterator;
 mod stream_chunk_iterator;

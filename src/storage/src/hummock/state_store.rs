@@ -21,7 +21,7 @@ use bytes::Bytes;
 use itertools::Itertools;
 use more_asserts::assert_gt;
 use risingwave_common::catalog::TableId;
-use risingwave_hummock_sdk::key::{map_table_key_range, TableKey, TableKeyRange};
+use risingwave_hummock_sdk::key::{TableKey, TableKeyRange};
 use risingwave_hummock_sdk::HummockReadEpoch;
 use risingwave_pb::hummock::SstableInfo;
 use tokio::sync::oneshot;
@@ -32,10 +32,10 @@ use super::utils::validate_safe_epoch;
 use super::HummockStorage;
 use crate::error::StorageResult;
 use crate::hummock::event_handler::HummockEvent;
-use crate::hummock::store::memtable::ImmutableMemtable;
 use crate::hummock::store::state_store::LocalHummockStorage;
 use crate::hummock::store::version::read_filter_for_batch;
 use crate::hummock::{HummockEpoch, HummockError};
+use crate::mem_table::ImmutableMemtable;
 use crate::monitor::StoreLocalStatistic;
 use crate::store::*;
 use crate::StateStore;
@@ -50,14 +50,11 @@ impl HummockStorage {
     /// failed due to other non-EOF errors.
     pub async fn get(
         &self,
-        key: Bytes,
+        key: TableKey<Bytes>,
         epoch: HummockEpoch,
         read_options: ReadOptions,
     ) -> StorageResult<Option<Bytes>> {
-        let key_range = (
-            Bound::Included(TableKey(key.clone())),
-            Bound::Included(TableKey(key.clone())),
-        );
+        let key_range = (Bound::Included(key.clone()), Bound::Included(key.clone()));
 
         let read_version_tuple = if read_options.read_version_from_backup {
             self.build_read_version_tuple_from_backup(epoch).await?
@@ -66,7 +63,7 @@ impl HummockStorage {
         };
 
         self.hummock_version_reader
-            .get(TableKey(key), epoch, read_options, read_version_tuple)
+            .get(key, epoch, read_options, read_version_tuple)
             .await
     }
 
@@ -155,7 +152,7 @@ impl StateStoreRead for HummockStorage {
 
     fn get(
         &self,
-        key: Bytes,
+        key: TableKey<Bytes>,
         epoch: u64,
         read_options: ReadOptions,
     ) -> impl Future<Output = StorageResult<Option<Bytes>>> + '_ {
@@ -164,11 +161,11 @@ impl StateStoreRead for HummockStorage {
 
     fn iter(
         &self,
-        key_range: IterKeyRange,
+        key_range: TableKeyRange,
         epoch: u64,
         read_options: ReadOptions,
     ) -> impl Future<Output = StorageResult<Self::IterStream>> + '_ {
-        self.iter_inner(map_table_key_range(key_range), epoch, read_options)
+        self.iter_inner(key_range, epoch, read_options)
     }
 }
 

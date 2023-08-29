@@ -31,7 +31,6 @@ use risingwave_pb::hummock::{HummockVersionDelta, LevelType, SstableInfo};
 use sync_point::sync_point;
 use tracing::Instrument;
 
-use super::memtable::{ImmId, ImmutableMemtable};
 use super::state_store::StagingDataIterator;
 use crate::error::StorageResult;
 use crate::hummock::iterator::{
@@ -50,6 +49,7 @@ use crate::hummock::{
     get_from_batch, get_from_sstable_info, hit_sstable_bloom_filter, Sstable,
     SstableDeleteRangeIterator, SstableIterator,
 };
+use crate::mem_table::{ImmId, ImmutableMemtable};
 use crate::monitor::{
     GetLocalMetricsGuard, HummockStateStoreMetrics, MayExistLocalMetricsGuard, StoreLocalStatistic,
 };
@@ -112,7 +112,6 @@ impl StagingSstableInfo {
 
 #[derive(Clone)]
 pub enum StagingData {
-    // ImmMem(Arc<Memtable>),
     ImmMem(ImmutableMemtable),
     MergedImmMem(ImmutableMemtable),
     Sst(StagingSstableInfo),

@@ -112,7 +112,7 @@ impl<S: LocalStateStore> LocalStateStore for TracedStateStore<S> {
 
     fn may_exist(
         &self,
-        key_range: IterKeyRange,
+        key_range: TableKeyRange,
         read_options: ReadOptions,
     ) -> impl Future<Output = StorageResult<bool>> + Send + '_ {
         self.inner.may_exist(key_range, read_options)
@@ -133,7 +133,7 @@ impl<S: LocalStateStore> LocalStateStore for TracedStateStore<S> {
 
     fn iter(
         &self,
-        key_range: IterKeyRange,
+        key_range: TableKeyRange,
         read_options: ReadOptions,
     ) -> impl Future<Output = StorageResult<Self::IterStream<'_>>> + Send + '_ {
         let span = TraceSpan::new_iter_span(
@@ -277,7 +277,7 @@ impl<S: StateStoreRead> StateStoreRead for TracedStateStore<S> {
 
     fn iter(
         &self,
-        key_range: IterKeyRange,
+        key_range: TableKeyRange,
         epoch: u64,
         read_options: ReadOptions,
     ) -> impl Future<Output = StorageResult<Self::IterStream>> + '_ {

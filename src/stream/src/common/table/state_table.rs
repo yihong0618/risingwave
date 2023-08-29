@@ -35,6 +35,7 @@ use risingwave_common::util::sort_util::OrderType;
 use risingwave_common::util::value_encoding::BasicSerde;
 use risingwave_hummock_sdk::key::{
     end_bound_of_prefix, next_key, prefixed_range, range_of_prefix, start_bound_of_excluded_prefix,
+    TableKey,
 };
 use risingwave_pb::catalog::Table;
 use risingwave_storage::error::StorageError;
@@ -684,21 +685,26 @@ where
         }
     }
 
-    fn insert_inner(&mut self, key_bytes: Bytes, value_bytes: Bytes) {
+    fn insert_inner(&mut self, key: TableKey<Bytes>, value_bytes: Bytes) {
         self.local_store
-            .insert(key_bytes, value_bytes, None)
+            .insert(key, value_bytes, None)
             .unwrap_or_else(|e| self.handle_mem_table_error(e));
     }
 
-    fn delete_inner(&mut self, key_bytes: Bytes, value_bytes: Bytes) {
+    fn delete_inner(&mut self, key: TableKey<Bytes>, value_bytes: Bytes) {
         self.local_store
-            .delete(key_bytes, value_bytes)
+            .delete(key, value_bytes)
             .unwrap_or_else(|e| self.handle_mem_table_error(e));
     }
 
-    fn update_inner(&mut self, key_bytes: Bytes, old_value_bytes: Bytes, new_value_bytes: Bytes) {
+    fn update_inner(
+        &mut self,
+        key: TableKey<Bytes>,
+        old_value_bytes: Bytes,
+        new_value_bytes: Bytes,
+    ) {
         self.local_store
-            .insert(key_bytes, new_value_bytes, Some(old_value_bytes))
+            .insert(key, new_value_bytes, Some(old_value_bytes))
             .unwrap_or_else(|e| self.handle_mem_table_error(e));
     }
 
@@ -805,13 +811,13 @@ where
                                 if USE_WATERMARK_CACHE && let Some(ref pk) = key {
                                     self.watermark_cache.insert(pk);
                                 }
-                                self.insert_inner(key_bytes, value);
+                                self.insert_inner(TableKey(key_bytes), value);
                             }
                             Op::Delete | Op::UpdateDelete => {
                                 if USE_WATERMARK_CACHE && let Some(ref pk) = key {
                                     self.watermark_cache.delete(pk);
                                 }
-                                self.delete_inner(key_bytes, value);
+                                self.delete_inner(TableKey(key_bytes), value);
                             }
                         }
                     }
@@ -824,13 +830,13 @@ where
                             if USE_WATERMARK_CACHE && let Some(ref pk) = key {
                                 self.watermark_cache.insert(pk);
                             }
-                            self.insert_inner(key_bytes, value);
+                            self.insert_inner(TableKey(key_bytes), value);
                         }
                         Op::Delete | Op::UpdateDelete => {
                             if USE_WATERMARK_CACHE && let Some(ref pk) = key {
                                 self.watermark_cache.delete(pk);
                             }
-                            self.delete_inner(key_bytes, value);
+                            self.delete_inner(TableKey(key_bytes), value);
                         }
                     }
                 }
@@ -1097,8 +1103,9 @@ where
             prefetch_options,
             cache_policy: CachePolicy::Fill(CachePriority::High),
         };
+        let table_key_range = (key_range.0.map(TableKey), key_range.1.map(TableKey));
 
-        Ok(self.local_store.iter(key_range, read_options).await?)
+        Ok(self.local_store.iter(table_key_range, read_options).await?)
     }
 
     /// This function scans raw key-values from the relational table with specific `pk_prefix`.
@@ -1184,7 +1191,8 @@ where
         // If this assertion fails, then something must be wrong with the operator implementation or
         // the distribution derivation from the optimizer.
         let vnode = self.compute_prefix_vnode(&pk_prefix).to_be_bytes();
-        let encoded_key_range_with_vnode = prefixed_range(encoded_key_range, &vnode);
+        let (l, r) = prefixed_range(encoded_key_range, &vnode);
+        let table_key_range = (l.map(TableKey), r.map(TableKey));
 
         // Construct prefix hint for prefix bloom filter.
         if self.prefix_hint_len != 0 {
@@ -1213,7 +1221,7 @@ where
         };
 
         self.local_store
-            .may_exist(encoded_key_range_with_vnode, read_options)
+            .may_exist(table_key_range, read_options)
             .await
             .map_err(Into::into)
     }

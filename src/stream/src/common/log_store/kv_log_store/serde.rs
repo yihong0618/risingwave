@@ -38,7 +38,7 @@ use risingwave_common::util::sort_util::OrderType;
 use risingwave_common::util::value_encoding::{
     BasicSerde, ValueRowDeserializer, ValueRowSerializer,
 };
-use risingwave_hummock_sdk::key::next_key;
+use risingwave_hummock_sdk::key::{next_key, TableKey};
 use risingwave_pb::catalog::Table;
 use risingwave_storage::row_serde::row_serde_util::serialize_pk_with_vnode;
 use risingwave_storage::row_serde::value_serde::ValueRowSerdeNew;
@@ -174,7 +174,7 @@ impl LogStoreRowSerde {
         seq_id: SeqIdType,
         op: Op,
         row: impl Row,
-    ) -> (VirtualNode, Bytes, Bytes) {
+    ) -> (VirtualNode, TableKey<Bytes>, Bytes) {
         let pk = [
             Some(ScalarImpl::Int64(Self::encode_epoch(epoch))),
             Some(ScalarImpl::Int32(seq_id)),
@@ -200,7 +200,7 @@ impl LogStoreRowSerde {
         epoch: u64,
         vnode: VirtualNode,
         is_checkpoint: bool,
-    ) -> (Bytes, Bytes) {
+    ) -> (TableKey<Bytes>, Bytes) {
         let pk = [Some(ScalarImpl::Int64(Self::encode_epoch(epoch))), None];
 
         let op_code = if is_checkpoint {
@@ -218,7 +218,7 @@ impl LogStoreRowSerde {
         (key_bytes, value_bytes)
     }
 
-    pub(crate) fn serialize_epoch(&self, vnode: VirtualNode, epoch: u64) -> Bytes {
+    pub(crate) fn serialize_epoch(&self, vnode: VirtualNode, epoch: u64) -> TableKey<Bytes> {
         serialize_pk_with_vnode(
             [Some(ScalarImpl::Int64(Self::encode_epoch(epoch)))],
             &self.epoch_serde,
@@ -231,7 +231,7 @@ impl LogStoreRowSerde {
         vnode: VirtualNode,
         epoch: u64,
         seq_id: SeqIdType,
-    ) -> Bytes {
+    ) -> TableKey<Bytes> {
         serialize_pk_with_vnode(
             [
                 Some(ScalarImpl::Int64(Self::encode_epoch(epoch))),

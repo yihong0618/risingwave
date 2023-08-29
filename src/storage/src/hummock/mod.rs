@@ -80,9 +80,9 @@ use crate::hummock::event_handler::hummock_event_handler::BufferTracker;
 use crate::hummock::event_handler::{HummockEvent, HummockEventHandler};
 use crate::hummock::local_version::pinned_version::{start_pinned_version_worker, PinnedVersion};
 use crate::hummock::observer_manager::HummockObserverNode;
-use crate::hummock::store::memtable::ImmutableMemtable;
 use crate::hummock::store::version::HummockVersionReader;
 use crate::hummock::write_limiter::{WriteLimiter, WriteLimiterRef};
+use crate::mem_table::ImmutableMemtable;
 use crate::monitor::{CompactorMetrics, StoreLocalStatistic};
 use crate::store::{NewLocalOptions, ReadOptions};
 

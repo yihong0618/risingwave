@@ -18,8 +18,10 @@ use std::sync::Arc;
 use bytes::Bytes;
 use itertools::Itertools;
 use risingwave_common::catalog::TableId;
+use risingwave_common::hash::VirtualNode;
 use risingwave_common_service::observer_manager::ObserverManager;
 use risingwave_hummock_sdk::compaction_group::StaticCompactionGroupId;
+use risingwave_hummock_sdk::key::TableKey;
 use risingwave_meta::hummock::test_utils::{
     register_table_ids_to_compaction_group, setup_compute_env,
 };
@@ -48,6 +50,12 @@ use risingwave_storage::store::*;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 use crate::mock_notification_client::get_notification_client_for_test;
+
+pub fn gen_key(vnode: VirtualNode, payload: &str) -> TableKey<Bytes> {
+    TableKey(Bytes::from(
+        [vnode.to_be_bytes().as_slice(), payload.as_bytes()].concat(),
+    ))
+}
 
 pub async fn prepare_first_valid_version(
     env: MetaSrvEnv<MemStore>,
@@ -92,7 +100,7 @@ pub async fn prepare_first_valid_version(
 pub trait TestIngestBatch: LocalStateStore {
     async fn ingest_batch(
         &mut self,
-        kv_pairs: Vec<(Bytes, StorageValue)>,
+        kv_pairs: Vec<(TableKey<Bytes>, StorageValue)>,
         delete_ranges: Vec<(Bound<Bytes>, Bound<Bytes>)>,
         write_options: WriteOptions,
     ) -> StorageResult<usize>;
@@ -102,7 +110,7 @@ pub trait TestIngestBatch: LocalStateStore {
 impl<S: LocalStateStore> TestIngestBatch for S {
     async fn ingest_batch(
         &mut self,
-        kv_pairs: Vec<(Bytes, StorageValue)>,
+        kv_pairs: Vec<(TableKey<Bytes>, StorageValue)>,
         delete_ranges: Vec<(Bound<Bytes>, Bound<Bytes>)>,
         write_options: WriteOptions,
     ) -> StorageResult<usize> {
