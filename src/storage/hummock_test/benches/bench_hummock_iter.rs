@@ -40,7 +40,9 @@ fn gen_interleave_shared_buffer_batch_iter(
         let mut batch_data = vec![];
         for j in 0..batch_size {
             batch_data.push((
-                TableKey(Bytes::copy_from_slice(format!("test_key_{:08}", j * batch_count + i).as_bytes())),
+                TableKey(Bytes::copy_from_slice(
+                    format!("test_key_{:08}", j * batch_count + i).as_bytes(),
+                )),
                 StorageValue::new_put(Bytes::copy_from_slice("value".as_bytes())),
             ));
         }

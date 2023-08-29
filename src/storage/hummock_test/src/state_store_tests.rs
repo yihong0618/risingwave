@@ -1390,11 +1390,11 @@ async fn test_replicated_local_hummock_storage() {
     // ingest 16B batch
     let mut batch1 = vec![
         (
-            gen_key(VirtualNode::ZERO, "aaaa");
+            gen_key(VirtualNode::ZERO, "aaaa"),
             StorageValue::new_put("1111"),
         ),
         (
-            gen_key(VirtualNode::ZERO, "bbbb");
+            gen_key(VirtualNode::ZERO, "bbbb"),
             StorageValue::new_put("2222"),
         ),
     ];

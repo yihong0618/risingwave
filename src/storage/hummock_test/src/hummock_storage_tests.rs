@@ -42,7 +42,6 @@ async fn test_storage_basic() {
         .storage
         .new_local(NewLocalOptions::for_test(TEST_TABLE_ID))
         .await;
-    let a = gen_key(VirtualNode::ZERO, "aa");
     // First batch inserts the anchor and others.
     let mut batch1 = vec![
         (

@@ -622,7 +622,7 @@ mod tests {
 
         for (op, row) in stream_chunk.rows() {
             let (_, key, value) = serde.serialize_data_row(epoch, seq_id, op, row);
-            assert!(key < delete_range_right1);
+            assert!(key.as_ref() < delete_range_right1);
             serialized_keys.push(key);
             let (decoded_epoch, row_op) = serde.deserialize(value).unwrap();
             assert_eq!(decoded_epoch, epoch);
@@ -647,7 +647,7 @@ mod tests {
             }
             _ => unreachable!(),
         }
-        assert!(key < delete_range_right1);
+        assert!(key.as_ref() < delete_range_right1);
         serialized_keys.push(key);
 
         seq_id = 1;
@@ -657,8 +657,8 @@ mod tests {
 
         for (op, row) in stream_chunk.rows() {
             let (_, key, value) = serde.serialize_data_row(epoch, seq_id, op, row);
-            assert!(key >= delete_range_right1);
-            assert!(key < delete_range_right2);
+            assert!(key.as_ref() >= delete_range_right1);
+            assert!(key.as_ref() < delete_range_right2);
             serialized_keys.push(key);
             let (decoded_epoch, row_op) = serde.deserialize(value).unwrap();
             assert_eq!(decoded_epoch, epoch);
@@ -683,8 +683,8 @@ mod tests {
             }
             _ => unreachable!(),
         }
-        assert!(key >= delete_range_right1);
-        assert!(key < delete_range_right2);
+        assert!(key.as_ref() >= delete_range_right1);
+        assert!(key.as_ref() < delete_range_right2);
         serialized_keys.push(key);
 
         assert_eq!(serialized_keys.len(), 2 * rows.len() + 2);
@@ -761,7 +761,7 @@ mod tests {
             .map(|(op, row)| {
                 let (_, key, value) = serde.serialize_data_row(epoch, *seq_id, op, row);
                 *seq_id += 1;
-                Ok((FullKey::new(TEST_TABLE_ID, TableKey(key), epoch), value))
+                Ok((FullKey::new(TEST_TABLE_ID, key, epoch), value))
             })
             .collect_vec();
         (
@@ -790,14 +790,14 @@ mod tests {
             let serde = serde.clone();
             async move {
                 let (key, value) = serde.serialize_barrier(EPOCH1, DEFAULT_VNODE, false);
-                Ok((FullKey::new(TEST_TABLE_ID, TableKey(key), EPOCH1), value))
+                Ok((FullKey::new(TEST_TABLE_ID, key, EPOCH1), value))
             }
         }));
         let (row_stream, tx2) = gen_row_stream(serde.clone(), ops, rows, EPOCH2, seq_id);
         let stream = stream.chain(row_stream).chain(stream::once({
             async move {
                 let (key, value) = serde.serialize_barrier(EPOCH2, DEFAULT_VNODE, true);
-                Ok((FullKey::new(TEST_TABLE_ID, TableKey(key), EPOCH2), value))
+                Ok((FullKey::new(TEST_TABLE_ID, key, EPOCH2), value))
             }
         }));
         (stream, tx1, tx2)
