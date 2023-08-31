@@ -561,6 +561,7 @@ impl<S: MetaStore> HummockManager<S> {
                     .default_compaction_config();
                 config.split_by_state_table = allow_split_by_table;
                 config.split_weight_by_vnode = weight_split_by_vnode;
+                config.max_bytes_for_level_base *= 4;
 
                 new_version_delta.group_deltas.insert(
                     new_compaction_group_id,
