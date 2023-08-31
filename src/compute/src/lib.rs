@@ -198,6 +198,7 @@ use jni::objects::{JClass, JObject, JString, JValue, JValueGen};
 use jni::strings::JNIString;
 use jni::sys::{jint, jlong};
 use risingwave_common::jvm_runtime::{JVM, MyJniSender};
+use risingwave_java_binding::Java_com_risingwave_java_binding_Binding_sendMsgToChannel;
 use risingwave_pb::connector_service::{CdcMessage, GetEventStreamResponse};
 
 use crate::server::compute_node_serve;
@@ -315,67 +316,6 @@ impl<'a, T> Pointer<'a, T> {
         debug_assert!(self.pointer != 0);
         unsafe { drop(Box::from_raw(self.pointer as *mut T)) }
     }
-}
-
-#[no_mangle]
-pub extern "system" fn Java_com_risingwave_java_binding_Binding_sendMsgToChannel<'a>(
-    mut env: EnvParam<'a>,
-    channel: Pointer<'a, MyJniSender>,
-    mut msg: JObject<'a>,
-) {
-    let source_id = env.env.call_method(&mut msg, "getSourceId", "()J", &[]).unwrap();
-    let source_id = source_id.j().unwrap();
-
-    let events_list = env.env.call_method(&mut msg, "getEventsList", "()Ljava/util/List;", &[]).unwrap();
-    let mut events_list = match events_list {
-        JValueGen::Object(obj) => obj,
-        _ => unreachable!()
-    };
-
-
-    let size = env.env.call_method(&mut events_list, "size", "()I", &[]).unwrap().i().unwrap();
-    let mut events = Vec::with_capacity(size as usize);
-    for i in 0..size {
-        let java_element = env.call_method(&mut events_list, "get", "(I)Ljava/lang/Object;", &[JValue::from(i as i32)]).unwrap();
-        let mut java_element = match java_element {
-            JValueGen::Object(obj) => obj,
-            _ => unreachable!()
-        };
-        let payload = env.call_method(&mut java_element, "getPayload", "()Ljava/lang/String;", &[]).unwrap();
-        let payload = match payload {
-            JValueGen::Object(obj) => obj,
-            _ => unreachable!()
-        };
-        let payload: String = env.get_string(&JString::from(payload)).unwrap().into();
-
-        let partition = env.call_method(&mut java_element, "getPartition", "()Ljava/lang/String;", &[]).unwrap();
-        let partition = match partition {
-            JValueGen::Object(obj) => obj,
-            _ => unreachable!()
-        };
-        let partition: String = env.get_string(&JString::from(partition)).unwrap().into();
-
-        let offset = env.call_method(&mut java_element, "getOffset", "()Ljava/lang/String;", &[]).unwrap();
-        let offset = match offset {
-            JValueGen::Object(obj) => obj,
-            _ => unreachable!()
-        };
-        let offset: String = env.get_string(&JString::from(offset)).unwrap().into();
-
-        println!("source_id = {:?}, payload = {:?}, partition = {:?}, offset = {:?}", source_id, payload, partition, offset);
-        events.push(CdcMessage {
-            payload,
-            partition,
-            offset,
-        })
-    }
-    let get_event_stream_response = GetEventStreamResponse {
-        source_id: source_id as u64,
-        events,
-    };
-    println!("before send");
-    let _ = channel.as_ref().blocking_send(get_event_stream_response).inspect_err(|e| eprintln!("{:?}", e)).unwrap();
-    println!("send successfully");
 }
 
 
