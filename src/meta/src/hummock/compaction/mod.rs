@@ -82,6 +82,40 @@ pub struct CompactionTask {
     pub enable_split_by_table: bool,
 }
 
+impl From<CompactionTask> for CompactTask {
+    fn from(task: CompactionTask) -> Self {
+        let compression_algorithm = match task.compression_algorithm.as_str() {
+            "Lz4" => 1,
+            "Zstd" => 2,
+            _ => 0,
+        };
+        Self {
+            input_ssts: task.input.input_levels,
+            splits: vec![KeyRange::inf()],
+            watermark: HummockEpoch::MAX,
+            sorted_output_ssts: vec![],
+            task_id: 0,
+            target_level: task.input.target_level as u32,
+            // only gc delete keys in last level because there may be older version in more bottom
+            // level.
+            gc_delete_keys: false,
+            base_level: task.base_level as u32,
+            task_status: TaskStatus::Pending as i32,
+            compaction_group_id: 0,
+            existing_table_ids: vec![],
+            compression_algorithm,
+            target_file_size: task.target_file_size,
+            compaction_filter_mask: 0,
+            table_options: HashMap::default(),
+            current_epoch_time: 0,
+            target_sub_level_id: task.input.target_sub_level_id,
+            task_type: task.compaction_task_type as i32,
+            split_by_state_table: false,
+            split_weight_by_vnode: 0,
+        }
+    }
+}
+
 pub fn create_overlap_strategy(compaction_mode: CompactionMode) -> Arc<dyn OverlapStrategy> {
     match compaction_mode {
         CompactionMode::Range => Arc::new(RangeOverlapStrategy::default()),
@@ -122,37 +156,14 @@ impl CompactStatus {
             table_id_to_options,
         )?;
         let target_level_id = ret.input.target_level;
-
-        let compression_algorithm = match ret.compression_algorithm.as_str() {
-            "Lz4" => 1,
-            "Zstd" => 2,
-            _ => 0,
-        };
-
-        let compact_task = CompactTask {
-            input_ssts: ret.input.input_levels,
-            splits: vec![KeyRange::inf()],
-            watermark: HummockEpoch::MAX,
-            sorted_output_ssts: vec![],
-            task_id,
-            target_level: target_level_id as u32,
-            // only gc delete keys in last level because there may be older version in more bottom
-            // level.
-            gc_delete_keys: target_level_id == self.level_handlers.len() - 1,
-            base_level: ret.base_level as u32,
-            task_status: TaskStatus::Pending as i32,
-            compaction_group_id: group.group_id,
-            existing_table_ids: vec![],
-            compression_algorithm,
-            target_file_size: ret.target_file_size,
-            compaction_filter_mask: 0,
-            table_options: HashMap::default(),
-            current_epoch_time: 0,
-            target_sub_level_id: ret.input.target_sub_level_id,
-            task_type: ret.compaction_task_type as i32,
-            split_by_state_table: group.compaction_config.split_by_state_table,
-            split_weight_by_vnode: group.compaction_config.split_weight_by_vnode,
-        };
+        let mut compact_task: CompactTask = ret.into();
+        // only gc delete keys in last level because there may be older version in more bottom
+        // level.
+        compact_task.task_id = task_id;
+        compact_task.gc_delete_keys = target_level_id == self.level_handlers.len() - 1;
+        compact_task.compaction_group_id = group.group_id;
+        compact_task.split_by_state_table = group.compaction_config.split_by_state_table;
+        compact_task.split_weight_by_vnode = group.compaction_config.split_weight_by_vnode;
         Some(compact_task)
     }
 

@@ -18,6 +18,7 @@ mod manager;
 pub use manager::*;
 
 mod level_handler;
+pub use level_handler::LevelHandler;
 mod metrics_utils;
 #[cfg(any(test, feature = "test"))]
 pub mod mock_hummock_meta_client;
