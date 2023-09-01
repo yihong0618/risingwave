@@ -17,6 +17,7 @@ use std::future::Future;
 use risingwave_common::util::resource_util;
 use risingwave_common::util::runtime::BackgroundShutdownRuntime;
 use tokio::task::JoinHandle;
+use tracing::info;
 
 /// `CompactionExecutor` is a dedicated runtime for compaction's CPU intensive jobs.
 pub struct CompactionExecutor {
@@ -28,15 +29,21 @@ pub struct CompactionExecutor {
 impl CompactionExecutor {
     pub fn new(worker_threads_num: Option<usize>) -> Self {
         let mut worker_num = resource_util::cpu::total_cpu_available() as usize;
+        info!("CompactionExecutor total_cpu_available:{}", worker_num);
         let runtime = {
             let mut builder = tokio::runtime::Builder::new_multi_thread();
             builder.thread_name("risingwave-compaction");
             if let Some(worker_threads_num) = worker_threads_num {
+                info!(
+                    "CompactionExecutor worker_threads_num:{}",
+                    worker_threads_num
+                );
                 builder.worker_threads(worker_threads_num);
                 worker_num = worker_threads_num;
             }
             builder.enable_all().build().unwrap()
         };
+        info!("CompactionExecutor worker_num:{}", worker_num);
 
         Self {
             runtime: runtime.into(),
