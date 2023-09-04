@@ -31,6 +31,20 @@ impl<'a, R: Rng> SqlGenerator<'a, R> {
         }
     }
 
+    /// Add `window_start` and `window_end` columns to schema
+    fn generate_window_function_schema(schema: &Vec<Column>) -> Vec<Column> {
+        let mut schema = schema.clone();
+        schema.push(Column {
+            name: "window_start".into(),
+            data_type: DataType::Timestamptz,
+        });
+        schema.push(Column {
+            name: "window_end".into(),
+            data_type: DataType::Timestamptz,
+        });
+        schema
+    }
+
     /// Generates `TUMBLE`.
     /// TUMBLE(data: TABLE, timecol: COLUMN, size: INTERVAL, offset?: INTERVAL)
     fn gen_tumble(&mut self) -> (TableFactor, Table) {
@@ -47,8 +61,8 @@ impl<'a, R: Rng> SqlGenerator<'a, R> {
         let time_col = Expr::Identifier(time_col.name.as_str().into());
         let args = create_args(vec![name, time_col, size]);
         let relation = create_tvf("tumble", alias, args);
-
-        let table = Table::new(table_name, schema.clone());
+        
+        let table = Table::new(table_name, Self::generate_window_function_schema(schema));
 
         (relation, table)
     }
@@ -74,7 +88,7 @@ impl<'a, R: Rng> SqlGenerator<'a, R> {
 
         let relation = create_tvf("hop", alias, args);
 
-        let table = Table::new(table_name, schema.clone());
+        let table = Table::new(table_name, Self::generate_window_function_schema(schema));
 
         (relation, table)
     }

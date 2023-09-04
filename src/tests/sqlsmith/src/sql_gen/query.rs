@@ -16,6 +16,7 @@
 //! We construct Query based on the AST representation,
 //! as defined in the [`risingwave_sqlparser`] module.
 
+use std::collections::HashSet;
 use std::vec;
 
 use itertools::Itertools;
@@ -179,9 +180,19 @@ impl<'a, R: Rng> SqlGenerator<'a, R> {
         // Generate random tables/relations first so that select items can refer to them.
         let from = self.gen_from(with_tables);
         let selection = self.gen_where();
-        let group_by = self.gen_group_by();
-        let having = self.gen_having(!group_by.is_empty());
-        let (select_list, schema) = self.gen_select_list(num_select_items);
+        let allow_select_except = self.rng.gen_bool(0.5);
+
+        let group_by;
+        let having;
+        let (select_list, schema) = if allow_select_except {
+            group_by = vec![];
+            having = None;
+            self.gen_select_list(num_select_items, true)
+        } else {
+            group_by = self.gen_group_by();
+            having = self.gen_having(!group_by.is_empty());
+            self.gen_select_list(num_select_items, false)
+        };
         let select = Select {
             distinct: Distinct::All,
             projection: select_list,
@@ -194,12 +205,78 @@ impl<'a, R: Rng> SqlGenerator<'a, R> {
         (select, schema)
     }
 
-    fn gen_select_list(&mut self, num_select_items: usize) -> (Vec<SelectItem>, Vec<Column>) {
+    fn gen_select_list(
+        &mut self,
+        num_select_items: usize,
+        allow_select_except: bool,
+    ) -> (Vec<SelectItem>, Vec<Column>) {
         let can_agg = self.flip_coin();
         let context = SqlGeneratorContext::new_with_can_agg(can_agg);
-        (0..num_select_items)
-            .map(|i| self.gen_select_item(i, context))
-            .unzip()
+        let mut select_list = vec![];
+        let mut schemas = vec![];
+        let mut chosen_columns = HashSet::new();
+        while schemas.len() < num_select_items {
+            if !allow_select_except || self.bound_relations.is_empty() || self.rng.gen_bool(0.1) {
+                let (select, schema) = self.gen_select_item(schemas.len(), context);
+                select_list.push(select);
+                schemas.push(schema);
+            } else {
+                // except
+                let num_of_select = self.rng.gen_range(1..=num_select_items - schemas.len());
+                if let Some((except_select, select_schemas)) = self.gen_select_except(num_of_select, &mut chosen_columns) {
+                    schemas.extend(select_schemas);
+                    select_list.push(except_select);
+                } else {
+                    let (select, schema) = self.gen_select_item(schemas.len(), context);
+                    select_list.push(select);
+                    schemas.push(schema);
+                }
+            }
+        }
+        (select_list, schemas)
+    }
+
+    fn gen_select_except(
+        &mut self,
+        num_of_select: usize,
+        chosen_columns: &mut HashSet<String>,
+    ) -> Option<(SelectItem, Vec<Column>)> {
+        let mut valid_columns = vec![];
+        for table in &self.bound_relations {
+            for col in &table.columns {
+                if !chosen_columns.contains(&col.name) {
+                    chosen_columns.insert(col.name.clone());
+                    valid_columns.push((&table.name, col));
+                }
+            }
+        }
+        if valid_columns.is_empty() {
+            return None;
+        }
+        let total_num_of_cols = valid_columns.len();
+        // mask for the columns we want
+        let mut mask = vec![false; num_of_select];
+        mask.extend(vec![true; total_num_of_cols - num_of_select]);
+        mask.shuffle(&mut self.rng);
+        let mut index = 0;
+        let mut except_items = vec![];
+        let mut schemas = vec![];
+        for (table_name, col) in valid_columns {
+            if mask[index] {
+                except_items.push(Expr::CompoundIdentifier(vec![
+                    Ident::new_unchecked(table_name),
+                    Ident::new_unchecked(&col.name),
+                ]));
+            } else {
+                schemas.push(Column {
+                    name: table_name.to_owned() + "." + &col.name,
+                    data_type: col.data_type.clone(),
+                });
+            }
+            index += 1;
+        }
+
+        Some((SelectItem::Wildcard(Some(except_items)), schemas))
     }
 
     fn gen_select_item(&mut self, i: usize, context: SqlGeneratorContext) -> (SelectItem, Column) {
