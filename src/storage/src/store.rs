@@ -242,6 +242,7 @@ pub trait LocalStateStore: StaticSendSync {
         &mut self,
         delete_ranges: Vec<(Bound<Bytes>, Bound<Bytes>)>,
     ) -> impl Future<Output = StorageResult<()>> + Send + '_;
+
     fn epoch(&self) -> u64;
 
     fn is_dirty(&self) -> bool;
