@@ -27,7 +27,7 @@ use crate::manager::{
 use crate::model::ClusterId;
 #[cfg(any(test, feature = "test"))]
 use crate::storage::MemStore;
-use crate::storage::{MetaStoreBoxExt, MetaStoreRef};
+use crate::storage::MetaStoreRef;
 use crate::MetaResult;
 
 /// [`MetaSrvEnv`] is the global environment in Meta service. The instance will be shared by all
@@ -303,6 +303,9 @@ impl MetaSrvEnv {
         self.connector_client.clone()
     }
 }
+
+#[cfg(any(test, feature = "test"))]
+use crate::storage::MetaStoreBoxExt;
 
 #[cfg(any(test, feature = "test"))]
 impl MetaSrvEnv {
