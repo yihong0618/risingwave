@@ -47,6 +47,22 @@ impl FunctionAttr {
         attrs
     }
 
+    /// Generate the type infer function.
+    fn generate_type_infer_fn(&self) -> Result<TokenStream2> {
+        if let Some(func) = &self.type_infer {
+            Ok(func.parse().unwrap())
+        } else {
+            if matches!(self.ret.as_str(), "any" | "anyarray" | "struct") {
+                return Err(Error::new(
+                    Span::call_site(),
+                    format!("type inference function is required for {}", self.ret),
+                ));
+            }
+            let ty = data_type(&self.ret);
+            Ok(quote! { |_| Ok(#ty) })
+        }
+    }
+
     /// Generate a descriptor of the scalar or table function.
     ///
     /// The types of arguments and return value should not contain wildcard.
@@ -64,31 +80,35 @@ impl FunctionAttr {
             if ty == "..." {
                 break;
             }
-            args.push(data_type_name(ty));
+            args.push(match_type(ty));
         }
         let variadic = matches!(self.args.last(), Some(t) if t == "...");
-        let ret = data_type_name(&self.ret);
+        let ret = match_type(&self.ret);
 
         let pb_type = format_ident!("{}", utils::to_camel_case(&name));
         let ctor_name = format_ident!("{}", self.ident_name());
-        let descriptor_type = quote! { crate::sig::func::FuncSign };
         let build_fn = if build_fn {
             let name = format_ident!("{}", user_fn.name);
             quote! { #name }
         } else {
             self.generate_build_scalar_function(user_fn, true)?
         };
+        let type_infer_fn = self.generate_type_infer_fn()?;
         let deprecated = self.deprecated;
+
         Ok(quote! {
             #[ctor::ctor]
             fn #ctor_name() {
                 use risingwave_common::types::{DataType, DataTypeName};
-                unsafe { crate::sig::func::_register(#descriptor_type {
-                    func: risingwave_pb::expr::expr_node::Type::#pb_type,
-                    inputs_type: &[#(#args),*],
+                use crate::sig::{_register, FuncSign, MatchType, FuncBuilder};
+
+                unsafe { _register(FuncSign {
+                    name: risingwave_pb::expr::expr_node::Type::#pb_type.into(),
+                    inputs_type: vec![#(#args),*],
                     variadic: #variadic,
                     ret_type: #ret,
-                    build: #build_fn,
+                    build: FuncBuilder::Scalar(#build_fn),
+                    type_infer: #type_infer_fn,
                     deprecated: #deprecated,
                 }) };
             }
@@ -470,28 +490,35 @@ impl FunctionAttr {
 
         let mut args = Vec::with_capacity(self.args.len());
         for ty in &self.args {
-            args.push(data_type_name(ty));
+            args.push(match_type(ty));
         }
-        let ret = data_type_name(&self.ret);
+        let ret = match_type(&self.ret);
 
         let pb_type = format_ident!("{}", utils::to_camel_case(&name));
         let ctor_name = format_ident!("{}", self.ident_name());
-        let descriptor_type = quote! { crate::sig::agg::AggFuncSig };
         let build_fn = if build_fn {
             let name = format_ident!("{}", user_fn.name);
             quote! { #name }
         } else {
             self.generate_agg_build_fn(user_fn)?
         };
+        let type_infer_fn = self.generate_type_infer_fn()?;
+        let deprecated = self.deprecated;
+
         Ok(quote! {
             #[ctor::ctor]
             fn #ctor_name() {
                 use risingwave_common::types::{DataType, DataTypeName};
-                unsafe { crate::sig::agg::_register(#descriptor_type {
-                    func: crate::agg::AggKind::#pb_type,
-                    inputs_type: &[#(#args),*],
+                use crate::sig::{_register, FuncSign, MatchType, FuncBuilder};
+
+                unsafe { _register(FuncSign {
+                    name: crate::agg::AggKind::#pb_type.into(),
+                    inputs_type: vec![#(#args),*],
+                    variadic: false,
                     ret_type: #ret,
-                    build: #build_fn,
+                    build: FuncBuilder::Aggregate(#build_fn),
+                    type_infer: #type_infer_fn,
+                    deprecated: #deprecated,
                 }) };
             }
         })
@@ -698,41 +725,35 @@ impl FunctionAttr {
         let name = self.name.clone();
         let mut args = Vec::with_capacity(self.args.len());
         for ty in &self.args {
-            args.push(data_type_name(ty));
+            args.push(match_type(ty));
         }
-        let ret = data_type_name(&self.ret);
+        let ret = match_type(&self.ret);
 
         let pb_type = format_ident!("{}", utils::to_camel_case(&name));
         let ctor_name = format_ident!("{}", self.ident_name());
-        let descriptor_type = quote! { crate::sig::table_function::FuncSign };
         let build_fn = if build_fn {
             let name = format_ident!("{}", user_fn.name);
             quote! { #name }
         } else {
             self.generate_build_table_function(user_fn)?
         };
-        let type_infer_fn = if let Some(func) = &self.type_infer {
-            func.parse().unwrap()
-        } else {
-            if matches!(self.ret.as_str(), "any" | "anyarray" | "struct") {
-                return Err(Error::new(
-                    Span::call_site(),
-                    format!("type inference function is required for {}", self.ret),
-                ));
-            }
-            let ty = data_type(&self.ret);
-            quote! { |_| Ok(#ty) }
-        };
+        let type_infer_fn = self.generate_type_infer_fn()?;
+        let deprecated = self.deprecated;
+
         Ok(quote! {
             #[ctor::ctor]
             fn #ctor_name() {
                 use risingwave_common::types::{DataType, DataTypeName};
-                unsafe { crate::sig::table_function::_register(#descriptor_type {
-                    func: risingwave_pb::expr::table_function::Type::#pb_type,
-                    inputs_type: &[#(#args),*],
+                use crate::sig::{_register, FuncSign, MatchType, FuncBuilder};
+
+                unsafe { _register(FuncSign {
+                    name: risingwave_pb::expr::table_function::Type::#pb_type.into(),
+                    inputs_type: vec![#(#args),*],
+                    variadic: false,
                     ret_type: #ret,
-                    build: #build_fn,
+                    build: FuncBuilder::Table(#build_fn),
                     type_infer: #type_infer_fn,
+                    deprecated: #deprecated,
                 }) };
             }
         })
@@ -914,9 +935,15 @@ impl FunctionAttr {
     }
 }
 
-fn data_type_name(ty: &str) -> TokenStream2 {
-    let variant = format_ident!("{}", types::data_type(ty));
-    quote! { DataTypeName::#variant }
+fn match_type(ty: &str) -> TokenStream2 {
+    match ty {
+        "any" => quote! { MatchType::Any },
+        "anyarray" => quote! { MatchType::AnyArray },
+        _ => {
+            let datatype = data_type(ty);
+            quote! { MatchType::Exact(#datatype) }
+        }
+    }
 }
 
 fn data_type(ty: &str) -> TokenStream2 {
