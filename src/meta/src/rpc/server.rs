@@ -660,7 +660,7 @@ pub async fn start_service_as_election_leader(
     );
 
     // May start telemetry reporting
-    if env.opts.telemetry_enabled && telemetry_env_enabled() {
+    if telemetry_env_enabled() {
         if system_params_reader.telemetry_enabled() {
             mgr.start_telemetry_reporting().await;
         }

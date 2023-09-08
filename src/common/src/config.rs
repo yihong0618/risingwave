@@ -363,9 +363,6 @@ pub struct ServerConfig {
     #[serde(default = "default::server::metrics_level")]
     pub metrics_level: MetricLevel,
 
-    #[serde(default = "default::server::telemetry_enabled")]
-    pub telemetry_enabled: bool,
-
     #[serde(default, flatten)]
     pub unrecognized: Unrecognized<Self>,
 
@@ -736,8 +733,9 @@ pub struct BatchDeveloperConfig {
     pub chunk_size: usize,
 }
 
-/// The section `[system]` in `risingwave.toml`. This section is only for testing purpose and should
-/// not be documented.
+/// The section `[system]` in `risingwave.toml`. All these fields are used to initialize the system
+/// parameters persisted in Meta store. Some fields are for testing purpose only and should not be
+/// documented.
 #[derive(Clone, Debug, Serialize, Deserialize, DefaultFromSerde)]
 pub struct SystemConfig {
     /// The interval of periodic barrier.
@@ -778,6 +776,7 @@ pub struct SystemConfig {
     #[serde(default = "default::system::backup_storage_directory")]
     pub backup_storage_directory: Option<String>,
 
+    /// Whether to enable telemetry.
     #[serde(default = "default::system::telemetry_enabled")]
     pub telemetry_enabled: Option<bool>,
 
@@ -920,10 +919,6 @@ pub mod default {
 
         pub fn metrics_level() -> MetricLevel {
             MetricLevel::Info
-        }
-
-        pub fn telemetry_enabled() -> bool {
-            true
         }
 
         pub fn auto_dump_heap_profile() -> AutoDumpHeapProfileConfig {

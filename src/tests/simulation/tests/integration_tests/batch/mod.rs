@@ -59,9 +59,9 @@ max_heartbeat_interval_secs = 300
 [system]
 barrier_interval_ms = 1000
 checkpoint_frequency = 1
+telemetry_enabled = false
 
 [server]
-telemetry_enabled = false
 metrics_level = \"Disabled\"
         "
             .as_bytes(),
