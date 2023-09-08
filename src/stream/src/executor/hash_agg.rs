@@ -380,7 +380,8 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
         {
             if let AggStateStorage::MaterializedInput { table, mapping } = storage && !call.distinct {
                 let chunk = chunk.project_with_vis(mapping.upstream_columns(), visibility.clone());
-                table.write_chunk(chunk);
+                println!("Calling write_chunk consistent");
+                table.write_chunk_consistent(chunk).await;
             }
         }
 
@@ -409,7 +410,8 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
             {
                 if let AggStateStorage::MaterializedInput { table, mapping } = storage && call.distinct {
                     let chunk = chunk.project_with_vis(mapping.upstream_columns(), visibility.clone());
-                    table.write_chunk(chunk);
+                    println!("Calling write_chunk consistent");
+                    table.write_chunk_consistent(chunk).await;
                 }
             }
             agg_group
