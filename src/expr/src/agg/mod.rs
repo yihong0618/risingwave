@@ -123,7 +123,7 @@ pub type BoxedAggregateFunction = Box<dyn AggregateFunction>;
 /// NOTE: This function ignores argument indices, `column_orders`, `filter` and `distinct` in
 /// `AggCall`. Such operations should be done in batch or streaming executors.
 pub fn build(agg: &AggCall) -> Result<BoxedAggregateFunction> {
-    let desc = crate::sig::FUNC_SIG_MAP
+    let desc = crate::sig::FUNCTION_REGISTRY
         .get(agg.kind, agg.args.arg_types(), &agg.return_type)
         .ok_or_else(|| {
             ExprError::UnsupportedFunction(format!(
