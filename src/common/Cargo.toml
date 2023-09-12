@@ -79,6 +79,7 @@ serde_with = "3"
 smallbitset = "0.7.1"
 speedate = "0.12.0"
 static_assertions = "1"
+static-toml = "1.0.1"
 strum = "0.25"
 strum_macros = "0.25"
 sysinfo = { version = "0.29", default-features = false }

@@ -1,0 +1,489 @@
+[[types]]
+oid = 16
+typtype = 98
+typarray = 1000
+typname = "bool"
+typlen = 1
+
+[[types]]
+oid = 17
+typtype = 98
+typarray = 1001
+typname = "bytea"
+typlen = -1
+
+[[types]]
+oid = 18
+typtype = 98
+typarray = 1002
+typname = "char"
+typlen = 1
+
+[[types]]
+oid = 19
+typtype = 98
+typarray = 1003
+typname = "name"
+typlen = 64
+
+[[types]]
+oid = 20
+typtype = 98
+typarray = 1016
+typname = "int8"
+typlen = 8
+
+[[types]]
+oid = 21
+typtype = 98
+typarray = 1005
+typname = "int2"
+typlen = 2
+
+[[types]]
+oid = 22
+typtype = 98
+typarray = 1006
+typname = "int2vector"
+typlen = -1
+
+[[types]]
+oid = 23
+typtype = 98
+typarray = 1007
+typname = "int4"
+typlen = 4
+
+[[types]]
+oid = 24
+typtype = 98
+typarray = 1008
+typname = "regproc"
+typlen = 4
+
+[[types]]
+oid = 25
+typtype = 98
+typarray = 1009
+typname = "text"
+typlen = -1
+
+[[types]]
+oid = 26
+typtype = 98
+typarray = 1028
+typname = "oid"
+typlen = 4
+
+[[types]]
+oid = 27
+typtype = 98
+typarray = 1010
+typname = "tid"
+typlen = 6
+
+[[types]]
+oid = 28
+typtype = 98
+typarray = 1011
+typname = "xid"
+typlen = 4
+
+[[types]]
+oid = 29
+typtype = 98
+typarray = 1012
+typname = "cid"
+typlen = 4
+
+[[types]]
+oid = 30
+typtype = 98
+typarray = 1013
+typname = "oidvector"
+typlen = -1
+
+[[types]]
+oid = 114
+typtype = 98
+typarray = 199
+typname = "json"
+typlen = -1
+
+[[types]]
+oid = 142
+typtype = 98
+typarray = 143
+typname = "xml"
+typlen = -1
+
+[[types]]
+oid = 194
+typtype = 98
+typarray = 0
+typname = "pg_node_tree"
+typlen = -1
+
+[[types]]
+oid = 3361
+typtype = 98
+typarray = 0
+typname = "pg_ndistinct"
+typlen = -1
+
+[[types]]
+oid = 3402
+typtype = 98
+typarray = 0
+typname = "pg_dependencies"
+typlen = -1
+
+[[types]]
+oid = 5017
+typtype = 98
+typarray = 0
+typname = "pg_mcv_list"
+typlen = -1
+
+[[types]]
+oid = 5069
+typtype = 98
+typarray = 271
+typname = "xid8"
+typlen = 8
+
+[[types]]
+oid = 600
+typtype = 98
+typarray = 1017
+typname = "point"
+typlen = 16
+
+[[types]]
+oid = 601
+typtype = 98
+typarray = 1018
+typname = "lseg"
+typlen = 32
+
+[[types]]
+oid = 602
+typtype = 98
+typarray = 1019
+typname = "path"
+typlen = -1
+
+[[types]]
+oid = 603
+typtype = 98
+typarray = 1020
+typname = "box"
+typlen = 32
+
+[[types]]
+oid = 604
+typtype = 98
+typarray = 1027
+typname = "polygon"
+typlen = -1
+
+[[types]]
+oid = 628
+typtype = 98
+typarray = 629
+typname = "line"
+typlen = 24
+
+[[types]]
+oid = 700
+typtype = 98
+typarray = 1021
+typname = "float4"
+typlen = 4
+
+[[types]]
+oid = 701
+typtype = 98
+typarray = 1022
+typname = "float8"
+typlen = 8
+
+[[types]]
+oid = 718
+typtype = 98
+typarray = 719
+typname = "circle"
+typlen = 24
+
+[[types]]
+oid = 790
+typtype = 98
+typarray = 791
+typname = "money"
+typlen = 8
+
+[[types]]
+oid = 829
+typtype = 98
+typarray = 1040
+typname = "macaddr"
+typlen = 6
+
+[[types]]
+oid = 869
+typtype = 98
+typarray = 1041
+typname = "inet"
+typlen = -1
+
+[[types]]
+oid = 650
+typtype = 98
+typarray = 651
+typname = "cidr"
+typlen = -1
+
+[[types]]
+oid = 774
+typtype = 98
+typarray = 775
+typname = "macaddr8"
+typlen = 8
+
+[[types]]
+oid = 1033
+typtype = 98
+typarray = 1034
+typname = "aclitem"
+typlen = 12
+
+[[types]]
+oid = 1042
+typtype = 98
+typarray = 1014
+typname = "bpchar"
+typlen = -1
+
+[[types]]
+oid = 1043
+typtype = 98
+typarray = 1015
+typname = "varchar"
+typlen = -1
+
+[[types]]
+oid = 1082
+typtype = 98
+typarray = 1182
+typname = "date"
+typlen = 4
+
+[[types]]
+oid = 1083
+typtype = 98
+typarray = 1183
+typname = "time"
+typlen = 8
+
+[[types]]
+oid = 1114
+typtype = 98
+typarray = 1115
+typname = "timestamp"
+typlen = 8
+
+[[types]]
+oid = 1184
+typtype = 98
+typarray = 1185
+typname = "timestamptz"
+typlen = 8
+
+[[types]]
+oid = 1186
+typtype = 98
+typarray = 1187
+typname = "interval"
+typlen = 16
+
+[[types]]
+oid = 1266
+typtype = 98
+typarray = 1270
+typname = "timetz"
+typlen = 12
+
+[[types]]
+oid = 1560
+typtype = 98
+typarray = 1561
+typname = "bit"
+typlen = -1
+
+[[types]]
+oid = 1562
+typtype = 98
+typarray = 1563
+typname = "varbit"
+typlen = -1
+
+[[types]]
+oid = 1700
+typtype = 98
+typarray = 1231
+typname = "numeric"
+typlen = -1
+
+[[types]]
+oid = 1790
+typtype = 98
+typarray = 2201
+typname = "refcursor"
+typlen = -1
+
+[[types]]
+oid = 2202
+typtype = 98
+typarray = 2207
+typname = "regprocedure"
+typlen = 4
+
+[[types]]
+oid = 2203
+typtype = 98
+typarray = 2208
+typname = "regoper"
+typlen = 4
+
+[[types]]
+oid = 2204
+typtype = 98
+typarray = 2209
+typname = "regoperator"
+typlen = 4
+
+[[types]]
+oid = 2205
+typtype = 98
+typarray = 2210
+typname = "regclass"
+typlen = 4
+
+[[types]]
+oid = 4191
+typtype = 98
+typarray = 4192
+typname = "regcollation"
+typlen = 4
+
+[[types]]
+oid = 2206
+typtype = 98
+typarray = 2211
+typname = "regtype"
+typlen = 4
+
+[[types]]
+oid = 4096
+typtype = 98
+typarray = 4097
+typname = "regrole"
+typlen = 4
+
+[[types]]
+oid = 4089
+typtype = 98
+typarray = 4090
+typname = "regnamespace"
+typlen = 4
+
+[[types]]
+oid = 2950
+typtype = 98
+typarray = 2951
+typname = "uuid"
+typlen = 16
+
+[[types]]
+oid = 3220
+typtype = 98
+typarray = 3221
+typname = "pg_lsn"
+typlen = 8
+
+[[types]]
+oid = 3614
+typtype = 98
+typarray = 3643
+typname = "tsvector"
+typlen = -1
+
+[[types]]
+oid = 3642
+typtype = 98
+typarray = 3644
+typname = "gtsvector"
+typlen = -1
+
+[[types]]
+oid = 3615
+typtype = 98
+typarray = 3645
+typname = "tsquery"
+typlen = -1
+
+[[types]]
+oid = 3734
+typtype = 98
+typarray = 3735
+typname = "regconfig"
+typlen = 4
+
+[[types]]
+oid = 3769
+typtype = 98
+typarray = 3770
+typname = "regdictionary"
+typlen = 4
+
+[[types]]
+oid = 3802
+typtype = 98
+typarray = 3807
+typname = "jsonb"
+typlen = -1
+
+[[types]]
+oid = 4072
+typtype = 98
+typarray = 4073
+typname = "jsonpath"
+typlen = -1
+
+[[types]]
+oid = 2970
+typtype = 98
+typarray = 2949
+typname = "txid_snapshot"
+typlen = -1
+
+[[types]]
+oid = 5038
+typtype = 98
+typarray = 5039
+typname = "pg_snapshot"
+typlen = -1
+
+[[types]]
+oid = 4600
+typtype = 98
+typarray = 0
+typname = "pg_brin_bloom_summary"
+typlen = -1
+
+[[types]]
+oid = 4601
+typtype = 98
+typarray = 0
+typname = "pg_brin_minmax_multi_summary"
+typlen = -1

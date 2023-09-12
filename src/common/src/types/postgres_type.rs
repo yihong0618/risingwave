@@ -15,6 +15,10 @@
 use super::DataType;
 use crate::error::ErrorCode;
 
+static_toml::static_toml! {
+    static PGTYPES = include_toml!("src/types/data/pg_type.toml");
+}
+
 /// `DataType` information extracted from PostgreSQL `pg_type`
 ///
 /// ```sql

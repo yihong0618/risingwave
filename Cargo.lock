@@ -1834,6 +1834,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aca749d3d3f5b87a0d6100509879f9cf486ab510803a4a4e1001da1ff61c2bd6"
 
 [[package]]
+name = "convert_case"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec182b0ca2f35d8fc196cf3404988fd8b8c739a4d270ff118a398feb0cbec1ca"
+dependencies = [
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6732,6 +6741,7 @@ dependencies = [
  "serde_with 3.3.0",
  "smallbitset",
  "speedate",
+ "static-toml",
  "static_assertions",
  "strum 0.25.0",
  "strum_macros 0.25.2",
@@ -7113,6 +7123,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.7",
  "smallvec",
+ "static-toml",
  "tempfile",
  "thiserror",
  "tokio-stream",
@@ -8681,6 +8692,20 @@ name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
+
+[[package]]
+name = "static-toml"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e897118b34487b886add7241285a1e3f38b79c6d01f38ec9581b54d79da4209b"
+dependencies = [
+ "convert_case",
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.31",
+ "toml 0.7.8",
+]
 
 [[package]]
 name = "static_assertions"
