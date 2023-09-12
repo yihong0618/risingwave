@@ -16,7 +16,7 @@
 //! We construct Query based on the AST representation,
 //! as defined in the [`risingwave_sqlparser`] module.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::vec;
 
 use itertools::Itertools;
@@ -180,11 +180,11 @@ impl<'a, R: Rng> SqlGenerator<'a, R> {
         // Generate random tables/relations first so that select items can refer to them.
         let from = self.gen_from(with_tables);
         let selection = self.gen_where();
-        let allow_select_except = self.rng.gen_bool(0.5);
+        let allow_select_star = self.rng.gen_bool(1.0);
 
         let group_by;
         let having;
-        let (select_list, schema) = if allow_select_except {
+        let (select_list, schema) = if allow_select_star {
             group_by = vec![];
             having = None;
             self.gen_select_list(num_select_items, true)
@@ -208,26 +208,36 @@ impl<'a, R: Rng> SqlGenerator<'a, R> {
     fn gen_select_list(
         &mut self,
         num_select_items: usize,
-        allow_select_except: bool,
+        // from: Vec<TableWithJoins>,
+        allow_select_star: bool,
     ) -> (Vec<SelectItem>, Vec<Column>) {
-        let can_agg = self.flip_coin();
+        let can_agg = !allow_select_star && self.flip_coin();
         let context = SqlGeneratorContext::new_with_can_agg(can_agg);
         let mut select_list = vec![];
         let mut schemas = vec![];
         let mut chosen_columns = HashSet::new();
         while schemas.len() < num_select_items {
-            if !allow_select_except || self.bound_relations.is_empty() || self.rng.gen_bool(0.1) {
-                let (select, schema) = self.gen_select_item(schemas.len(), context);
+            if !allow_select_star
+                || self.bound_relations.is_empty()
+                // both except list and select result should be nonempty
+                || schemas.len() + 1 == num_select_items
+                || self.rng.gen_bool(0.01)
+            {
+                let (select, schema) =
+                    self.gen_select_item(schemas.len(), context, &mut chosen_columns);
                 select_list.push(select);
                 schemas.push(schema);
             } else {
-                // except
-                let num_of_select = self.rng.gen_range(1..=num_select_items - schemas.len());
-                if let Some((except_select, select_schemas)) = self.gen_select_except(num_of_select, &mut chosen_columns) {
+                // except part
+                let num_of_select = self.rng.gen_range(1..num_select_items - schemas.len());
+                if let Some((except_select, select_schemas)) =
+                    self.gen_select_except(num_of_select, &mut chosen_columns)
+                {
                     schemas.extend(select_schemas);
                     select_list.push(except_select);
                 } else {
-                    let (select, schema) = self.gen_select_item(schemas.len(), context);
+                    let (select, schema) =
+                        self.gen_select_item(schemas.len(), context, &mut chosen_columns);
                     select_list.push(select);
                     schemas.push(schema);
                 }
@@ -241,48 +251,81 @@ impl<'a, R: Rng> SqlGenerator<'a, R> {
         num_of_select: usize,
         chosen_columns: &mut HashSet<String>,
     ) -> Option<(SelectItem, Vec<Column>)> {
-        let mut valid_columns = vec![];
+        // Column name -> (Column desc, Table) since two tables may have different columns with the
+        // same name
+        let mut valid_columns = HashMap::new();
+        // columns with name that are chosen
+        let mut invalid_columns = Vec::new();
         for table in &self.bound_relations {
             for col in &table.columns {
-                if !chosen_columns.contains(&col.name) {
-                    chosen_columns.insert(col.name.clone());
-                    valid_columns.push((&table.name, col));
+                // Disallow choosing columns with prefix "col_" which would lead to conflicts
+                if !chosen_columns.contains(&col.name) && !col.name.starts_with("col_") {
+                    let entry = valid_columns.entry(&col.name).or_insert(vec![]);
+                    entry.push((col, &table.name));
+                } else {
+                    invalid_columns.push((&table.name, col));
                 }
             }
         }
-        if valid_columns.is_empty() {
+        println!("BOUND COLUMNS: {:?}\n BOUND RELATIONS: {:?}", self.bound_columns, self.bound_relations);
+        let total_num_of_cols = valid_columns.len();
+        if total_num_of_cols <= num_of_select {
             return None;
         }
-        let total_num_of_cols = valid_columns.len();
         // mask for the columns we want
         let mut mask = vec![false; num_of_select];
         mask.extend(vec![true; total_num_of_cols - num_of_select]);
         mask.shuffle(&mut self.rng);
         let mut index = 0;
+        // `except_items` + `schemas` should be all the bound columns
         let mut except_items = vec![];
         let mut schemas = vec![];
-        for (table_name, col) in valid_columns {
+        for (table_name, col) in invalid_columns {
+            except_items.push(Expr::CompoundIdentifier(vec![
+                Ident::new_unchecked(table_name),
+                Ident::new_unchecked(&col.name),
+            ]));
+        }
+        for (col_name, col_and_tables) in valid_columns {
             if mask[index] {
-                except_items.push(Expr::CompoundIdentifier(vec![
-                    Ident::new_unchecked(table_name),
-                    Ident::new_unchecked(&col.name),
-                ]));
+                for (col, table_name) in col_and_tables {
+                    except_items.push(Expr::CompoundIdentifier(vec![
+                        Ident::new_unchecked(table_name),
+                        Ident::new_unchecked(&col.name),
+                    ]));
+                }
             } else {
-                schemas.push(Column {
-                    name: table_name.to_owned() + "." + &col.name,
-                    data_type: col.data_type.clone(),
-                });
+                let choose_idx = self.rng.gen_range(0..col_and_tables.len());
+                for (idx, (col, table_name)) in col_and_tables.iter().enumerate() {
+                    if choose_idx == idx {
+                        chosen_columns.insert(col.name.clone());
+                        schemas.push(Column {
+                            name: col_name.clone(),
+                            data_type: col.data_type.clone(),
+                        });
+                    } else {
+                        except_items.push(Expr::CompoundIdentifier(vec![
+                            Ident::new_unchecked(*table_name),
+                            Ident::new_unchecked(&col.name),
+                        ]));
+                    }
+                }
             }
             index += 1;
         }
-
         Some((SelectItem::Wildcard(Some(except_items)), schemas))
     }
 
-    fn gen_select_item(&mut self, i: usize, context: SqlGeneratorContext) -> (SelectItem, Column) {
+    fn gen_select_item(
+        &mut self,
+        i: usize,
+        context: SqlGeneratorContext,
+        chosen_columns: &mut HashSet<String>,
+    ) -> (SelectItem, Column) {
         let (ret_type, expr) = self.gen_arbitrary_expr(context);
 
         let alias = format!("col_{}", i);
+        chosen_columns.insert(alias.clone());
         (
             SelectItem::ExprWithAlias {
                 expr,
