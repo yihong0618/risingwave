@@ -60,14 +60,14 @@ impl CompactionPicker for LevelCompactionPicker {
             return None;
         }
 
-        if let Some(ret) = self.pick_base_trivial_move(
-            l0,
-            levels.get_level(self.target_level),
-            level_handlers,
-            stats,
-        ) {
-            return Some(ret);
-        }
+        // if let Some(ret) = self.pick_base_trivial_move(
+        //     l0,
+        //     levels.get_level(self.target_level),
+        //     level_handlers,
+        //     stats,
+        // ) {
+        //     return Some(ret);
+        // }
 
         debug_assert!(self.target_level == levels.get_level(self.target_level).level_idx as usize);
         if let Some(ret) = self.pick_multi_level_to_base(
