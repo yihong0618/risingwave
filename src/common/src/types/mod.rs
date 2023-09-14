@@ -981,6 +981,11 @@ impl ScalarImpl {
     pub fn as_scalar_ref_impl(&self) -> ScalarRefImpl<'_> {
         dispatch_scalar_variants!(self, inner, { inner.as_scalar_ref().into() })
     }
+
+    /// Alias to `as_scalar_ref_impl`.
+    pub fn as_scalar_ref(&self) -> ScalarRefImpl<'_> {
+        self.as_scalar_ref_impl()
+    }
 }
 
 impl<'a> ScalarRefImpl<'a> {

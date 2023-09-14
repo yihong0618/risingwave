@@ -87,6 +87,8 @@ impl ExprVisitor<bool> for ImpureAnalyzer {
             | expr_node::Type::Ascii
             | expr_node::Type::Translate
             | expr_node::Type::Coalesce
+            | expr_node::Type::Greatest
+            | expr_node::Type::Least
             | expr_node::Type::ConcatWs
             | expr_node::Type::Abs
             | expr_node::Type::SplitPart

@@ -86,6 +86,8 @@ message ExprNode {
     ASCII = 215;
     TRANSLATE = 216;
     COALESCE = 217;
+    GREATEST = 282;
+    LEAST = 283;
     CONCAT_WS = 218;
     ABS = 219;
     SPLIT_PART = 220;

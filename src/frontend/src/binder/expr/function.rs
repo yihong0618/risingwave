@@ -677,6 +677,8 @@ impl Binder {
                     "nullif",
                     rewrite(ExprType::Case, Binder::rewrite_nullif_to_case_when),
                 ),
+                ("greatest", raw_call(ExprType::Greatest)),
+                ("least", raw_call(ExprType::Least)),
                 (
                     "round",
                     dispatch_by_len(vec![
