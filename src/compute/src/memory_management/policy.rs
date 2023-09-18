@@ -48,8 +48,8 @@ pub struct JemallocMemoryControl {
 
 impl JemallocMemoryControl {
     const THRESHOLD_AGGRESSIVE: f64 = 0.9;
-    const THRESHOLD_GRACEFUL: f64 = 0.8;
-    const THRESHOLD_STABLE: f64 = 0.7;
+    const THRESHOLD_GRACEFUL: f64 = 0.89;
+    const THRESHOLD_STABLE: f64 = 0.85;
 
     pub fn new(
         total_memory: usize,
