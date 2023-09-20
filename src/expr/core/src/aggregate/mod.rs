@@ -47,6 +47,14 @@ pub trait AggregateFunction: Send + Sync + 'static {
         input: &StreamChunk,
     ) -> Result<()>;
 
+    /// Accumulates or retracts different states for each row.
+    ///
+    /// Operations depends on the ops of input. + for accumulate, - for retract.
+    ///
+    /// # Safety
+    ///
+    /// The `states` must be valid references to states created by `create_state`
+    /// of this function for each visible row.
     async fn grouped_accumulate_and_retract(
         &self,
         states: &[AggregateStateRef],
@@ -132,8 +140,6 @@ impl AggregateState {
 }
 
 /// A reference to `AggregateState` without lifetime constraints and type information.
-///
-/// # Safety
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct AggregateStateRef {
     ptr: *const (),
