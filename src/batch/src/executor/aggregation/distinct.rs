@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::collections::HashSet;
-use std::ops::Range;
 
 use risingwave_common::array::StreamChunk;
 use risingwave_common::buffer::BitmapBuilder;
@@ -21,7 +20,7 @@ use risingwave_common::estimate_size::EstimateSize;
 use risingwave_common::row::{OwnedRow, Row};
 use risingwave_common::types::{DataType, Datum};
 use risingwave_expr::aggregate::{
-    AggStateDyn, AggregateFunction, AggregateState, BoxedAggregateFunction,
+    AggStateDyn, AggregateFunction, AggregateState, AggregateStateRef, BoxedAggregateFunction,
 };
 use risingwave_expr::Result;
 
@@ -70,25 +69,22 @@ impl AggregateFunction for Distinct {
         }))
     }
 
-    async fn update(&self, state: &mut AggregateState, input: &StreamChunk) -> Result<()> {
-        self.update_range(state, input, 0..input.capacity()).await
-    }
-
-    async fn update_range(
+    async fn accumulate_and_retract(
         &self,
         state: &mut AggregateState,
         input: &StreamChunk,
-        range: Range<usize>,
     ) -> Result<()> {
         let state = state.downcast_mut::<State>();
 
-        let mut bitmap_builder = BitmapBuilder::with_capacity(input.capacity());
-        bitmap_builder.append_bitmap(input.data_chunk().visibility());
-        for row_id in range.clone() {
+        let mut bitmap_builder = BitmapBuilder::from(input.data_chunk().visibility().clone());
+        for row_id in 0..input.capacity() {
             let (row_ref, vis) = input.data_chunk().row_at(row_id);
+            if !vis {
+                continue;
+            }
             let row = row_ref.to_owned_row();
             let row_size = row.estimated_heap_size();
-            let b = vis && state.exists.insert(row);
+            let b = state.exists.insert(row);
             if b {
                 state.exists_estimated_heap_size += row_size;
             }
@@ -96,7 +92,35 @@ impl AggregateFunction for Distinct {
         }
         let input = input.clone_with_vis(bitmap_builder.finish());
         self.inner
-            .update_range(&mut state.inner, &input, range)
+            .accumulate_and_retract(&mut state.inner, &input)
+            .await
+    }
+
+    async fn grouped_accumulate_and_retract(
+        &self,
+        states: &[AggregateStateRef],
+        input: &StreamChunk,
+    ) -> Result<()> {
+        let mut bitmap_builder = BitmapBuilder::from(input.data_chunk().visibility().clone());
+        let mut inner_states = states.to_vec();
+        for row_id in 0..input.capacity() {
+            let (row_ref, vis) = input.data_chunk().row_at(row_id);
+            if !vis {
+                continue;
+            }
+            let state = unsafe { states[row_id].downcast_mut::<State>() };
+            let row = row_ref.to_owned_row();
+            let row_size = row.estimated_heap_size();
+            let b = state.exists.insert(row);
+            if b {
+                state.exists_estimated_heap_size += row_size;
+            }
+            bitmap_builder.set(row_id, b);
+            inner_states[row_id] = state.inner.as_ref();
+        }
+        let input = input.clone_with_vis(bitmap_builder.finish());
+        self.inner
+            .grouped_accumulate_and_retract(&inner_states, &input)
             .await
     }
 
@@ -204,7 +228,7 @@ mod tests {
     fn test_agg(pretty: &str, input: StreamChunk, expected: Datum) {
         let agg = build(&AggCall::from_pretty(pretty)).unwrap();
         let mut state = agg.create_state();
-        agg.update(&mut state, &input)
+        agg.accumulate_and_retract(&mut state, &input)
             .now_or_never()
             .unwrap()
             .unwrap();

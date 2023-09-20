@@ -207,8 +207,9 @@ impl SortAggExecutor {
         child_chunk: &StreamChunk,
         range: Range<usize>,
     ) -> Result<()> {
+        let input = child_chunk.clone_with_vis(child_chunk.visibility() & range);
         for (agg, state) in aggs.iter().zip_eq_fast(agg_states.iter_mut()) {
-            agg.update_range(state, child_chunk, range.clone()).await?;
+            agg.accumulate_and_retract(state, &input).await?;
         }
         Ok(())
     }

@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Range;
-
 use risingwave_common::array::StreamChunk;
 use risingwave_common::types::{DataType, Datum};
-use risingwave_expr::aggregate::{AggregateFunction, AggregateState, BoxedAggregateFunction};
+use risingwave_expr::aggregate::{
+    AggregateFunction, AggregateState, AggregateStateRef, BoxedAggregateFunction,
+};
 use risingwave_expr::Result;
 
 pub struct Projection {
@@ -40,20 +40,23 @@ impl AggregateFunction for Projection {
         self.inner.create_state()
     }
 
-    async fn update(&self, state: &mut AggregateState, input: &StreamChunk) -> Result<()> {
-        self.inner
-            .update(state, &input.project(&self.indices))
-            .await
-    }
-
-    async fn update_range(
+    async fn accumulate_and_retract(
         &self,
         state: &mut AggregateState,
         input: &StreamChunk,
-        range: Range<usize>,
     ) -> Result<()> {
         self.inner
-            .update_range(state, &input.project(&self.indices), range)
+            .accumulate_and_retract(state, &input.project(&self.indices))
+            .await
+    }
+
+    async fn grouped_accumulate_and_retract(
+        &self,
+        states: &[AggregateStateRef],
+        input: &StreamChunk,
+    ) -> Result<()> {
+        self.inner
+            .grouped_accumulate_and_retract(states, &input.project(&self.indices))
             .await
     }
 

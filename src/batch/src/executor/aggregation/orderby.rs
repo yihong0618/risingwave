@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Range;
-
 use anyhow::anyhow;
 use risingwave_common::array::{Op, RowRef, StreamChunk};
 use risingwave_common::estimate_size::EstimateSize;
@@ -23,7 +21,7 @@ use risingwave_common::util::chunk_coalesce::DataChunkBuilder;
 use risingwave_common::util::memcmp_encoding;
 use risingwave_common::util::sort_util::{ColumnOrder, OrderType};
 use risingwave_expr::aggregate::{
-    AggStateDyn, AggregateFunction, AggregateState, BoxedAggregateFunction,
+    AggStateDyn, AggregateFunction, AggregateState, AggregateStateRef, BoxedAggregateFunction,
 };
 use risingwave_expr::{ExprError, Result};
 
@@ -100,7 +98,11 @@ impl AggregateFunction for ProjectionOrderBy {
         }))
     }
 
-    async fn update(&self, state: &mut AggregateState, input: &StreamChunk) -> Result<()> {
+    async fn accumulate_and_retract(
+        &self,
+        state: &mut AggregateState,
+        input: &StreamChunk,
+    ) -> Result<()> {
         let state = state.downcast_mut::<State>();
         state.unordered_values.reserve(input.cardinality());
         for (op, row) in input.rows() {
@@ -110,16 +112,18 @@ impl AggregateFunction for ProjectionOrderBy {
         Ok(())
     }
 
-    async fn update_range(
+    async fn grouped_accumulate_and_retract(
         &self,
-        state: &mut AggregateState,
+        states: &[AggregateStateRef],
         input: &StreamChunk,
-        range: Range<usize>,
     ) -> Result<()> {
-        let state = state.downcast_mut::<State>();
-        state.unordered_values.reserve(range.len());
-        for (op, row) in input.rows_in(range) {
+        for row_id in 0..input.capacity() {
+            let (op, row, vis) = input.row_at(row_id);
+            if !vis {
+                continue;
+            }
             assert_eq!(op, Op::Insert, "only support append");
+            let state = unsafe { states[row_id].downcast_mut::<State>() };
             self.push_row(state, row)?;
         }
         Ok(())
@@ -136,12 +140,16 @@ impl AggregateFunction for ProjectionOrderBy {
         for (_, row) in rows {
             if let Some(data_chunk) = chunk_builder.append_one_row(row) {
                 let chunk = StreamChunk::from(data_chunk);
-                self.inner.update(&mut inner_state, &chunk).await?;
+                self.inner
+                    .accumulate_and_retract(&mut inner_state, &chunk)
+                    .await?;
             }
         }
         if let Some(data_chunk) = chunk_builder.consume_all() {
             let chunk = StreamChunk::from(data_chunk);
-            self.inner.update(&mut inner_state, &chunk).await?;
+            self.inner
+                .accumulate_and_retract(&mut inner_state, &chunk)
+                .await?;
         }
         self.inner.get_result(&inner_state).await
     }
@@ -169,7 +177,9 @@ mod tests {
         ))
         .unwrap();
         let mut state = agg.create_state();
-        agg.update(&mut state, &chunk).await.unwrap();
+        agg.accumulate_and_retract(&mut state, &chunk)
+            .await
+            .unwrap();
         assert_eq!(
             agg.get_result(&state).await.unwrap(),
             Some(
@@ -198,7 +208,9 @@ mod tests {
         ))
         .unwrap();
         let mut state = agg.create_state();
-        agg.update(&mut state, &chunk).await.unwrap();
+        agg.accumulate_and_retract(&mut state, &chunk)
+            .await
+            .unwrap();
         assert_eq!(
             agg.get_result(&state).await.unwrap(),
             Some("ccc_bbb_ddd_aaa".into())

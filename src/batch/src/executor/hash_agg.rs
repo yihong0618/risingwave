@@ -19,12 +19,13 @@ use itertools::Itertools;
 use risingwave_common::array::{DataChunk, StreamChunk};
 use risingwave_common::catalog::{Field, Schema};
 use risingwave_common::error::{Result, RwError};
-use risingwave_common::estimate_size::EstimateSize;
 use risingwave_common::hash::{HashKey, HashKeyDispatcher, PrecomputedBuildHasher};
 use risingwave_common::memory::MemoryContext;
 use risingwave_common::types::DataType;
 use risingwave_common::util::iter_util::ZipEqFast;
-use risingwave_expr::aggregate::{AggCall, AggregateState, BoxedAggregateFunction};
+use risingwave_expr::aggregate::{
+    AggCall, AggregateState, AggregateStateRef, BoxedAggregateFunction,
+};
 use risingwave_pb::batch_plan::plan_node::NodeBody;
 use risingwave_pb::batch_plan::HashAggNode;
 
@@ -221,36 +222,30 @@ impl<K: HashKey + Send + Sync> HashAggExecutor<K> {
         );
 
         // consume all chunks to compute the agg result
+        let mut state_buffers =
+            vec![Vec::<AggregateStateRef>::with_capacity(self.chunk_size); self.aggs.len()];
         #[for_await]
         for chunk in self.child.execute() {
             let chunk = StreamChunk::from(chunk?);
             let keys = K::build(self.group_key_columns.as_slice(), &chunk)?;
-            let mut memory_usage_diff = 0;
-            for (row_id, (key, visible)) in keys
-                .into_iter()
-                .zip_eq_fast(chunk.visibility().iter())
-                .enumerate()
-            {
-                if !visible {
-                    continue;
-                }
-                let mut new_group = false;
-                let states = groups.entry(key).or_insert_with(|| {
-                    new_group = true;
-                    self.aggs.iter().map(|agg| agg.create_state()).collect()
-                });
 
-                // TODO: currently not a vectorized implementation
-                for (agg, state) in self.aggs.iter().zip_eq_fast(states) {
-                    if !new_group {
-                        memory_usage_diff -= state.estimated_size() as i64;
-                    }
-                    agg.update_range(state, &chunk, row_id..row_id + 1).await?;
-                    memory_usage_diff += state.estimated_size() as i64;
+            for buffer in state_buffers.iter_mut() {
+                buffer.clear();
+            }
+            // lookup the hash map to get states for each row
+            for key in keys {
+                let states = groups
+                    .entry(key)
+                    .or_insert_with(|| self.aggs.iter().map(|agg| agg.create_state()).collect());
+                for (buffer, state) in state_buffers.iter_mut().zip_eq_fast(states) {
+                    buffer.push(state.as_ref());
                 }
             }
-            // update memory usage
-            self.mem_context.add(memory_usage_diff);
+            // TODO: parallize async
+            for (agg, states) in self.aggs.iter().zip_eq_fast(&state_buffers) {
+                agg.grouped_accumulate_and_retract(states, &chunk).await?;
+            }
+            // TODO: update estimated size
         }
 
         // Don't use `into_iter` here, it may cause memory leak.

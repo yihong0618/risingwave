@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Range;
 use std::sync::Arc;
 
 use risingwave_common::array::StreamChunk;
 use risingwave_common::types::{DataType, Datum};
-use risingwave_expr::aggregate::{AggregateFunction, AggregateState, BoxedAggregateFunction};
+use risingwave_expr::aggregate::{
+    AggregateFunction, AggregateState, AggregateStateRef, BoxedAggregateFunction,
+};
 use risingwave_expr::expr::Expression;
 use risingwave_expr::Result;
 
@@ -33,6 +34,17 @@ impl Filter {
         assert_eq!(condition.return_type(), DataType::Boolean);
         Self { condition, inner }
     }
+
+    /// Return a new chunk with rows that satisfy the condition.
+    async fn filter_input(&self, input: &StreamChunk) -> Result<StreamChunk> {
+        let selection = self
+            .condition
+            .eval(input.data_chunk())
+            .await?
+            .as_bool()
+            .to_bitmap();
+        Ok(input.clone_with_vis(input.visibility() & selection))
+    }
 }
 
 #[async_trait::async_trait]
@@ -45,25 +57,24 @@ impl AggregateFunction for Filter {
         self.inner.create_state()
     }
 
-    async fn update(&self, state: &mut AggregateState, input: &StreamChunk) -> Result<()> {
-        self.update_range(state, input, 0..input.capacity()).await
-    }
-
-    async fn update_range(
+    async fn accumulate_and_retract(
         &self,
         state: &mut AggregateState,
         input: &StreamChunk,
-        range: Range<usize>,
     ) -> Result<()> {
-        let bitmap = self
-            .condition
-            .eval(input.data_chunk())
-            .await?
-            .as_bool()
-            .to_bitmap();
-        let mut input1 = input.clone();
-        input1.set_visibility(input.visibility() & &bitmap);
-        self.inner.update_range(state, &input1, range).await
+        let inner_input = self.filter_input(input).await?;
+        self.inner.accumulate_and_retract(state, &inner_input).await
+    }
+
+    async fn grouped_accumulate_and_retract(
+        &self,
+        states: &[AggregateStateRef],
+        input: &StreamChunk,
+    ) -> Result<()> {
+        let inner_input = self.filter_input(input).await?;
+        self.inner
+            .grouped_accumulate_and_retract(states, &inner_input)
+            .await
     }
 
     async fn get_result(&self, state: &AggregateState) -> Result<Datum> {
@@ -75,15 +86,14 @@ impl AggregateFunction for Filter {
 mod tests {
     use risingwave_common::test_prelude::StreamChunkTestExt;
     use risingwave_expr::aggregate::{build_append_only, AggCall};
-    use risingwave_expr::expr::{build_from_pretty, Expression, LiteralExpression};
+    use risingwave_expr::expr::build_from_pretty;
 
     use super::*;
 
     #[tokio::test]
     async fn test_selective_agg_always_true() -> Result<()> {
-        let condition = LiteralExpression::new(DataType::Boolean, Some(true.into())).boxed();
         let agg = Filter::new(
-            condition.into(),
+            build_from_pretty("true:boolean").into(),
             build_append_only(&AggCall::from_pretty("(count:int8 $0:int8)")).unwrap(),
         );
         let mut state = agg.create_state();
@@ -96,55 +106,16 @@ mod tests {
             + 1",
         );
 
-        agg.update_range(&mut state, &chunk, 0..1).await?;
-        assert_eq!(agg.get_result(&state).await?.unwrap().into_int64(), 1);
-
-        agg.update_range(&mut state, &chunk, 2..4).await?;
-        assert_eq!(agg.get_result(&state).await?.unwrap().into_int64(), 3);
-
-        agg.update(&mut state, &chunk).await?;
-        assert_eq!(agg.get_result(&state).await?.unwrap().into_int64(), 7);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_selective_agg() -> Result<()> {
-        let expr = build_from_pretty("(greater_than:boolean $0:int8 5:int8)");
-        let agg = Filter::new(
-            expr.into(),
-            build_append_only(&AggCall::from_pretty("(count:int8 $0:int8)")).unwrap(),
-        );
-        let mut state = agg.create_state();
-
-        let chunk = StreamChunk::from_pretty(
-            " I
-            + 9
-            + 5
-            + 6
-            + 1",
-        );
-
-        agg.update_range(&mut state, &chunk, 0..1).await?;
-        assert_eq!(agg.get_result(&state).await?.unwrap().into_int64(), 1);
-
-        agg.update_range(&mut state, &chunk, 1..2).await?; // should be filtered out
-        assert_eq!(agg.get_result(&state).await?.unwrap().into_int64(), 1);
-
-        agg.update_range(&mut state, &chunk, 2..4).await?; // only 6 should be applied
-        assert_eq!(agg.get_result(&state).await?.unwrap().into_int64(), 2);
-
-        agg.update(&mut state, &chunk).await?;
+        agg.accumulate_and_retract(&mut state, &chunk).await?;
         assert_eq!(agg.get_result(&state).await?.unwrap().into_int64(), 4);
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_selective_agg_null_condition() -> Result<()> {
-        let expr = build_from_pretty("(equal:boolean $0:int8 null:int8)");
+    async fn test_selective_agg() -> Result<()> {
         let agg = Filter::new(
-            expr.into(),
+            build_from_pretty("(greater_than:boolean $0:int8 5:int8)").into(),
             build_append_only(&AggCall::from_pretty("(count:int8 $0:int8)")).unwrap(),
         );
         let mut state = agg.create_state();
@@ -157,13 +128,29 @@ mod tests {
             + 1",
         );
 
-        agg.update_range(&mut state, &chunk, 0..1).await?;
-        assert_eq!(agg.get_result(&state).await?.unwrap().into_int64(), 0);
+        agg.accumulate_and_retract(&mut state, &chunk).await?;
+        assert_eq!(agg.get_result(&state).await?.unwrap().into_int64(), 2);
 
-        agg.update_range(&mut state, &chunk, 2..4).await?;
-        assert_eq!(agg.get_result(&state).await?.unwrap().into_int64(), 0);
+        Ok(())
+    }
 
-        agg.update(&mut state, &chunk).await?;
+    #[tokio::test]
+    async fn test_selective_agg_null_condition() -> Result<()> {
+        let agg = Filter::new(
+            build_from_pretty("(equal:boolean $0:int8 null:int8)").into(),
+            build_append_only(&AggCall::from_pretty("(count:int8 $0:int8)")).unwrap(),
+        );
+        let mut state = agg.create_state();
+
+        let chunk = StreamChunk::from_pretty(
+            " I
+            + 9
+            + 5
+            + 6
+            + 1",
+        );
+
+        agg.accumulate_and_retract(&mut state, &chunk).await?;
         assert_eq!(agg.get_result(&state).await?.unwrap().into_int64(), 0);
 
         Ok(())
