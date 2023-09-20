@@ -20,9 +20,11 @@ use std::marker::PhantomData;
 
 pub use enumerator::*;
 use itertools::Itertools;
+use maplit::hashmap;
 use risingwave_common::catalog::{ColumnDesc, Field, Schema};
 use risingwave_pb::catalog::PbSource;
 use risingwave_pb::connector_service::{PbSourceType, PbTableSchema, SourceType, TableSchema};
+use risingwave_sqlparser::ast::{Encode, Format};
 pub use source::*;
 pub use split::*;
 
@@ -97,6 +99,13 @@ where
             pk_indices,
         };
         self.table_schema = table_schema;
+    }
+
+    fn supported_format() -> HashMap<Format, Vec<Encode>> {
+        hashmap!(
+            Format::Plain => vec![Encode::Bytes],
+            Format::Debezium => vec![Encode::Json],
+        )
     }
 }
 

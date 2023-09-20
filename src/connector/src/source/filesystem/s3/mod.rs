@@ -13,8 +13,12 @@
 // limitations under the License.
 mod enumerator;
 
+use std::collections::HashMap;
+
 pub use enumerator::S3SplitEnumerator;
+use maplit::hashmap;
 mod source;
+use risingwave_sqlparser::ast::{Encode, Format};
 use serde::Deserialize;
 pub use source::S3FileReader;
 
@@ -46,6 +50,12 @@ impl SourceProperties for S3Properties {
     type SplitReader = S3FileReader;
 
     const SOURCE_NAME: &'static str = S3_CONNECTOR;
+
+    fn supported_format() -> HashMap<Format, Vec<Encode>> {
+        hashmap!(
+            Format::Plain => vec![Encode::Csv, Encode::Json],
+        )
+    }
 }
 
 impl From<&S3Properties> for AwsAuthProps {

@@ -19,8 +19,10 @@ pub mod split;
 use std::collections::HashMap;
 
 pub use enumerator::*;
+use maplit::hashmap;
 use nexmark::config::{NexmarkConfig, RateShape};
 use nexmark::event::EventType;
+use risingwave_sqlparser::ast::{Encode, Format};
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 pub use split::*;
@@ -226,6 +228,13 @@ impl SourceProperties for NexmarkProperties {
     type SplitReader = NexmarkSplitReader;
 
     const SOURCE_NAME: &'static str = NEXMARK_CONNECTOR;
+
+    fn supported_format() -> HashMap<Format, Vec<Encode>> {
+        hashmap!(
+            Format::Native => vec![Encode::Native],
+            Format::Plain => vec![Encode::Bytes],
+        )
+    }
 }
 
 fn default_event_num() -> u64 {

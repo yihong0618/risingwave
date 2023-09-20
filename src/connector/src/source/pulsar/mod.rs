@@ -17,7 +17,11 @@ pub mod source;
 pub mod split;
 pub mod topic;
 
+use std::collections::HashMap;
+
 pub use enumerator::*;
+use maplit::hashmap;
+use risingwave_sqlparser::ast::{Encode, Format};
 use serde::Deserialize;
 pub use split::*;
 
@@ -33,6 +37,16 @@ impl SourceProperties for PulsarProperties {
     type SplitReader = PulsarSplitReader;
 
     const SOURCE_NAME: &'static str = PULSAR_CONNECTOR;
+
+    fn supported_format() -> HashMap<Format, Vec<Encode>> {
+        hashmap!(
+            Format::Plain => vec![Encode::Json, Encode::Protobuf, Encode::Avro, Encode::Bytes],
+            Format::Upsert => vec![Encode::Json, Encode::Avro],
+            Format::Debezium => vec![Encode::Json],
+            Format::Maxwell => vec![Encode::Json],
+            Format::Canal => vec![Encode::Json],
+        )
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]

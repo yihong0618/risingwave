@@ -6937,6 +6937,7 @@ dependencies = [
  "risingwave_jni_core",
  "risingwave_pb",
  "risingwave_rpc_client",
+ "risingwave_sqlparser",
  "rust_decimal",
  "serde",
  "serde_derive",

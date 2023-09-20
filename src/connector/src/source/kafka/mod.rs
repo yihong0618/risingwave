@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
+
+use maplit::hashmap;
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 
@@ -23,6 +26,7 @@ pub mod stats;
 
 pub use enumerator::*;
 pub use private_link::*;
+use risingwave_sqlparser::ast::{Encode, Format};
 pub use source::*;
 pub use split::*;
 
@@ -131,6 +135,17 @@ impl SourceProperties for KafkaProperties {
     type SplitReader = KafkaSplitReader;
 
     const SOURCE_NAME: &'static str = KAFKA_CONNECTOR;
+
+    fn supported_format() -> HashMap<Format, Vec<Encode>> {
+        hashmap!(
+            Format::Plain => vec![Encode::Json, Encode::Protobuf, Encode::Avro, Encode::Bytes, Encode::Csv],
+            Format::Upsert => vec![Encode::Json, Encode::Avro],
+            Format::Debezium => vec![Encode::Json, Encode::Avro],
+            Format::Maxwell => vec![Encode::Json],
+            Format::Canal => vec![Encode::Json],
+            Format::DebeziumMongo => vec![Encode::Json],
+        )
+    }
 }
 
 impl KafkaProperties {

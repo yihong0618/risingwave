@@ -17,7 +17,6 @@ use std::sync::LazyLock;
 
 use anyhow::anyhow;
 use itertools::Itertools;
-use maplit::{convert_args, hashmap};
 use pgwire::pg_response::{PgResponse, StatementType};
 use risingwave_common::catalog::{
     is_column_ids_dedup, ColumnCatalog, ColumnDesc, TableId, DEFAULT_KEY_COLUMN_NAME,
@@ -26,19 +25,15 @@ use risingwave_common::catalog::{
 use risingwave_common::error::ErrorCode::{self, InvalidInputSyntax, ProtocolError};
 use risingwave_common::error::{Result, RwError};
 use risingwave_common::types::DataType;
+use risingwave_connector::for_all_sources;
 use risingwave_connector::parser::{
     name_strategy_from_str, schema_to_columns, AvroParserConfig, DebeziumAvroParserConfig,
     ProtobufParserConfig, SpecificParserConfig,
 };
-use risingwave_connector::source::cdc::{
-    CITUS_CDC_CONNECTOR, MYSQL_CDC_CONNECTOR, POSTGRES_CDC_CONNECTOR,
-};
-use risingwave_connector::source::datagen::DATAGEN_CONNECTOR;
-use risingwave_connector::source::filesystem::S3_CONNECTOR;
+use risingwave_connector::source::cdc::{CITUS_CDC_CONNECTOR, POSTGRES_CDC_CONNECTOR};
 use risingwave_connector::source::nexmark::source::{get_event_data_types_with_names, EventType};
 use risingwave_connector::source::{
-    SourceEncode, SourceFormat, SourceStruct, GOOGLE_PUBSUB_CONNECTOR, KAFKA_CONNECTOR,
-    KINESIS_CONNECTOR, NATS_CONNECTOR, NEXMARK_CONNECTOR, PULSAR_CONNECTOR,
+    SourceEncode, SourceFormat, SourceStruct, KAFKA_CONNECTOR, NEXMARK_CONNECTOR,
 };
 use risingwave_pb::catalog::{
     PbSchemaRegistryNameStrategy, PbSource, StreamSourceInfo, WatermarkDesc,
@@ -849,66 +844,28 @@ pub(super) fn bind_source_watermark(
     Ok(watermark_descs)
 }
 
+macro_rules! declare_source_supported_format {
+    ({$({ $variant_name:ident, $prop_name:ty, $split:ty}),*}) => {
+        fn get_source_supported_format() -> HashMap<String, HashMap<Format, Vec<Encode>>> {
+            use risingwave_connector::source::SourceProperties;
+            let mut ret = HashMap::new();
+            $(
+                assert!(
+                    ret.insert(<$prop_name>::SOURCE_NAME.to_string(), <$prop_name>::supported_format()).is_none(),
+                    "duplicated source connector name {}",
+                    <$prop_name>::SOURCE_NAME
+                );
+            )*
+            ret
+        }
+    }
+}
+
+for_all_sources!(declare_source_supported_format);
+
 // TODO: Better design if we want to support ENCODE KEY where we will have 4 dimensional array
 static CONNECTORS_COMPATIBLE_FORMATS: LazyLock<HashMap<String, HashMap<Format, Vec<Encode>>>> =
-    LazyLock::new(|| {
-        convert_args!(hashmap!(
-                KAFKA_CONNECTOR => hashmap!(
-                    Format::Plain => vec![Encode::Json, Encode::Protobuf, Encode::Avro, Encode::Bytes, Encode::Csv],
-                    Format::Upsert => vec![Encode::Json, Encode::Avro],
-                    Format::Debezium => vec![Encode::Json, Encode::Avro],
-                    Format::Maxwell => vec![Encode::Json],
-                    Format::Canal => vec![Encode::Json],
-                    Format::DebeziumMongo => vec![Encode::Json],
-                ),
-                PULSAR_CONNECTOR => hashmap!(
-                    Format::Plain => vec![Encode::Json, Encode::Protobuf, Encode::Avro, Encode::Bytes],
-                    Format::Upsert => vec![Encode::Json, Encode::Avro],
-                    Format::Debezium => vec![Encode::Json],
-                    Format::Maxwell => vec![Encode::Json],
-                    Format::Canal => vec![Encode::Json],
-                ),
-                KINESIS_CONNECTOR => hashmap!(
-                    Format::Plain => vec![Encode::Json, Encode::Protobuf, Encode::Avro, Encode::Bytes],
-                    Format::Upsert => vec![Encode::Json, Encode::Avro],
-                    Format::Debezium => vec![Encode::Json],
-                    Format::Maxwell => vec![Encode::Json],
-                    Format::Canal => vec![Encode::Json],
-                ),
-                GOOGLE_PUBSUB_CONNECTOR => hashmap!(
-                    Format::Plain => vec![Encode::Json, Encode::Protobuf, Encode::Avro, Encode::Bytes],
-                    Format::Debezium => vec![Encode::Json],
-                    Format::Maxwell => vec![Encode::Json],
-                    Format::Canal => vec![Encode::Json],
-                ),
-                NEXMARK_CONNECTOR => hashmap!(
-                    Format::Native => vec![Encode::Native],
-                    Format::Plain => vec![Encode::Bytes],
-                ),
-                DATAGEN_CONNECTOR => hashmap!(
-                    Format::Native => vec![Encode::Native],
-                    Format::Plain => vec![Encode::Bytes, Encode::Json],
-                ),
-                S3_CONNECTOR => hashmap!(
-                    Format::Plain => vec![Encode::Csv, Encode::Json],
-                ),
-                MYSQL_CDC_CONNECTOR => hashmap!(
-                    Format::Plain => vec![Encode::Bytes],
-                    Format::Debezium => vec![Encode::Json],
-                ),
-                POSTGRES_CDC_CONNECTOR => hashmap!(
-                    Format::Plain => vec![Encode::Bytes],
-                    Format::Debezium => vec![Encode::Json],
-                ),
-                CITUS_CDC_CONNECTOR => hashmap!(
-                    Format::Plain => vec![Encode::Bytes],
-                    Format::Debezium => vec![Encode::Json],
-                ),
-                NATS_CONNECTOR => hashmap!(
-                    Format::Plain => vec![Encode::Json],
-                ),
-        ))
-    });
+    LazyLock::new(get_source_supported_format);
 
 pub fn validate_compatibility(
     source_schema: &SourceSchemaV2,

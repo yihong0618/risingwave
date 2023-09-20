@@ -30,6 +30,7 @@ use risingwave_common::types::{JsonbVal, Scalar};
 use risingwave_pb::catalog::PbSource;
 use risingwave_pb::source::ConnectorSplit;
 use risingwave_rpc_client::ConnectorClient;
+use risingwave_sqlparser::ast::{Encode, Format};
 use serde::de::DeserializeOwned;
 
 use super::datagen::DatagenMeta;
@@ -60,6 +61,7 @@ pub trait SourceProperties: TryFromHashmap + Clone {
     type SplitReader: SplitReader<Split = Self::Split, Properties = Self>;
 
     fn init_from_pb_source(&mut self, _source: &PbSource) {}
+    fn supported_format() -> HashMap<Format, Vec<Encode>>;
 }
 
 impl<P: DeserializeOwned> TryFromHashmap for P {

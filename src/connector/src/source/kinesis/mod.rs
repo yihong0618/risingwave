@@ -16,6 +16,10 @@ pub mod enumerator;
 pub mod source;
 pub mod split;
 
+use std::collections::HashMap;
+
+use maplit::hashmap;
+use risingwave_sqlparser::ast::{Encode, Format};
 use serde::Deserialize;
 
 use crate::common::KinesisCommon;
@@ -45,4 +49,14 @@ impl SourceProperties for KinesisProperties {
     type SplitReader = KinesisSplitReader;
 
     const SOURCE_NAME: &'static str = KINESIS_CONNECTOR;
+
+    fn supported_format() -> HashMap<Format, Vec<Encode>> {
+        hashmap!(
+            Format::Plain => vec![Encode::Json, Encode::Protobuf, Encode::Avro, Encode::Bytes],
+            Format::Upsert => vec![Encode::Json, Encode::Avro],
+            Format::Debezium => vec![Encode::Json],
+            Format::Maxwell => vec![Encode::Json],
+            Format::Canal => vec![Encode::Json],
+        )
+    }
 }

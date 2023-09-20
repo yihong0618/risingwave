@@ -16,6 +16,10 @@ pub mod enumerator;
 pub mod source;
 pub mod split;
 
+use std::collections::HashMap;
+
+use maplit::hashmap;
+use risingwave_sqlparser::ast::{Encode, Format};
 use serde::Deserialize;
 
 use crate::common::NatsCommon;
@@ -45,4 +49,10 @@ impl SourceProperties for NatsProperties {
     type SplitReader = NatsSplitReader;
 
     const SOURCE_NAME: &'static str = NATS_CONNECTOR;
+
+    fn supported_format() -> HashMap<Format, Vec<Encode>> {
+        hashmap!(
+            Format::Plain => vec![Encode::Json],
+        )
+    }
 }

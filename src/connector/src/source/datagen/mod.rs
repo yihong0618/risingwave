@@ -19,6 +19,8 @@ pub mod split;
 use std::collections::HashMap;
 
 pub use enumerator::*;
+use maplit::hashmap;
+use risingwave_sqlparser::ast::{Encode, Format};
 use serde::Deserialize;
 use serde_with::{serde_as, DisplayFromStr};
 pub use source::*;
@@ -63,6 +65,13 @@ impl SourceProperties for DatagenProperties {
     type SplitReader = DatagenSplitReader;
 
     const SOURCE_NAME: &'static str = DATAGEN_CONNECTOR;
+
+    fn supported_format() -> HashMap<Format, Vec<Encode>> {
+        hashmap!(
+            Format::Native => vec![Encode::Native],
+            Format::Plain => vec![Encode::Bytes, Encode::Json],
+        )
+    }
 }
 
 fn default_rows_per_second() -> u64 {

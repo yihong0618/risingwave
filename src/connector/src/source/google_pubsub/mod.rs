@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
+
+use maplit::hashmap;
 use serde::{Deserialize, Serialize};
 
 pub mod enumerator;
@@ -19,6 +22,7 @@ pub mod source;
 pub mod split;
 
 pub use enumerator::*;
+use risingwave_sqlparser::ast::{Encode, Format};
 use serde_with::{serde_as, DisplayFromStr};
 pub use source::*;
 pub use split::*;
@@ -78,6 +82,15 @@ impl SourceProperties for PubsubProperties {
     type SplitReader = PubsubSplitReader;
 
     const SOURCE_NAME: &'static str = GOOGLE_PUBSUB_CONNECTOR;
+
+    fn supported_format() -> HashMap<Format, Vec<Encode>> {
+        hashmap!(
+            Format::Plain => vec![Encode::Json, Encode::Protobuf, Encode::Avro, Encode::Bytes],
+            Format::Debezium => vec![Encode::Json],
+            Format::Maxwell => vec![Encode::Json],
+            Format::Canal => vec![Encode::Json],
+        )
+    }
 }
 
 impl PubsubProperties {
