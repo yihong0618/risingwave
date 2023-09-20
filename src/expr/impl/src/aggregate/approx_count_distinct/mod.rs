@@ -15,14 +15,15 @@
 use std::collections::hash_map::DefaultHasher;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
-use std::ops::Range;
 
 use risingwave_common::array::{Op, StreamChunk};
 use risingwave_common::bail;
 use risingwave_common::estimate_size::EstimateSize;
 use risingwave_common::row::Row;
 use risingwave_common::types::*;
-use risingwave_expr::aggregate::{AggCall, AggStateDyn, AggregateFunction, AggregateState};
+use risingwave_expr::aggregate::{
+    AggCall, AggStateDyn, AggregateFunction, AggregateState, AggregateStateRef,
+};
 use risingwave_expr::{build_aggregate, ExprError, Result};
 
 use self::append_only::AppendOnlyBucket;
@@ -64,7 +65,11 @@ impl AggregateFunction for UpdatableApproxCountDistinct {
         AggregateState::Any(Box::<UpdatableRegisters>::default())
     }
 
-    async fn update(&self, state: &mut AggregateState, input: &StreamChunk) -> Result<()> {
+    async fn accumulate_and_retract(
+        &self,
+        state: &mut AggregateState,
+        input: &StreamChunk,
+    ) -> Result<()> {
         let state = state.downcast_mut::<UpdatableRegisters>();
         for (op, row) in input.rows() {
             let retract = matches!(op, Op::Delete | Op::UpdateDelete);
@@ -75,14 +80,17 @@ impl AggregateFunction for UpdatableApproxCountDistinct {
         Ok(())
     }
 
-    async fn update_range(
+    async fn grouped_accumulate_and_retract(
         &self,
-        state: &mut AggregateState,
+        states: &[AggregateStateRef],
         input: &StreamChunk,
-        range: Range<usize>,
     ) -> Result<()> {
-        let state = state.downcast_mut::<UpdatableRegisters>();
-        for (op, row) in input.rows_in(range) {
+        for row_idx in 0..input.capacity() {
+            let (op, row, vis) = input.row_at(row_idx);
+            if !vis {
+                continue;
+            }
+            let state = unsafe { states[row_idx].downcast_mut::<UpdatableRegisters>() };
             let retract = matches!(op, Op::Delete | Op::UpdateDelete);
             if let Some(scalar) = row.datum_at(0) {
                 state.update(scalar, retract)?;
@@ -126,7 +134,11 @@ impl AggregateFunction for AppendOnlyApproxCountDistinct {
         AggregateState::Any(Box::<AppendOnlyRegisters>::default())
     }
 
-    async fn update(&self, state: &mut AggregateState, input: &StreamChunk) -> Result<()> {
+    async fn accumulate_and_retract(
+        &self,
+        state: &mut AggregateState,
+        input: &StreamChunk,
+    ) -> Result<()> {
         let state = state.downcast_mut::<AppendOnlyRegisters>();
         for (op, row) in input.rows() {
             let retract = matches!(op, Op::Delete | Op::UpdateDelete);
@@ -137,14 +149,17 @@ impl AggregateFunction for AppendOnlyApproxCountDistinct {
         Ok(())
     }
 
-    async fn update_range(
+    async fn grouped_accumulate_and_retract(
         &self,
-        state: &mut AggregateState,
+        states: &[AggregateStateRef],
         input: &StreamChunk,
-        range: Range<usize>,
     ) -> Result<()> {
-        let state = state.downcast_mut::<AppendOnlyRegisters>();
-        for (op, row) in input.rows_in(range) {
+        for row_idx in 0..input.capacity() {
+            let (op, row, vis) = input.row_at(row_idx);
+            if !vis {
+                continue;
+            }
+            let state = unsafe { states[row_idx].downcast_mut::<AppendOnlyRegisters>() };
             let retract = matches!(op, Op::Delete | Op::UpdateDelete);
             if let Some(scalar) = row.datum_at(0) {
                 state.update(scalar, retract)?;
@@ -350,7 +365,7 @@ mod tests {
             let input = StreamChunk::from(DataChunk::new(vec![col], range.len()));
             let mut state = approx_count_distinct.create_state();
             approx_count_distinct
-                .update(&mut state, &input)
+                .accumulate_and_retract(&mut state, &input)
                 .now_or_never()
                 .unwrap()
                 .unwrap();

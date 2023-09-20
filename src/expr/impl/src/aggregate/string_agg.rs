@@ -49,7 +49,9 @@ mod tests {
             "(string_agg:varchar $0:varchar $1:varchar)",
         ))?;
         let mut state = string_agg.create_state();
-        string_agg.update(&mut state, &chunk).await?;
+        string_agg
+            .accumulate_and_retract(&mut state, &chunk)
+            .await?;
         assert_eq!(
             string_agg.get_result(&state).await?,
             Some("aaa,bbb,ccc,ddd".into())
@@ -70,7 +72,9 @@ mod tests {
             "(string_agg:varchar $0:varchar $1:varchar)",
         ))?;
         let mut state = string_agg.create_state();
-        string_agg.update(&mut state, &chunk).await?;
+        string_agg
+            .accumulate_and_retract(&mut state, &chunk)
+            .await?;
         assert_eq!(
             string_agg.get_result(&state).await?,
             Some("aaa_cccddd".into())

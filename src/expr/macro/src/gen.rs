@@ -734,7 +734,7 @@ impl FunctionAttr {
                 use risingwave_common::estimate_size::EstimateSize;
 
                 use risingwave_expr::Result;
-                use risingwave_expr::aggregate::AggregateState;
+                use risingwave_expr::aggregate::{AggregateState, AggregateStateRef};
                 use risingwave_expr::codegen::async_trait;
 
                 #[derive(Clone)]
@@ -751,7 +751,11 @@ impl FunctionAttr {
 
                     #create_state
 
-                    async fn update(&self, state0: &mut AggregateState, input: &StreamChunk) -> Result<()> {
+                    async fn accumulate_and_retract(
+                        &self,
+                        state0: &mut AggregateState,
+                        input: &StreamChunk,
+                    ) -> Result<()> {
                         #(#let_arrays)*
                         let state0 = state0.as_datum_mut();
                         let mut state: Option<#state_type> = #let_state;
@@ -764,30 +768,21 @@ impl FunctionAttr {
                         Ok(())
                     }
 
-                    async fn update_range(&self, state0: &mut AggregateState, input: &StreamChunk, range: Range<usize>) -> Result<()> {
-                        assert!(range.end <= input.capacity());
+                    async fn grouped_accumulate_and_retract(
+                        &self,
+                        states: &[AggregateStateRef],
+                        input: &StreamChunk,
+                    ) -> Result<()> {
+                        assert_eq!(states.len(), input.capacity());
                         #(#let_arrays)*
-                        let state0 = state0.as_datum_mut();
-                        let mut state: Option<#state_type> = #let_state;
-                        if input.is_compacted() {
-                            for row_id in range {
-                                let op = unsafe { *input.ops().get_unchecked(row_id) };
-                                #(#let_values)*
-                                state = #next_state;
-                            }
-                        } else {
-                            for row_id in input.visibility().iter_ones() {
-                                if row_id < range.start {
-                                    continue;
-                                } else if row_id >= range.end {
-                                    break;
-                                }
-                                let op = unsafe { *input.ops().get_unchecked(row_id) };
-                                #(#let_values)*
-                                state = #next_state;
-                            }
+                        for row_id in input.visibility().iter_ones() {
+                            let state0 = unsafe { states.get_unchecked(row_id).as_datum_mut() };
+                            let mut state: Option<#state_type> = #let_state;
+                            let op = unsafe { *input.ops().get_unchecked(row_id) };
+                            #(#let_values)*
+                            state = #next_state;
+                            *state0 = #assign_state;
                         }
-                        *state0 = #assign_state;
                         Ok(())
                     }
 

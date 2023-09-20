@@ -150,7 +150,7 @@ mod tests {
     fn test_agg(pretty: &str, input: StreamChunk, expected: Datum) {
         let agg = build_append_only(&AggCall::from_pretty(pretty)).unwrap();
         let mut state = agg.create_state();
-        agg.update(&mut state, &input)
+        agg.accumulate_and_retract(&mut state, &input)
             .now_or_never()
             .unwrap()
             .unwrap();
@@ -419,7 +419,7 @@ mod tests {
         let agg = build_append_only(&AggCall::from_pretty(pretty)).unwrap();
         let mut state = agg.create_state();
         b.iter(|| {
-            agg.update(&mut state, &chunk)
+            agg.accumulate_and_retract(&mut state, &chunk)
                 .now_or_never()
                 .unwrap()
                 .unwrap();

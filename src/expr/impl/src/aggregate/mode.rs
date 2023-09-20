@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Range;
-
 use risingwave_common::array::*;
 use risingwave_common::estimate_size::EstimateSize;
 use risingwave_common::row::Row;
 use risingwave_common::types::*;
+use risingwave_common::util::iter_util::ZipEqFast;
 use risingwave_expr::aggregate::{
-    AggCall, AggStateDyn, AggregateFunction, AggregateState, BoxedAggregateFunction,
+    AggCall, AggStateDyn, AggregateFunction, AggregateState, AggregateStateRef,
+    BoxedAggregateFunction,
 };
 use risingwave_expr::{build_aggregate, Result};
 
@@ -105,7 +105,11 @@ impl AggregateFunction for Mode {
         AggregateState::Any(Box::<State>::default())
     }
 
-    async fn update(&self, state: &mut AggregateState, input: &StreamChunk) -> Result<()> {
+    async fn accumulate_and_retract(
+        &self,
+        state: &mut AggregateState,
+        input: &StreamChunk,
+    ) -> Result<()> {
         let state = state.downcast_mut::<State>();
         for (_, row) in input.rows() {
             state.add_datum(row.datum_at(0));
@@ -113,15 +117,16 @@ impl AggregateFunction for Mode {
         Ok(())
     }
 
-    async fn update_range(
+    async fn grouped_accumulate_and_retract(
         &self,
-        state: &mut AggregateState,
+        states: &[AggregateStateRef],
         input: &StreamChunk,
-        range: Range<usize>,
     ) -> Result<()> {
-        let state = state.downcast_mut::<State>();
-        for (_, row) in input.rows_in(range) {
-            state.add_datum(row.datum_at(0));
+        for (row, state) in input.rows_with_holes().zip_eq_fast(states) {
+            if let Some((_, row)) = row {
+                let state = unsafe { state.downcast_mut::<State>() };
+                state.add_datum(row.datum_at(0));
+            }
         }
         Ok(())
     }

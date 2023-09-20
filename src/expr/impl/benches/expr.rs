@@ -394,9 +394,11 @@ fn bench_expr(c: &mut Criterion) {
             }
         };
         c.bench_function(&format!("{sig:?}"), |bencher| {
-            bencher
-                .to_async(FuturesExecutor)
-                .iter(|| async { agg.update(&mut agg.create_state(), &input).await.unwrap() })
+            bencher.to_async(FuturesExecutor).iter(|| async {
+                agg.accumulate_and_retract(&mut agg.create_state(), &input)
+                    .await
+                    .unwrap()
+            })
         });
     }
 }

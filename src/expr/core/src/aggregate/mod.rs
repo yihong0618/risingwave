@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::fmt::Debug;
-use std::ops::Range;
 
 use downcast_rs::{impl_downcast, Downcast};
 use itertools::Itertools;
@@ -39,15 +38,19 @@ pub trait AggregateFunction: Send + Sync + 'static {
         AggregateState::Datum(None)
     }
 
-    /// Update the state with multiple rows.
-    async fn update(&self, state: &mut AggregateState, input: &StreamChunk) -> Result<()>;
-
-    /// Update the state with a range of rows.
-    async fn update_range(
+    /// Accumulates or retracts the state of the aggregate function.
+    ///
+    /// Operations depends on the ops of input. + for accumulate, - for retract.
+    async fn accumulate_and_retract(
         &self,
         state: &mut AggregateState,
         input: &StreamChunk,
-        range: Range<usize>,
+    ) -> Result<()>;
+
+    async fn grouped_accumulate_and_retract(
+        &self,
+        states: &[AggregateStateRef],
+        input: &StreamChunk,
     ) -> Result<()>;
 
     /// Get aggregate result from the state.
@@ -116,6 +119,50 @@ impl AggregateState {
             Self::Datum(_) => panic!("cannot downcast scalar"),
             Self::Any(a) => a.downcast_mut::<T>().expect("cannot downcast"),
         }
+    }
+
+    pub fn as_ref(&self) -> AggregateStateRef {
+        AggregateStateRef {
+            ptr: match self {
+                Self::Datum(d) => d as *const Datum as *const (),
+                Self::Any(a) => a.as_ref() as *const dyn AggStateDyn as *const (),
+            },
+        }
+    }
+}
+
+/// A reference to `AggregateState` without lifetime constraints and type information.
+///
+/// # Safety
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct AggregateStateRef {
+    ptr: *const (),
+}
+
+unsafe impl Send for AggregateStateRef {}
+unsafe impl Sync for AggregateStateRef {}
+
+impl AggregateStateRef {
+    pub const fn null() -> Self {
+        Self {
+            ptr: std::ptr::null(),
+        }
+    }
+
+    pub unsafe fn as_datum(&self) -> &Datum {
+        &*(self.ptr as *const Datum)
+    }
+
+    pub unsafe fn as_datum_mut(&self) -> &mut Datum {
+        &mut *(self.ptr as *mut Datum)
+    }
+
+    pub unsafe fn downcast_ref<T: AggStateDyn>(&self) -> &T {
+        &*(self.ptr as *const T)
+    }
+
+    pub unsafe fn downcast_mut<T: AggStateDyn>(&self) -> &mut T {
+        &mut *(self.ptr as *mut T)
     }
 }
 

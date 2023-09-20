@@ -155,7 +155,7 @@ impl AggregatorWrapper<'_> {
 
         let mut state = self.agg.create_state();
         self.agg
-            .update(&mut state, &chunk)
+            .accumulate_and_retract(&mut state, &chunk)
             .now_or_never()
             .expect("we don't support UDAF currently, so the function should return immediately")?;
         self.agg

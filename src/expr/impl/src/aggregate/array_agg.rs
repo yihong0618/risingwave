@@ -40,7 +40,7 @@ mod tests {
         );
         let array_agg = build_append_only(&AggCall::from_pretty("(array_agg:int4[] $0:int4)"))?;
         let mut state = array_agg.create_state();
-        array_agg.update(&mut state, &chunk).await?;
+        array_agg.accumulate_and_retract(&mut state, &chunk).await?;
         let actual = array_agg.get_result(&state).await?;
         assert_eq!(
             actual,
@@ -60,7 +60,7 @@ mod tests {
             " i
             + .",
         );
-        array_agg.update(&mut state, &chunk).await?;
+        array_agg.accumulate_and_retract(&mut state, &chunk).await?;
         assert_eq!(
             array_agg.get_result(&state).await?,
             Some(ListValue::new(vec![None]).into())
