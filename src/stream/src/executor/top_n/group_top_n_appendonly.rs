@@ -28,7 +28,9 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::fs::File;
 use std::hash::Hasher;
+use std::io::Write;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
@@ -117,6 +119,11 @@ pub struct InnerAppendOnlyGroupTopNExecutor<K: HashKey, S: StateStore, const WIT
     /// group key -> cache for this group
     caches: IndexedGroupTopNCache<K, WITH_TIES>,
 
+    traces: Vec<u64>,
+    cur_count: i32,
+    file: File,
+    trace_status: i32,
+
     /// Used for serializing pk into CacheKey.
     cache_key_serde: CacheKeySerde,
 
@@ -154,6 +161,13 @@ impl<K: HashKey, S: StateStore, const WITH_TIES: bool>
             "appendonlytopn result table",
         );
 
+        let traces: Vec<u64> = vec![];
+        let cur_count = 0;
+
+        let filename = "data.bin";
+        let file = File::create(filename).expect("Error creating file");
+        let trace_status = 0;
+
         Ok(Self {
             info: ExecutorInfo {
                 schema,
@@ -172,6 +186,10 @@ impl<K: HashKey, S: StateStore, const WITH_TIES: bool>
                 REAL_UPDATE_INTERVAL_TOP_N,
                 BUCKET_NUMBER,
             ),
+            traces,
+            cur_count,
+            file,
+            trace_status,
             cache_key_serde,
             stats,
             ctx,
@@ -318,6 +336,41 @@ where
     TopNCache<WITH_TIES>: AppendOnlyTopNCacheTrait,
 {
     async fn apply_chunk(&mut self, chunk: StreamChunk) -> StreamExecutorResult<StreamChunk> {
+        if self.cur_count < 26000000 + 16384 && self.traces.len() >= 16384 {
+            write_u64_array_to_file(&mut self.file, &self.traces).expect("Error writing file");
+            self.traces.clear();
+            if self.trace_status == 0 {
+                tracing::info!("[WKXLOG]_trace Started to output traces");
+                self.trace_status += 1;
+            }
+            if self.cur_count < 26000000 + 16384 && self.traces.len() >= 16384 {
+                write_u64_array_to_file(&mut self.file, &self.traces).expect("Error writing file");
+                self.traces.clear();
+                if self.trace_status == 0 {
+                    tracing::info!("[WKXLOG]_trace Started to output traces");
+                    self.trace_status += 1;
+                }
+            }
+
+            if self.cur_count >= 26000000 + 16384 && self.trace_status == 1 {
+                self.trace_status += 1;
+            }
+
+            if self.trace_status == 2 {
+                tracing::info!("[WKXLOG]_trace Finished to output traces");
+                self.trace_status += 1;
+            }
+        }
+
+        if self.cur_count >= 26000000 + 16384 && self.trace_status == 1 {
+            self.trace_status += 1;
+        }
+
+        if self.trace_status == 2 {
+            tracing::info!("[WKXLOG]_trace Finished to output traces");
+            self.trace_status += 1;
+        }
+
         let mut res_ops = Vec::with_capacity(self.limit);
         let mut res_rows = Vec::with_capacity(self.limit);
         let chunk = chunk.compact();
@@ -334,10 +387,16 @@ where
 
             let group_key = row_ref.project(&self.group_by);
             self.stats.total_lookup_count += 1;
+            self.cur_count += 1;
 
             let mut hasher = DefaultHasher::new();
             group_cache_key.hash(&mut hasher);
-            let sampled = hasher.finish() % 10000 < SAMPLE_NUM_IN_TEN_K;
+            let hashed_key = hasher.finish();
+            let sampled = hashed_key % 10000 < SAMPLE_NUM_IN_TEN_K;
+
+            if self.cur_count > 15000000 && self.cur_count < 26000000 {
+                self.traces.push(hashed_key);
+            }
 
             // If 'self.caches' does not already have a cache for the current group, create a new
             // cache for it and insert it into `self.caches`
@@ -537,4 +596,9 @@ impl<K: HashKey, const WITH_TIES: bool> DerefMut for IndexedGroupTopNCache<K, WI
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.data
     }
+}
+
+fn write_u64_array_to_file(file: &mut File, data: &[u64]) -> std::io::Result<()> {
+    file.write_all(bytemuck::cast_slice(data))?;
+    Ok(())
 }
