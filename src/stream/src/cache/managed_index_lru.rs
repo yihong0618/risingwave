@@ -498,3 +498,17 @@ pub fn new_indexed_with_hasher<K: Hash + Eq + EstimateSize, V: EstimateSize, S: 
         Some(metrics_info),
     )
 }
+
+pub fn new_indexed_unbounded<K: Hash + Eq + EstimateSize, V: EstimateSize>(
+    watermark_epoch: Arc<AtomicU64>,
+    metrics_info: MetricsInfo,
+    ghost_cap: usize,
+    update_interval: u32,
+    ghost_bucket_count: usize,
+) -> ManagedIndexedLruCache<K, V> {
+    ManagedIndexedLruCache::new_inner(
+        IndexedLruCache::unbounded(ghost_cap, update_interval, ghost_bucket_count),
+        watermark_epoch,
+        Some(metrics_info),
+    )
+}

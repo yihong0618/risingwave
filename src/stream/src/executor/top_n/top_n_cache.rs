@@ -174,6 +174,10 @@ impl<const WITH_TIES: bool> TopNCache<WITH_TIES> {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.low.is_empty() && self.middle.is_empty() && self.high.is_empty()
+    }
+
     /// Clear the cache. After this, the cache must be `init` again before use.
     #[allow(dead_code)]
     pub fn clear(&mut self) {

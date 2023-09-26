@@ -26,6 +26,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hasher;
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -38,14 +41,19 @@ use risingwave_common::util::iter_util::ZipEqDebug;
 use risingwave_common::util::sort_util::ColumnOrder;
 use risingwave_storage::StateStore;
 
-use super::group_top_n::GroupTopNCache;
 use super::top_n_cache::AppendOnlyTopNCacheTrait;
 use super::utils::*;
 use super::{ManagedTopNState, TopNCache};
+use crate::cache::{new_indexed_unbounded, ManagedIndexedLruCache};
+use crate::common::metrics::MetricsInfo;
 use crate::common::table::state_table::StateTable;
 use crate::error::StreamResult;
 use crate::executor::error::StreamExecutorResult;
-use crate::executor::{ActorContextRef, Executor, ExecutorInfo, PkIndices, Watermark};
+use crate::executor::{
+    ActorContextRef, Executor, ExecutorInfo, PkIndices, Watermark, BUCKET_NUMBER,
+    DEFAULT_GHOST_CAP_MUTIPLE, HACK_JOIN_KEY_SIZE, INIT_GHOST_CAP, REAL_UPDATE_INTERVAL_TOP_N,
+    SAMPLE_NUM_IN_TEN_K,
+};
 use crate::task::AtomicU64Ref;
 
 /// If the input is append-only, `AppendOnlyGroupTopNExecutor` does not need
@@ -106,10 +114,12 @@ pub struct InnerAppendOnlyGroupTopNExecutor<K: HashKey, S: StateStore, const WIT
     group_by: Vec<usize>,
 
     /// group key -> cache for this group
-    caches: GroupTopNCache<K, WITH_TIES>,
+    caches: IndexedGroupTopNCache<K, WITH_TIES>,
 
     /// Used for serializing pk into CacheKey.
     cache_key_serde: CacheKeySerde,
+
+    stats: ExecutionStats,
 
     ctx: ActorContextRef,
 }
@@ -135,6 +145,13 @@ impl<K: HashKey, S: StateStore, const WITH_TIES: bool>
 
         let cache_key_serde = create_cache_key_serde(&storage_key, &schema, &order_by, &group_by);
         let managed_state = ManagedTopNState::<S>::new(state_table, cache_key_serde.clone());
+        let stats: ExecutionStats = ExecutionStats::new();
+        let cache_metrics_info = MetricsInfo::new(
+            ctx.streaming_metrics.clone(),
+            managed_state.state_table.table_id(),
+            ctx.id,
+            "appendonlytopn result table",
+        );
 
         Ok(Self {
             info: ExecutorInfo {
@@ -147,12 +164,146 @@ impl<K: HashKey, S: StateStore, const WITH_TIES: bool>
             managed_state,
             storage_key_indices: storage_key.into_iter().map(|op| op.column_index).collect(),
             group_by,
-            caches: GroupTopNCache::new(watermark_epoch),
+            caches: IndexedGroupTopNCache::new(
+                watermark_epoch,
+                cache_metrics_info,
+                INIT_GHOST_CAP,
+                REAL_UPDATE_INTERVAL_TOP_N,
+                BUCKET_NUMBER,
+            ),
             cache_key_serde,
+            stats,
             ctx,
         })
     }
+
+    fn flush_stats(&mut self) {
+        let actor_id_str = self.ctx.id.to_string();
+        let table_id_str = self.managed_state.state_table.table_id().to_string();
+
+        self.ctx
+            .streaming_metrics
+            .lookup_new_count
+            .with_label_values(&[&table_id_str, &actor_id_str, "appendonlytopn"])
+            .inc_by(self.stats.lookup_miss_count - self.stats.lookup_real_miss_count);
+
+        self.ctx
+            .streaming_metrics
+            .group_top_n_appendonly_total_query_cache_count
+            .with_label_values(&[&table_id_str, &actor_id_str])
+            .inc_by(self.stats.total_lookup_count);
+
+        self.ctx
+            .streaming_metrics
+            .group_top_n_appendonly_cache_miss_count
+            .with_label_values(&[&table_id_str, &actor_id_str])
+            .inc_by(self.stats.lookup_miss_count);
+
+        self.stats.total_lookup_count = 0;
+        self.stats.lookup_miss_count = 0;
+        self.stats.lookup_real_miss_count = 0;
+        let cache_entry_count = self.caches.len();
+
+        for i in 0..=BUCKET_NUMBER {
+            let count = self.stats.bucket_counts[i];
+            self.ctx
+                .streaming_metrics
+                .cache_real_resue_distance_bucket_count
+                .with_label_values(&[
+                    &actor_id_str,
+                    &table_id_str,
+                    "appendonlytopn",
+                    &self.stats.bucket_ids[i],
+                ])
+                .inc_by(count as u64);
+            self.stats.bucket_counts[i] = 0;
+
+            let ghost_count = self.stats.ghost_bucket_counts[i];
+            self.ctx
+                .streaming_metrics
+                .cache_ghost_resue_distance_bucket_count
+                .with_label_values(&[
+                    &actor_id_str,
+                    &table_id_str,
+                    "appendonlytopn",
+                    &self.stats.bucket_ids[i],
+                ])
+                .inc_by(ghost_count as u64);
+            self.stats.ghost_bucket_counts[i] = 0;
+        }
+
+        self.ctx
+            .streaming_metrics
+            .mrc_bucket_info
+            .with_label_values(&[&table_id_str, &actor_id_str, "appendonlytopn", "bucket"])
+            .set(self.caches.bucket_count() as i64);
+        self.ctx
+            .streaming_metrics
+            .mrc_bucket_info
+            .with_label_values(&[
+                &table_id_str,
+                &actor_id_str,
+                "appendonlytopn",
+                "ghost_bucket",
+            ])
+            .set(self.caches.ghost_bucket_count() as i64);
+        self.ctx
+            .streaming_metrics
+            .mrc_bucket_info
+            .with_label_values(&[
+                &table_id_str,
+                &actor_id_str,
+                "appendonlytopn",
+                "ghost_start",
+            ])
+            .set(self.stats.ghost_start as i64);
+        self.ctx
+            .streaming_metrics
+            .mrc_bucket_info
+            .with_label_values(&[&table_id_str, &actor_id_str, "appendonlytopn", "ghost_cap"])
+            .set(self.caches.ghost_cap() as i64);
+
+        Self::update_bucket_size(&mut self.caches, &mut self.stats, cache_entry_count);
+    }
+
+    fn update_bucket_size(
+        cache: &mut IndexedGroupTopNCache<K, WITH_TIES>,
+        stats: &mut ExecutionStats,
+        entry_count: usize,
+    ) {
+        let old_entry_count = stats.bucket_size * BUCKET_NUMBER;
+        if (old_entry_count as f64 * 1.2 < entry_count as f64
+            || old_entry_count as f64 * 0.7 > entry_count as f64)
+            && entry_count > 100
+        {
+            let mut ghost_cap_multiple = DEFAULT_GHOST_CAP_MUTIPLE;
+            let k_size = cache.key_size.unwrap_or(HACK_JOIN_KEY_SIZE);
+            if let Some(kv_size) = cache.get_avg_kv_size() {
+                let v_size = kv_size - k_size;
+                let multiple = v_size / k_size;
+                ghost_cap_multiple = usize::min(usize::max(multiple, 1), ghost_cap_multiple);
+            }
+            let ghost_cap = ghost_cap_multiple * entry_count;
+
+            stats.bucket_size = std::cmp::max(
+                (entry_count as f64 * 1.1 / BUCKET_NUMBER as f64).round() as usize,
+                1,
+            );
+            stats.ghost_bucket_size = std::cmp::max(
+                ((entry_count as f64 * 0.3 + ghost_cap as f64) / BUCKET_NUMBER as f64).round()
+                    as usize,
+                1,
+            );
+            stats.ghost_start = std::cmp::max((entry_count as f64 * 0.8).round() as usize, 1);
+            info!(
+                "WKXLOG ghost_start switch to {}, old_entry_count: {}, new_entry_count: {}",
+                stats.ghost_start, old_entry_count, entry_count
+            );
+            cache.set_ghost_cap(ghost_cap);
+        }
+    }
 }
+
 #[async_trait]
 impl<K: HashKey, S: StateStore, const WITH_TIES: bool> TopNExecutorBase
     for InnerAppendOnlyGroupTopNExecutor<K, S, WITH_TIES>
@@ -175,26 +326,52 @@ where
             let cache_key = serialize_pk_to_cache_key(pk_row, &self.cache_key_serde);
 
             let group_key = row_ref.project(&self.group_by);
-            self.ctx
-                .streaming_metrics
-                .group_top_n_appendonly_total_query_cache_count
-                .with_label_values(&[&table_id_str, &actor_id_str])
-                .inc();
+            self.stats.total_lookup_count += 1;
+
+            let mut hasher = DefaultHasher::new();
+            group_cache_key.hash(&mut hasher);
+            let sampled = hasher.finish() % 10000 < SAMPLE_NUM_IN_TEN_K;
+
             // If 'self.caches' does not already have a cache for the current group, create a new
             // cache for it and insert it into `self.caches`
-            if !self.caches.contains(group_cache_key) {
-                self.ctx
-                    .streaming_metrics
-                    .group_top_n_appendonly_cache_miss_count
-                    .with_label_values(&[&table_id_str, &actor_id_str])
-                    .inc();
+
+            let (exist, dis) = self.caches.contains_sampled(group_cache_key, sampled);
+            if let Some((distance, is_ghost)) = dis {
+                if is_ghost {
+                    let bucket_index = if distance < self.stats.ghost_start as u32 {
+                        0
+                    } else if distance
+                        > (self.stats.ghost_start + self.stats.ghost_bucket_size * BUCKET_NUMBER)
+                            as u32
+                    {
+                        BUCKET_NUMBER
+                    } else {
+                        (distance as usize - self.stats.ghost_start) / self.stats.ghost_bucket_size
+                    };
+                    self.stats.ghost_bucket_counts[bucket_index] += 1;
+                } else if sampled {
+                    let bucket_index = if distance > (self.stats.bucket_size * BUCKET_NUMBER) as u32
+                    {
+                        BUCKET_NUMBER
+                    } else {
+                        distance as usize / self.stats.bucket_size
+                    };
+                    self.stats.bucket_counts[bucket_index] += 1;
+                }
+            }
+            if !exist {
+                self.stats.lookup_miss_count += 1;
                 let mut topn_cache = TopNCache::new(self.offset, self.limit, data_types.clone());
                 self.managed_state
                     .init_topn_cache(Some(group_key), &mut topn_cache)
                     .await?;
-                self.caches.push(group_cache_key.clone(), topn_cache);
+                if !topn_cache.is_empty() {
+                    self.stats.lookup_real_miss_count += 1;
+                }
+                self.caches.put(group_cache_key.clone(), topn_cache);
             }
-            let mut cache = self.caches.get_mut(group_cache_key).unwrap();
+
+            let mut cache = self.caches.peek_mut(group_cache_key).unwrap();
 
             debug_assert_eq!(op, Op::Insert);
             cache.insert(
@@ -215,6 +392,7 @@ where
     }
 
     async fn flush_data(&mut self, epoch: EpochPair) -> StreamExecutorResult<()> {
+        self.flush_stats();
         self.managed_state.flush(epoch).await
     }
 
@@ -255,5 +433,78 @@ where
         } else {
             None
         }
+    }
+}
+
+struct ExecutionStats {
+    lookup_miss_count: u64,
+    lookup_real_miss_count: u64,
+    total_lookup_count: u64,
+
+    bucket_size: usize,
+    ghost_bucket_size: usize,
+    ghost_start: usize,
+
+    bucket_ids: Vec<String>,
+    bucket_counts: Vec<usize>,
+    ghost_bucket_counts: Vec<usize>,
+}
+
+impl ExecutionStats {
+    fn new() -> Self {
+        let mut bucket_ids = vec![];
+        for i in 0..=BUCKET_NUMBER {
+            bucket_ids.push(i.to_string());
+        }
+        let bucket_counts = vec![0; BUCKET_NUMBER + 1];
+        let ghost_bucket_counts = vec![0; BUCKET_NUMBER + 1];
+        Self {
+            lookup_miss_count: 0,
+            lookup_real_miss_count: 0,
+            total_lookup_count: 0,
+            bucket_size: 1,
+            ghost_bucket_size: 1,
+            ghost_start: 0,
+            bucket_ids,
+            bucket_counts,
+            ghost_bucket_counts,
+        }
+    }
+}
+
+pub struct IndexedGroupTopNCache<K: HashKey, const WITH_TIES: bool> {
+    data: ManagedIndexedLruCache<K, TopNCache<WITH_TIES>>,
+}
+
+impl<K: HashKey, const WITH_TIES: bool> IndexedGroupTopNCache<K, WITH_TIES> {
+    pub fn new(
+        watermark_epoch: AtomicU64Ref,
+        metrics_info: MetricsInfo,
+        ghost_cap: usize,
+        update_interval: u32,
+        ghost_bucket_count: usize,
+    ) -> Self {
+        let cache = new_indexed_unbounded(
+            watermark_epoch,
+            metrics_info,
+            ghost_cap,
+            update_interval,
+            ghost_bucket_count,
+        );
+        Self { data: cache }
+    }
+}
+
+impl<K: HashKey, const WITH_TIES: bool> Deref for IndexedGroupTopNCache<K, WITH_TIES> {
+    type Target = ManagedIndexedLruCache<K, TopNCache<WITH_TIES>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl<K: HashKey, const WITH_TIES: bool> DerefMut for IndexedGroupTopNCache<K, WITH_TIES> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
     }
 }

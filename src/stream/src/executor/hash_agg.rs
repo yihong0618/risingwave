@@ -40,8 +40,8 @@ use super::aggregation::{
 use super::sort_buffer::SortBuffer;
 use super::{
     expect_first_barrier, ActorContextRef, ExecutorInfo, PkIndicesRef, StreamExecutorResult,
-    Watermark, BUCKET_NUMBER, DEFAULT_GHOST_CAP_MUTIPLE, HACK_JOIN_KEY_SIZE, INIT_GHOST_CAP,
-    REAL_UPDATE_INTERVAL, SAMPLE_NUM_IN_TEN_K,
+    Watermark, BUCKET_NUMBER, DEFAULT_GHOST_CAP_MUTIPLE, INIT_GHOST_CAP, REAL_UPDATE_INTERVAL,
+    SAMPLE_NUM_IN_TEN_K,
 };
 use crate::cache::{cache_may_stale, new_indexed_with_hasher, ManagedIndexedLruCache};
 use crate::common::metrics::MetricsInfo;
@@ -50,7 +50,7 @@ use crate::error::StreamResult;
 use crate::executor::aggregation::{generate_agg_schema, AggGroup as GenericAggGroup};
 use crate::executor::error::StreamExecutorError;
 use crate::executor::monitor::StreamingMetrics;
-use crate::executor::{BoxedMessageStream, Executor, Message};
+use crate::executor::{BoxedMessageStream, Executor, Message, HACK_TOP_N_KEY_SIZE};
 use crate::task::AtomicU64Ref;
 
 type AggGroup<S> = GenericAggGroup<S, OnlyOutputIfHasInput>;
@@ -839,7 +839,7 @@ impl<K: HashKey, S: StateStore> HashAggExecutor<K, S> {
             && entry_count > 100
         {
             let mut ghost_cap_multiple = DEFAULT_GHOST_CAP_MUTIPLE;
-            let k_size = agg_group_cache.key_size.unwrap_or(HACK_JOIN_KEY_SIZE);
+            let k_size = agg_group_cache.key_size.unwrap_or(HACK_TOP_N_KEY_SIZE);
             if let Some(kv_size) = agg_group_cache.get_avg_kv_size() {
                 let v_size = kv_size - k_size;
                 let multiple = v_size / k_size;

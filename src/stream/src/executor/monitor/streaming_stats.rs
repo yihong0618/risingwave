@@ -80,6 +80,7 @@ pub struct StreamingMetrics {
     pub group_top_n_total_query_cache_count: GenericCounterVec<AtomicU64>,
     pub group_top_n_cached_entry_count: GenericGaugeVec<AtomicI64>,
     pub group_top_n_appendonly_cache_miss_count: GenericCounterVec<AtomicU64>,
+    pub group_top_n_appendonly_cache_real_miss_count: GenericCounterVec<AtomicU64>,
     pub group_top_n_appendonly_total_query_cache_count: GenericCounterVec<AtomicU64>,
     pub group_top_n_appendonly_cached_entry_count: GenericGaugeVec<AtomicI64>,
 
@@ -493,6 +494,14 @@ impl StreamingMetrics {
         )
         .unwrap();
 
+        let group_top_n_appendonly_cache_real_miss_count = register_int_counter_vec_with_registry!(
+            "stream_group_top_n_appendonly_cache_real_miss_count",
+            "Group top n appendonly executor cache real miss count",
+            &["table_id", "actor_id"],
+            registry
+        )
+        .unwrap();
+
         let group_top_n_appendonly_total_query_cache_count =
             register_int_counter_vec_with_registry!(
                 "stream_group_top_n_appendonly_total_query_cache_count",
@@ -767,6 +776,7 @@ impl StreamingMetrics {
             group_top_n_total_query_cache_count,
             group_top_n_cached_entry_count,
             group_top_n_appendonly_cache_miss_count,
+            group_top_n_appendonly_cache_real_miss_count,
             group_top_n_appendonly_total_query_cache_count,
             group_top_n_appendonly_cached_entry_count,
             lookup_cache_miss_count,
