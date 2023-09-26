@@ -27,6 +27,7 @@
 // limitations under the License.
 
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::Hasher;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
@@ -198,6 +199,12 @@ impl<K: HashKey, S: StateStore, const WITH_TIES: bool>
             .group_top_n_appendonly_cache_miss_count
             .with_label_values(&[&table_id_str, &actor_id_str])
             .inc_by(self.stats.lookup_miss_count);
+
+        self.ctx
+            .streaming_metrics
+            .group_top_n_appendonly_cache_real_miss_count
+            .with_label_values(&[&table_id_str, &actor_id_str])
+            .inc_by(self.stats.lookup_real_miss_count);
 
         self.stats.total_lookup_count = 0;
         self.stats.lookup_miss_count = 0;
@@ -433,6 +440,29 @@ where
         } else {
             None
         }
+    }
+
+    fn update_size_limit(&mut self, table_cache_sizes: &HashMap<u32, u64>) {
+        let table_id = self.managed_state.state_table.table_id();
+        if let Some(cache_size) = table_cache_sizes.get(&table_id) {
+            self.caches.update_size_limit(*cache_size as usize);
+            tracing::info!(
+                "WKXLOG: Success update_size_limit table_id {}, to cache size: {}",
+                table_id,
+                cache_size
+            );
+        } else {
+            tracing::warn!(
+                "WKXLOG: WARN!!! update_size_limit cannot find table_id {} in table_cache_size: {:?}",
+                table_id,
+                table_cache_sizes
+            );
+        }
+        tracing::info!(
+            "WKXNB! agg table cache updated! table_cache_sizes: {:?}, fragment_id: {}",
+            table_cache_sizes,
+            self.ctx.fragment_id
+        );
     }
 }
 

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -41,6 +42,8 @@ pub trait TopNExecutorBase: Send + 'static {
 
     /// Flush the buffered chunk to the storage backend.
     async fn flush_data(&mut self, epoch: EpochPair) -> StreamExecutorResult<()>;
+
+    fn update_size_limit(&mut self, table_cache_sizes: &HashMap<u32, u64>);
 
     fn info(&self) -> &ExecutorInfo;
 
@@ -141,6 +144,22 @@ where
                         self.inner.update_vnode_bitmap(vnode_bitmap);
                     }
 
+                    if barrier.is_cache() {
+                        if let Some(mutation) = barrier.mutation.as_deref() {
+                            match mutation {
+                                crate::executor::Mutation::Cache {
+                                    new_fragment_cache_sizes,
+                                } => {
+                                    if let Some(table_cache_sizes) =
+                                        new_fragment_cache_sizes.get(&self.ctx.fragment_id)
+                                    {
+                                        self.inner.update_size_limit(table_cache_sizes);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
                     self.inner.update_epoch(barrier.epoch.curr);
                     yield Message::Barrier(barrier)
                 }

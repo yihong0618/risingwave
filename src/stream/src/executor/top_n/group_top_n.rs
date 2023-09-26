@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 
@@ -273,6 +274,9 @@ where
             None
         }
     }
+
+    fn update_size_limit(&mut self, _table_cache_sizes: &HashMap<u32, u64>) {}
+
 }
 
 #[cfg(test)]

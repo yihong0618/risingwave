@@ -161,7 +161,7 @@ pub const INIT_GHOST_CAP: usize = 30;
 // pub const JOIN_GHOST_CAP: usize = 600000;
 // pub const AGG_GHOST_CAP: usize = 60000;
 pub const REAL_UPDATE_INTERVAL: u32 = 6000;
-pub const REAL_UPDATE_INTERVAL_TOP_N: u32 = 12000;
+pub const REAL_UPDATE_INTERVAL_TOP_N: u32 = 24000;
 pub const SAMPLE_NUM_IN_TEN_K: u64 = 300;
 
 /// Static information of an executor.

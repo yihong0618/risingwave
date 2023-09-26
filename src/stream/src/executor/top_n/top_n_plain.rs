@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use risingwave_common::array::{Op, StreamChunk};
 use risingwave_common::row::RowExt;
@@ -205,6 +207,8 @@ where
         // TODO(yuhao): handle watermark
         None
     }
+
+    fn update_size_limit(&mut self, _table_cache_sizes: &HashMap<u32, u64>) {}
 }
 
 #[cfg(test)]
