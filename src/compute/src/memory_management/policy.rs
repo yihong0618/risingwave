@@ -33,8 +33,8 @@ pub struct JemallocMemoryControl {
 
 impl JemallocMemoryControl {
     const THRESHOLD_AGGRESSIVE: f64 = 0.9;
-    const THRESHOLD_GRACEFUL: f64 = 0.8;
-    const THRESHOLD_STABLE: f64 = 0.7;
+    const THRESHOLD_GRACEFUL: f64 = 0.85;
+    const THRESHOLD_STABLE: f64 = 0.8;
 
     pub fn new(total_memory: usize, wkx_operator_cache_capacity_mb: usize) -> Self {
         let hack_total_compute_memory_bytes = if wkx_operator_cache_capacity_mb != 1536 {
