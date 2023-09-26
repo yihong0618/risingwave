@@ -14,11 +14,14 @@
 
 use std::borrow::BorrowMut;
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::anyhow;
 use etcd_client::{ConnectOptions, Error, GetOptions, LeaderKey, ResignOptions};
 use risingwave_common::bail;
 use serde::Serialize;
+use tokio::runtime::Runtime;
 use tokio::sync::watch::Receiver;
 use tokio::sync::{oneshot, watch};
 use tokio::time;
@@ -43,12 +46,17 @@ pub trait ElectionClient: Send + Sync + 'static {
     async fn leader(&self) -> MetaResult<Option<ElectionMember>>;
     async fn get_members(&self) -> MetaResult<Vec<ElectionMember>>;
     async fn is_leader(&self) -> bool;
+
+    fn runtime_ref(&self) -> Option<Arc<Runtime>> {
+        None
+    }
 }
 
 pub struct EtcdElectionClient {
     id: String,
     is_leader_sender: watch::Sender<bool>,
     client: WrappedEtcdClient,
+    runtime: Arc<Runtime>,
 }
 
 #[async_trait::async_trait]
@@ -129,7 +137,7 @@ impl ElectionClient for EtcdElectionClient {
 
         let lease_client = self.client.clone();
 
-        let handle = tokio::task::spawn(async move {
+        let handle = self.runtime.spawn(async move {
             let (mut keeper, mut resp_stream) = match lease_client.keep_alive(lease_id).await {
                 Ok(resp) => resp,
                 Err(e) => {
@@ -347,10 +355,18 @@ impl EtcdElectionClient {
 
         let client = WrappedEtcdClient::connect(endpoints, options, auth_enabled).await?;
 
+        let runtime = Runtime::new().map_err(|e| {
+            anyhow!(
+                "create runtime for election client failed {}",
+                e.to_string()
+            )
+        })?;
+
         Ok(Self {
             id,
             is_leader_sender: sender,
             client,
+            runtime: Arc::new(runtime),
         })
     }
 }
