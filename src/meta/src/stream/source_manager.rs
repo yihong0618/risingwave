@@ -22,6 +22,7 @@ use std::time::Duration;
 use anyhow::anyhow;
 use itertools::Itertools;
 use risingwave_common::catalog::TableId;
+use risingwave_common::util::runtime::BackgroundShutdownRuntime;
 use risingwave_connector::source::{
     ConnectorProperties, SourceEnumeratorContext, SourceEnumeratorInfo, SplitEnumeratorImpl,
     SplitId, SplitImpl, SplitMetaData,
@@ -52,6 +53,7 @@ pub struct SourceManager<S: MetaStore> {
     barrier_scheduler: BarrierScheduler<S>,
     core: Mutex<SourceManagerCore<S>>,
     metrics: Arc<MetaMetrics>,
+    runtime: Arc<BackgroundShutdownRuntime>,
 }
 
 const MAX_FAIL_CNT: u32 = 10;
@@ -524,11 +526,20 @@ where
         fragment_manager: FragmentManagerRef<S>,
         metrics: Arc<MetaMetrics>,
     ) -> MetaResult<Self> {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .thread_name("risingwave-source-manager")
+            .enable_all()
+            .build()
+            .map_err(|e| anyhow!(e))?;
+
+        let runtime: Arc<BackgroundShutdownRuntime> = Arc::new(runtime.into());
+
         let mut managed_sources = HashMap::new();
         {
             let sources = catalog_manager.list_sources().await;
             for source in sources {
                 Self::create_source_worker_async(
+                    runtime.clone(),
                     env.connector_client(),
                     source,
                     &mut managed_sources,
@@ -563,6 +574,7 @@ where
             core,
             paused: Mutex::new(()),
             metrics,
+            runtime,
         })
     }
 
@@ -704,6 +716,7 @@ where
             tracing::warn!("source {} already registered", source.get_id());
         } else {
             Self::create_source_worker(
+                self.runtime.clone(),
                 self.env.connector_client(),
                 source,
                 &mut core.managed_sources,
@@ -716,6 +729,7 @@ where
     }
 
     async fn create_source_worker_async(
+        runtime: Arc<BackgroundShutdownRuntime>,
         connector_client: Option<ConnectorClient>,
         source: Source,
         managed_sources: &mut HashMap<SourceId, ConnectorSourceWorkerHandle>,
@@ -729,7 +743,7 @@ where
         let current_splits_ref = splits.clone();
         let source_id = source.id;
 
-        let handle = tokio::spawn(async move {
+        let handle = runtime.spawn(async move {
             let mut ticker = time::interval(Self::DEFAULT_SOURCE_TICK_INTERVAL);
             ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
@@ -768,6 +782,7 @@ where
     }
 
     async fn create_source_worker(
+        runtime: Arc<BackgroundShutdownRuntime>,
         connector_client: Option<ConnectorClient>,
         source: &Source,
         managed_sources: &mut HashMap<SourceId, ConnectorSourceWorkerHandle>,
@@ -790,7 +805,6 @@ where
         // failure.
         if force_tick {
             // if fail to fetch meta info, will refuse to create source
-
             // todo: make the timeout configurable, longer than `properties.sync.call.timeout` in
             // kafka
             tokio::time::timeout(Self::DEFAULT_SOURCE_TICK_TIMEOUT, worker.tick())
@@ -806,7 +820,7 @@ where
 
         let (sync_call_tx, sync_call_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let handle = tokio::spawn(async move { worker.run(sync_call_rx).await });
+        let handle = runtime.spawn(async move { worker.run(sync_call_rx).await });
 
         managed_sources.insert(
             source.id,
