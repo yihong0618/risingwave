@@ -401,53 +401,53 @@ where
             // If 'self.caches' does not already have a cache for the current group, create a new
             // cache for it and insert it into `self.caches`
 
-            let (exist, dis) = self.caches.contains_sampled(group_cache_key, sampled);
-            if let Some((distance, is_ghost)) = dis {
-                if is_ghost {
-                    let bucket_index = if distance < self.stats.ghost_start as u32 {
-                        0
-                    } else if distance
-                        > (self.stats.ghost_start + self.stats.ghost_bucket_size * BUCKET_NUMBER)
-                            as u32
-                    {
-                        BUCKET_NUMBER
-                    } else {
-                        (distance as usize - self.stats.ghost_start) / self.stats.ghost_bucket_size
-                    };
-                    self.stats.ghost_bucket_counts[bucket_index] += 1;
-                } else if sampled {
-                    let bucket_index = if distance > (self.stats.bucket_size * BUCKET_NUMBER) as u32
-                    {
-                        BUCKET_NUMBER
-                    } else {
-                        distance as usize / self.stats.bucket_size
-                    };
-                    self.stats.bucket_counts[bucket_index] += 1;
-                }
-            }
-            if !exist {
-                self.stats.lookup_miss_count += 1;
-                let mut topn_cache = TopNCache::new(self.offset, self.limit, data_types.clone());
-                self.managed_state
-                    .init_topn_cache(Some(group_key), &mut topn_cache)
-                    .await?;
-                if !topn_cache.is_empty() {
-                    self.stats.lookup_real_miss_count += 1;
-                }
-                self.caches.put(group_cache_key.clone(), topn_cache);
-            }
+            // let (exist, dis) = self.caches.contains_sampled(group_cache_key, sampled);
+            // if let Some((distance, is_ghost)) = dis {
+            //     if is_ghost {
+            //         let bucket_index = if distance < self.stats.ghost_start as u32 {
+            //             0
+            //         } else if distance
+            //             > (self.stats.ghost_start + self.stats.ghost_bucket_size * BUCKET_NUMBER)
+            //                 as u32
+            //         {
+            //             BUCKET_NUMBER
+            //         } else {
+            //             (distance as usize - self.stats.ghost_start) / self.stats.ghost_bucket_size
+            //         };
+            //         self.stats.ghost_bucket_counts[bucket_index] += 1;
+            //     } else if sampled {
+            //         let bucket_index = if distance > (self.stats.bucket_size * BUCKET_NUMBER) as u32
+            //         {
+            //             BUCKET_NUMBER
+            //         } else {
+            //             distance as usize / self.stats.bucket_size
+            //         };
+            //         self.stats.bucket_counts[bucket_index] += 1;
+            //     }
+            // }
+            // if !exist {
+            //     self.stats.lookup_miss_count += 1;
+            //     let mut topn_cache = TopNCache::new(self.offset, self.limit, data_types.clone());
+            //     self.managed_state
+            //         .init_topn_cache(Some(group_key), &mut topn_cache)
+            //         .await?;
+            //     if !topn_cache.is_empty() {
+            //         self.stats.lookup_real_miss_count += 1;
+            //     }
+            //     self.caches.put(group_cache_key.clone(), topn_cache);
+            // }
 
-            let mut cache = self.caches.peek_mut(group_cache_key).unwrap();
+            // let mut cache = self.caches.peek_mut(group_cache_key).unwrap();
 
-            debug_assert_eq!(op, Op::Insert);
-            cache.insert(
-                cache_key,
-                row_ref,
-                &mut res_ops,
-                &mut res_rows,
-                &mut self.managed_state,
-                &row_deserializer,
-            )?;
+            // debug_assert_eq!(op, Op::Insert);
+            // cache.insert(
+            //     cache_key,
+            //     row_ref,
+            //     &mut res_ops,
+            //     &mut res_rows,
+            //     &mut self.managed_state,
+            //     &row_deserializer,
+            // )?;
         }
         self.ctx
             .streaming_metrics
