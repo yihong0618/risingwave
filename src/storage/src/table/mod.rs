@@ -158,7 +158,14 @@ pub fn compute_vnode(row: impl Row, indices: &[usize], vnodes: &Bitmap) -> Virtu
         DEFAULT_VNODE
     } else {
         let vnode = VirtualNode::compute_row(&row, indices);
-        check_vnode_is_set(vnode, vnodes);
+        // check_vnode_is_set(vnode, vnodes);
+        assert!(
+            vnodes.is_set(vnode.to_index()),
+            "vnode {} should not be accessed by this table. row: {:?}, indices: {:?}",
+            vnode,
+            row,
+            indices
+        );
         vnode
     };
 
