@@ -179,7 +179,7 @@ impl<S: StateStore, const USE_WATERMARK_CACHE: bool> DynamicFilterExecutor<S, US
         }
 
         let new_visibility = new_visibility.finish();
-
+        self.left_table.try_flush().await?;
         Ok((new_ops, new_visibility))
     }
 
@@ -322,6 +322,7 @@ impl<S: StateStore, const USE_WATERMARK_CACHE: bool> DynamicFilterExecutor<S, US
                     let condition = dynamic_cond(right_val).transpose()?;
 
                     let (new_ops, new_visibility) = self.apply_batch(&chunk, condition).await?;
+                    
 
                     let columns = chunk.into_parts().0.into_parts().0;
 
@@ -329,6 +330,7 @@ impl<S: StateStore, const USE_WATERMARK_CACHE: bool> DynamicFilterExecutor<S, US
                         let new_chunk = StreamChunk::new(new_ops, columns, Some(new_visibility));
                         yield Message::Chunk(new_chunk)
                     }
+
                 }
                 AlignedMessage::Right(chunk) => {
                     // Record the latest update to the right value
@@ -359,6 +361,7 @@ impl<S: StateStore, const USE_WATERMARK_CACHE: bool> DynamicFilterExecutor<S, US
                             }
                         }
                     }
+
                 }
                 AlignedMessage::WatermarkLeft(_) => {
                     // Do nothing.
