@@ -745,6 +745,14 @@ impl HummockLevelsExt for Levels {
                 });
             }
         }
+
+        if !delete_sst_ids_set.is_empty() {
+            tracing::info!(
+                "DEBUG TOMBSTONE delete_sst_ids_set {:?}",
+                delete_sst_ids_set
+            );
+        }
+
         delete_sst_ids_set.is_empty()
     }
 }

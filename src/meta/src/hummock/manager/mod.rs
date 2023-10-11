@@ -836,8 +836,7 @@ impl HummockManager {
         }
 
         let can_trivial_move = matches!(selector.task_type(), compact_task::TaskType::Dynamic)
-            || matches!(selector.task_type(), compact_task::TaskType::Emergency)
-            || matches!(selector.task_type(), compact_task::TaskType::Tombstone);
+            || matches!(selector.task_type(), compact_task::TaskType::Emergency);
 
         let mut stats = LocalSelectorStatistic::default();
         let member_table_ids = &current_version
