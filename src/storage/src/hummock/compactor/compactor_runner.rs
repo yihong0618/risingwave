@@ -699,8 +699,6 @@ where
     let mut progress_key_num: u64 = 0;
     const PROGRESS_KEY_INTERVAL: u64 = 100;
     while iter.is_valid() {
-        progress_key_num += 1;
-
         if let Some(task_progress) = task_progress.as_ref() && progress_key_num >= PROGRESS_KEY_INTERVAL {
                 task_progress.inc_progress_key(progress_key_num);
                 progress_key_num = 0;
@@ -740,8 +738,6 @@ where
 
         let target_extended_user_key = PointRange::from_user_key(iter_key.user_key, false);
         while del_iter.is_valid() && del_iter.key().as_ref().le(&target_extended_user_key) {
-            progress_key_num += 1;
-
             del_iter.update_range();
             if !task_config.gc_delete_keys {
                 sst_builder
