@@ -414,16 +414,12 @@ pub(crate) async fn do_delete_sanity_check(
         ..Default::default()
     };
     match inner.get(key.clone(), epoch, read_options).await? {
-        // ERROR: Probably no key here....
-        None => {
-            println!("no keys");
-            Err(Box::new(MemTableError::InconsistentOperation {
-                key,
-                prev: KeyOp::Delete(Bytes::default()),
-                new: KeyOp::Delete(old_value),
-            })
-                .into())
-        }
+        None => Err(Box::new(MemTableError::InconsistentOperation {
+            key,
+            prev: KeyOp::Delete(Bytes::default()),
+            new: KeyOp::Delete(old_value),
+        })
+        .into()),
         Some(stored_value) => {
             if stored_value != old_value {
                 Err(Box::new(MemTableError::InconsistentOperation {
