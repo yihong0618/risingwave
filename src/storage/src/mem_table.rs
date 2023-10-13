@@ -58,8 +58,12 @@ pub struct MemTable {
 
 #[derive(Error, Debug)]
 pub enum MemTableError {
-    #[error("Inconsistent operation key: {key:?}, prev: {prev:?}, new: {new:?}")]
-    InconsistentOperation { key: Bytes, prev: KeyOp, new: KeyOp },
+    #[error("Inconsistent operation")]
+    InconsistentOperation {
+        key: TableKey<Bytes>,
+        prev: KeyOp,
+        new: KeyOp,
+    },
 }
 
 type Result<T> = std::result::Result<T, Box<MemTableError>>;
