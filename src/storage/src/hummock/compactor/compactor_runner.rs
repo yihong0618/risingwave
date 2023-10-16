@@ -653,7 +653,7 @@ where
             last_key.is_empty() || iter_key.user_key != last_key.user_key.as_ref();
 
         let mut drop = false;
-        let epoch = iter_key.epoch;
+        let epoch = iter_key.epoch.get_epoch();
         let value = iter.value();
         if is_new_user_key {
             if !max_key.is_empty() && iter_key >= max_key {
@@ -738,7 +738,7 @@ where
             user_key_last_delete_epoch = epoch;
         } else if earliest_range_delete_which_can_see_iter_key < user_key_last_delete_epoch {
             debug_assert!(
-                iter_key.epoch < earliest_range_delete_which_can_see_iter_key
+                iter_key.epoch.get_epoch() < earliest_range_delete_which_can_see_iter_key
                     && earliest_range_delete_which_can_see_iter_key < user_key_last_delete_epoch
             );
             user_key_last_delete_epoch = earliest_range_delete_which_can_see_iter_key;
@@ -748,7 +748,7 @@ where
             // information about whether a key is deleted by a delete range in
             // the same SST. Therefore we need to construct a corresponding
             // delete key to represent this.
-            iter_key.epoch = earliest_range_delete_which_can_see_iter_key;
+            iter_key.epoch.update_epoch( earliest_range_delete_which_can_see_iter_key);
             sst_builder
                 .add_full_key(iter_key, HummockValue::Delete, is_new_user_key)
                 .verbose_instrument_await("add_full_key_delete")
@@ -756,7 +756,7 @@ where
             last_table_stats.total_key_count += 1;
             last_table_stats.total_key_size += iter_key.encoded_len() as i64;
             last_table_stats.total_value_size += 1;
-            iter_key.epoch = epoch;
+            iter_key.epoch.update_epoch(epoch);
             is_new_user_key = false;
         }
 

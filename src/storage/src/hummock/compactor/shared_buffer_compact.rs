@@ -23,7 +23,7 @@ use itertools::Itertools;
 use risingwave_common::cache::CachePriority;
 use risingwave_common::catalog::TableId;
 use risingwave_common::hash::VirtualNode;
-use risingwave_hummock_sdk::compaction_group::StaticCompactionGroupId;
+use risingwave_hummock_sdk::{compaction_group::StaticCompactionGroupId, EpochWithGap};
 use risingwave_hummock_sdk::key::{FullKey, TableKey, UserKey};
 use risingwave_hummock_sdk::key_range::KeyRange;
 use risingwave_hummock_sdk::{CompactionGroupId, HummockEpoch, LocalSstableInfo};
@@ -192,7 +192,7 @@ async fn compact_shared_buffer(
                     key_split_append(
                         &FullKey {
                             user_key,
-                            epoch: HummockEpoch::MAX,
+                            epoch: EpochWithGap::new_with_epoch(HummockEpoch::MAX),
                         }
                         .encode()
                         .into(),
@@ -379,7 +379,7 @@ pub async fn merge_imms_in_memory(
         UserKey::new(table_id, TableKey(pivot.as_ref())),
         HummockEpoch::MAX,
     );
-    let mut versions: Vec<(HummockEpoch, HummockValue<Bytes>)> = Vec::new();
+    let mut versions: Vec<(EpochWithGap, HummockValue<Bytes>)> = Vec::new();
 
     let mut pivot_last_delete_epoch = HummockEpoch::MAX;
 
@@ -411,11 +411,11 @@ pub async fn merge_imms_in_memory(
             // a delete range in the merged imm which it belongs to. Therefore we need
             // to construct a corresponding delete key to represent this.
             versions.push((
-                earliest_range_delete_which_can_see_key,
+                EpochWithGap::new_with_epoch(earliest_range_delete_which_can_see_key),
                 HummockValue::Delete,
             ));
         }
-        versions.push((epoch, value));
+        versions.push((EpochWithGap::new_with_epoch(epoch), value));
     }
     // process the last key
     if !versions.is_empty() {

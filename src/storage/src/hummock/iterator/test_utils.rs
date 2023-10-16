@@ -19,7 +19,7 @@ use bytes::Bytes;
 use itertools::Itertools;
 use risingwave_common::cache::CachePriority;
 use risingwave_common::catalog::TableId;
-use risingwave_hummock_sdk::key::{FullKey, UserKey};
+use risingwave_hummock_sdk::{key::{FullKey, UserKey}, EpochWithGap};
 use risingwave_hummock_sdk::{HummockEpoch, HummockSstableObjectId};
 use risingwave_object_store::object::{
     InMemObjectStore, ObjectStore, ObjectStoreImpl, ObjectStoreRef,
@@ -89,7 +89,7 @@ pub fn iterator_test_bytes_user_key_of(idx: usize) -> UserKey<Bytes> {
 pub fn iterator_test_key_of(idx: usize) -> FullKey<Vec<u8>> {
     FullKey {
         user_key: iterator_test_user_key_of(idx),
-        epoch: 233,
+        epoch: EpochWithGap::new_with_epoch(233),
     }
 }
 
@@ -102,7 +102,7 @@ pub fn iterator_test_bytes_key_of(idx: usize) -> FullKey<Bytes> {
 pub fn iterator_test_key_of_epoch(idx: usize, epoch: HummockEpoch) -> FullKey<Vec<u8>> {
     FullKey {
         user_key: iterator_test_user_key_of(idx),
-        epoch,
+        epoch: EpochWithGap::new_with_epoch(epoch),
     }
 }
 

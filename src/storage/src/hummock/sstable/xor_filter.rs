@@ -419,6 +419,7 @@ impl Clone for XorFilterReader {
 mod tests {
     use rand::RngCore;
     use risingwave_common::cache::CachePriority;
+    use risingwave_hummock_sdk::EpochWithGap;
 
     use super::*;
     use crate::filter_key_extractor::{FilterKeyExtractorImpl, FullKeyFilterKeyExtractor};
@@ -463,7 +464,7 @@ mod tests {
                 let epoch = 20 - j;
                 let k = FullKey {
                     user_key: test_user_key_of(i),
-                    epoch,
+                    epoch: EpochWithGap::new_with_epoch(epoch),
                 };
                 let v = HummockValue::put(test_value_of(i));
                 builder.add(k.to_ref(), v.as_slice(), j == 0).await.unwrap();

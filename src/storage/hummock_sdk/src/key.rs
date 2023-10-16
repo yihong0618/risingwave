@@ -22,7 +22,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use risingwave_common::catalog::TableId;
 use risingwave_common::hash::VirtualNode;
 
-use crate::HummockEpoch;
+use crate::{HummockEpoch, EpochWithGap};
 
 pub const EPOCH_LEN: usize = std::mem::size_of::<HummockEpoch>();
 pub const TABLE_PREFIX_LEN: usize = std::mem::size_of::<u32>();
@@ -568,12 +568,12 @@ impl UserKey<Vec<u8>> {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct FullKey<T: AsRef<[u8]>> {
     pub user_key: UserKey<T>,
-    pub epoch: HummockEpoch,
+    pub epoch: EpochWithGap,
 }
 
 impl<T: AsRef<[u8]>> Debug for FullKey<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "FullKey {{ {:?}, {} }}", self.user_key, self.epoch)
+        write!(f, "FullKey {{ {:?}, {} }}", self.user_key, self.epoch.get_epoch())
     }
 }
 
@@ -581,26 +581,26 @@ impl<T: AsRef<[u8]>> FullKey<T> {
     pub fn new(table_id: TableId, table_key: TableKey<T>, epoch: HummockEpoch) -> Self {
         Self {
             user_key: UserKey::new(table_id, table_key),
-            epoch,
+            epoch: EpochWithGap::new_with_epoch(epoch),
         }
     }
 
     pub fn from_user_key(user_key: UserKey<T>, epoch: HummockEpoch) -> Self {
-        Self { user_key, epoch }
+        Self { user_key, epoch: EpochWithGap::new_with_epoch(epoch), }
     }
 
     /// Pass the inner type of `table_key` to make the code less verbose.
     pub fn for_test(table_id: TableId, table_key: T, epoch: HummockEpoch) -> Self {
         Self {
             user_key: UserKey::for_test(table_id, table_key),
-            epoch,
+            epoch:EpochWithGap::init() ,
         }
     }
 
     /// Encode in to a buffer.
     pub fn encode_into(&self, buf: &mut impl BufMut) {
         self.user_key.encode_into(buf);
-        buf.put_u64(self.epoch);
+        buf.put_u64(self.epoch.get_epoch());
     }
 
     pub fn encode(&self) -> Vec<u8> {
@@ -614,7 +614,7 @@ impl<T: AsRef<[u8]>> FullKey<T> {
     // Encode in to a buffer.
     pub fn encode_into_without_table_id(&self, buf: &mut impl BufMut) {
         self.user_key.encode_table_key_into(buf);
-        buf.put_u64(self.epoch);
+        buf.put_u64(self.epoch.get_epoch());
     }
 
     pub fn encode_reverse_epoch(&self) -> Vec<u8> {
@@ -622,7 +622,7 @@ impl<T: AsRef<[u8]>> FullKey<T> {
             TABLE_PREFIX_LEN + self.user_key.table_key.as_ref().len() + EPOCH_LEN,
         );
         self.user_key.encode_into(&mut buf);
-        buf.put_u64(u64::MAX - self.epoch);
+        buf.put_u64(u64::MAX - self.epoch.get_epoch());
         buf
     }
 
@@ -644,7 +644,7 @@ impl<'a> FullKey<&'a [u8]> {
 
         Self {
             user_key: UserKey::decode(&slice[..epoch_pos]),
-            epoch,
+            epoch: EpochWithGap::new_with_epoch(epoch),
         }
     }
 
@@ -658,7 +658,7 @@ impl<'a> FullKey<&'a [u8]> {
 
         Self {
             user_key: UserKey::new(table_id, TableKey(&slice_without_table_id[..epoch_pos])),
-            epoch,
+            epoch:  EpochWithGap::new_with_epoch(epoch),
         }
     }
 
@@ -669,7 +669,7 @@ impl<'a> FullKey<&'a [u8]> {
 
         Self {
             user_key: UserKey::decode(&slice[..epoch_pos]),
-            epoch: u64::MAX - epoch,
+            epoch:  EpochWithGap::new_with_epoch(u64::MAX - epoch),
         }
     }
 
@@ -719,7 +719,7 @@ impl<T: AsRef<[u8]> + Ord + Eq> Ord for FullKey<T> {
         // When `user_key` is the same, greater epoch comes first.
         self.user_key
             .cmp(&other.user_key)
-            .then_with(|| other.epoch.cmp(&self.epoch))
+            .then_with(|| other.epoch.get_epoch().cmp(&self.epoch.get_epoch()))
     }
 }
 

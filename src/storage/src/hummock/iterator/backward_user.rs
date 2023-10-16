@@ -15,7 +15,7 @@
 use std::ops::Bound::*;
 
 use bytes::Bytes;
-use risingwave_hummock_sdk::key::{FullKey, UserKey, UserKeyRange};
+use risingwave_hummock_sdk::{key::{FullKey, UserKey, UserKeyRange}, EpochWithGap};
 use risingwave_hummock_sdk::HummockEpoch;
 
 use crate::hummock::iterator::{Backward, HummockIterator};
@@ -136,7 +136,7 @@ impl<I: HummockIterator<Direction = Backward>> BackwardUserIterator<I> {
 
         while self.iterator.is_valid() {
             let full_key = self.iterator.key();
-            let epoch = full_key.epoch;
+            let epoch = full_key.epoch.get_epoch();
             let key = &full_key.user_key;
 
             if epoch > self.min_epoch && epoch <= self.read_epoch {
@@ -216,7 +216,7 @@ impl<I: HummockIterator<Direction = Backward>> BackwardUserIterator<I> {
             Included(end_key) => {
                 let full_key = FullKey {
                     user_key: end_key.clone(),
-                    epoch: 0,
+                    epoch: EpochWithGap::init(),
                 };
                 self.iterator.seek(full_key.to_ref()).await?;
             }
@@ -245,7 +245,7 @@ impl<I: HummockIterator<Direction = Backward>> BackwardUserIterator<I> {
             Excluded(_) => unimplemented!("excluded begin key is not supported"),
             Unbounded => user_key,
         };
-        let full_key = FullKey { user_key, epoch: 0 };
+        let full_key = FullKey { user_key, epoch: EpochWithGap::init() };
         self.iterator.seek(full_key).await?;
 
         // Handle multi-version
@@ -1020,7 +1020,7 @@ mod tests {
                 inserts.iter().map(|(time, value)| {
                     let full_key = FullKey {
                         user_key: key.clone(),
-                        epoch: time.0,
+                        epoch: EpochWithGap::new_with_epoch(time.0),
                     };
                     (full_key, value.clone())
                 })
@@ -1190,7 +1190,7 @@ mod tests {
         let mut i = 0;
         while ui.is_valid() {
             let key = ui.key();
-            let key_epoch = key.epoch;
+            let key_epoch = key.epoch.get_epoch();
             assert!(key_epoch > min_epoch);
 
             i += 1;

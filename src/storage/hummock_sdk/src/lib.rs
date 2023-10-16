@@ -55,6 +55,45 @@ pub const SPLIT_TABLE_COMPACTION_GROUP_ID_HEAD: u64 = 1u64 << 56;
 pub const SINGLE_TABLE_COMPACTION_GROUP_ID_HEAD: u64 = 2u64 << 56;
 pub const OBJECT_SUFFIX: &str = "data";
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
+pub struct EpochWithGap {
+    epoch: u64,
+    spill_offset: u64,
+}
+
+impl EpochWithGap {
+    
+    pub fn inc_gap(&mut self) {
+        self.spill_offset += 1;
+    }
+
+    pub fn get_epoch(self) -> u64 {
+        self.epoch + self.spill_offset
+    }
+
+    pub fn get_current_offset(self) -> u64 {
+         self.spill_offset
+    }
+
+    pub fn init() -> Self {
+        Self {
+            epoch: 0,
+            spill_offset: 0,
+        }
+    }
+    pub fn new_with_epoch(epoch: u64) -> Self {
+        Self {
+            epoch,
+            spill_offset: 0,
+        }
+    }
+
+    pub fn update_epoch(&mut self, next_epoch: u64){
+        self.epoch = next_epoch;
+        self.spill_offset = 0;
+    }
+}
+
 #[macro_export]
 /// This is wrapper for `info` log.
 ///

@@ -20,7 +20,7 @@ use await_tree::InstrumentAwait;
 use bytes::Bytes;
 use parking_lot::RwLock;
 use risingwave_common::catalog::{TableId, TableOption};
-use risingwave_hummock_sdk::key::{map_table_key_range, TableKey, TableKeyRange};
+use risingwave_hummock_sdk::{key::{map_table_key_range, TableKey, TableKeyRange}, EpochWithGap};
 use risingwave_hummock_sdk::HummockEpoch;
 use tokio::sync::mpsc;
 use tracing::{warn, Instrument};
@@ -49,12 +49,13 @@ use crate::store::*;
 use crate::StateStoreIter;
 
 const AVALIABLE_EPOCH_GAP: u64 = 256;
-const MEM_TABLE_SPILL_THRESHOLD: usize = 64 * 1024 * 1024;
+const MEM_TABLE_SPILL_THRESHOLD: usize = 1 * 1024 * 1024;
 pub struct LocalHummockStorage {
     mem_table: MemTable,
 
     gap_epoch: Option<u64>,
     spill_offset: u64,
+    epoch_with_gap: EpochWithGap,
     epoch: Option<u64>,
 
     table_id: TableId,
@@ -90,14 +91,15 @@ pub struct LocalHummockStorage {
     write_limiter: WriteLimiterRef,
 }
 
+
 impl LocalHummockStorage {
     /// See `HummockReadVersion::update` for more details.
     pub fn update(&self, info: VersionUpdate) {
         self.read_version.write().update(info)
     }
 
-    fn gap_epoch(&self) -> u64 {
-        self.gap_epoch.expect("should have set the prev epoch")
+    fn epoch_with_gap(&self) -> EpochWithGap {
+        self.epoch_with_gap
     }
 
     pub async fn get_inner(
@@ -319,7 +321,7 @@ impl LocalStateStore for LocalHummockStorage {
                 epoch: self.epoch(),
                 table_id: self.table_id,
             },
-            self.gap_epoch(),
+            self.epoch_with_gap(),
         )
         .await
     }
@@ -331,14 +333,15 @@ impl LocalStateStore for LocalHummockStorage {
                 self.table_id.table_id()
             );
 
-            if self.spill_offset < AVALIABLE_EPOCH_GAP {
+            if self.epoch_with_gap.get_current_offset() < AVALIABLE_EPOCH_GAP {
+                self.epoch_with_gap.inc_gap();
                 self.spill_offset += 1;
                 let gap_epoch = self.epoch() + self.spill_offset;
 
                 self.gap_epoch
                     .replace(gap_epoch)
                     .expect("should have init epoch before seal the gap epoch");
-                tracing::info!("gap epoch = {}", self.gap_epoch());
+
                 self.flush(vec![]).await?;
             } else {
                 tracing::warn!("No mem table spill occurs, the gap epoch exceeds available range.");
@@ -368,6 +371,9 @@ impl LocalStateStore for LocalHummockStorage {
             "local state store of table id {:?} is init for more than once",
             self.table_id
         );
+
+        self.epoch_with_gap.update_epoch(epoch);
+      
     }
 
     fn seal_current_epoch(&mut self, next_epoch: u64) {
@@ -379,6 +385,7 @@ impl LocalStateStore for LocalHummockStorage {
         self.gap_epoch
             .replace(next_epoch)
             .expect("should have init epoch before seal the first epoch");
+        self.epoch_with_gap.update_epoch(next_epoch);
         self.spill_offset = 0;
         assert!(
             next_epoch > prev_epoch,
@@ -395,7 +402,7 @@ impl LocalHummockStorage {
         kv_pairs: Vec<(Bytes, StorageValue)>,
         delete_ranges: Vec<(Bound<Bytes>, Bound<Bytes>)>,
         write_options: WriteOptions,
-        gap_epoch: u64,
+        epoch_with_gap: EpochWithGap,
     ) -> StorageResult<usize> {
         let epoch = write_options.epoch;
         let table_id = write_options.table_id;
@@ -443,7 +450,7 @@ impl LocalHummockStorage {
             let instance_id = self.instance_guard.instance_id;
             let imm = SharedBufferBatch::build_shared_buffer_batch(
                 epoch,
-                gap_epoch,
+                self.epoch_with_gap(),
                 sorted_items,
                 size,
                 delete_ranges,
@@ -491,6 +498,7 @@ impl LocalHummockStorage {
             mem_table: MemTable::new(option.is_consistent_op),
             gap_epoch: None,
             spill_offset: 0,
+            epoch_with_gap: EpochWithGap::init(),
             epoch: None,
             table_id: option.table_id,
             is_consistent_op: option.is_consistent_op,

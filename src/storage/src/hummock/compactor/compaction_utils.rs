@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use risingwave_common::constants::hummock::CompactionFilterFlag;
-use risingwave_hummock_sdk::key::FullKey;
+use risingwave_hummock_sdk::{key::FullKey, EpochWithGap};
 use risingwave_hummock_sdk::key_range::KeyRange;
 use risingwave_hummock_sdk::prost_key_range::KeyRangeExt;
 use risingwave_hummock_sdk::table_stats::TableStatsMap;
@@ -181,7 +181,7 @@ pub async fn generate_splits(
                         let data_size = block.len;
                         let full_key = FullKey {
                             user_key: FullKey::decode(&block.smallest_key).user_key,
-                            epoch: HummockEpoch::MAX,
+                            epoch: EpochWithGap::new_with_epoch(HummockEpoch::MAX),
                         }
                         .encode();
                         (data_size as u64, full_key)
