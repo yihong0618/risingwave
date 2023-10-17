@@ -15,8 +15,8 @@
 use std::ops::Bound::*;
 
 use bytes::Bytes;
-use risingwave_hummock_sdk::{key::{FullKey, UserKey, UserKeyRange}, EpochWithGap};
-use risingwave_hummock_sdk::HummockEpoch;
+use risingwave_hummock_sdk::key::{FullKey, UserKey, UserKeyRange};
+use risingwave_hummock_sdk::{EpochWithGap, HummockEpoch};
 
 use super::DeleteRangeIterator;
 use crate::hummock::iterator::{Forward, ForwardMergeRangeIterator, HummockIterator};

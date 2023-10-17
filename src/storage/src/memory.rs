@@ -197,7 +197,8 @@ pub mod sled {
 
         use bytes::Bytes;
         use risingwave_common::catalog::TableId;
-        use risingwave_hummock_sdk::{key::{FullKey, TableKey, UserKey}, EpochWithGap};
+        use risingwave_hummock_sdk::key::{FullKey, TableKey, UserKey};
+        use risingwave_hummock_sdk::EpochWithGap;
 
         use crate::memory::sled::SledRangeKv;
         use crate::memory::RangeKv;

@@ -15,8 +15,8 @@
 use std::ops::Bound::*;
 
 use bytes::Bytes;
-use risingwave_hummock_sdk::{key::{FullKey, UserKey, UserKeyRange}, EpochWithGap};
-use risingwave_hummock_sdk::HummockEpoch;
+use risingwave_hummock_sdk::key::{FullKey, UserKey, UserKeyRange};
+use risingwave_hummock_sdk::{EpochWithGap, HummockEpoch};
 
 use crate::hummock::iterator::{Backward, HummockIterator};
 use crate::hummock::local_version::pinned_version::PinnedVersion;
@@ -245,7 +245,10 @@ impl<I: HummockIterator<Direction = Backward>> BackwardUserIterator<I> {
             Excluded(_) => unimplemented!("excluded begin key is not supported"),
             Unbounded => user_key,
         };
-        let full_key = FullKey { user_key, epoch: EpochWithGap::init() };
+        let full_key = FullKey {
+            user_key,
+            epoch: EpochWithGap::init(),
+        };
         self.iterator.seek(full_key).await?;
 
         // Handle multi-version

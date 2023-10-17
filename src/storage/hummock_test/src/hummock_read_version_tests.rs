@@ -20,7 +20,7 @@ use itertools::Itertools;
 use parking_lot::RwLock;
 use risingwave_common::catalog::TableId;
 use risingwave_hummock_sdk::key::{key_with_epoch, map_table_key_range};
-use risingwave_hummock_sdk::LocalSstableInfo;
+use risingwave_hummock_sdk::{EpochWithGap, LocalSstableInfo};
 use risingwave_meta::hummock::test_utils::setup_compute_env;
 use risingwave_pb::hummock::{KeyRange, SstableInfo};
 use risingwave_storage::hummock::iterator::test_utils::{
@@ -54,7 +54,7 @@ async fn test_read_version_basic() {
         let size = SharedBufferBatch::measure_batch_size(&sorted_items);
         let imm = SharedBufferBatch::build_shared_buffer_batch(
             epoch,
-            epoch,
+            EpochWithGap::new_with_epoch(epoch),
             sorted_items,
             size,
             vec![],
@@ -93,7 +93,7 @@ async fn test_read_version_basic() {
             let size = SharedBufferBatch::measure_batch_size(&sorted_items);
             let imm = SharedBufferBatch::build_shared_buffer_batch(
                 epoch,
-                epoch,
+                EpochWithGap::new_with_epoch(epoch),
                 sorted_items,
                 size,
                 vec![],
@@ -277,7 +277,7 @@ async fn test_read_filter_basic() {
         let size = SharedBufferBatch::measure_batch_size(&sorted_items);
         let imm = SharedBufferBatch::build_shared_buffer_batch(
             epoch,
-            epoch,
+            EpochWithGap::new_with_epoch(epoch),
             sorted_items,
             size,
             vec![],

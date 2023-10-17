@@ -20,7 +20,7 @@ use std::ops::DerefMut;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
-use risingwave_hummock_sdk::EpochWithGap;
+
 use futures::future::{try_join_all, TryJoinAll};
 use futures::FutureExt;
 use itertools::Itertools;
@@ -1023,8 +1023,8 @@ mod tests {
     use futures::FutureExt;
     use prometheus::core::GenericGauge;
     use risingwave_common::catalog::TableId;
-    use risingwave_hummock_sdk::{key::{FullKey, TableKey}, EpochWithGap};
-    use risingwave_hummock_sdk::{HummockEpoch, LocalSstableInfo};
+    use risingwave_hummock_sdk::key::{FullKey, TableKey};
+    use risingwave_hummock_sdk::{EpochWithGap, HummockEpoch, LocalSstableInfo};
     use risingwave_pb::hummock::{HummockVersion, KeyRange, SstableInfo};
     use spin::Mutex;
     use tokio::spawn;

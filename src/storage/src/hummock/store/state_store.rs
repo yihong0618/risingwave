@@ -20,8 +20,8 @@ use await_tree::InstrumentAwait;
 use bytes::Bytes;
 use parking_lot::RwLock;
 use risingwave_common::catalog::{TableId, TableOption};
-use risingwave_hummock_sdk::{key::{map_table_key_range, TableKey, TableKeyRange}, EpochWithGap};
-use risingwave_hummock_sdk::HummockEpoch;
+use risingwave_hummock_sdk::key::{map_table_key_range, TableKey, TableKeyRange};
+use risingwave_hummock_sdk::{EpochWithGap, HummockEpoch};
 use tokio::sync::mpsc;
 use tracing::{warn, Instrument};
 
@@ -49,7 +49,7 @@ use crate::store::*;
 use crate::StateStoreIter;
 
 const AVALIABLE_EPOCH_GAP: u64 = 256;
-const MEM_TABLE_SPILL_THRESHOLD: usize = 1 * 1024 * 1024;
+const MEM_TABLE_SPILL_THRESHOLD: usize = 32 * 1024 * 1024;
 pub struct LocalHummockStorage {
     mem_table: MemTable,
 
@@ -90,7 +90,6 @@ pub struct LocalHummockStorage {
 
     write_limiter: WriteLimiterRef,
 }
-
 
 impl LocalHummockStorage {
     /// See `HummockReadVersion::update` for more details.
@@ -321,7 +320,6 @@ impl LocalStateStore for LocalHummockStorage {
                 epoch: self.epoch(),
                 table_id: self.table_id,
             },
-            self.epoch_with_gap(),
         )
         .await
     }
@@ -373,7 +371,6 @@ impl LocalStateStore for LocalHummockStorage {
         );
 
         self.epoch_with_gap.update_epoch(epoch);
-      
     }
 
     fn seal_current_epoch(&mut self, next_epoch: u64) {
@@ -402,7 +399,6 @@ impl LocalHummockStorage {
         kv_pairs: Vec<(Bytes, StorageValue)>,
         delete_ranges: Vec<(Bound<Bytes>, Bound<Bytes>)>,
         write_options: WriteOptions,
-        epoch_with_gap: EpochWithGap,
     ) -> StorageResult<usize> {
         let epoch = write_options.epoch;
         let table_id = write_options.table_id;

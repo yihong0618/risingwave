@@ -25,7 +25,8 @@ use bytes::{Bytes, BytesMut};
 use itertools::Itertools;
 use risingwave_common::catalog::TableId;
 use risingwave_common::hash::VirtualNode;
-use risingwave_hummock_sdk::{key::{FullKey, PointRange, TableKey, TableKeyRange, UserKey}, EpochWithGap};
+use risingwave_hummock_sdk::key::{FullKey, PointRange, TableKey, TableKeyRange, UserKey};
+use risingwave_hummock_sdk::EpochWithGap;
 
 use crate::hummock::event_handler::LocalInstanceId;
 use crate::hummock::iterator::{
@@ -690,8 +691,8 @@ impl<D: HummockIteratorDirection> SharedBufferBatchIterator<D> {
         };
         let cur_entry = self.inner.get(idx).unwrap();
         let value = &cur_entry.1[version_idx as usize];
-       
-        (&cur_entry.0, value )
+
+        (&cur_entry.0, value)
     }
 }
 

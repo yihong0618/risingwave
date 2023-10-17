@@ -62,7 +62,6 @@ pub struct EpochWithGap {
 }
 
 impl EpochWithGap {
-    
     pub fn inc_gap(&mut self) {
         self.spill_offset += 1;
     }
@@ -72,7 +71,7 @@ impl EpochWithGap {
     }
 
     pub fn get_current_offset(self) -> u64 {
-         self.spill_offset
+        self.spill_offset
     }
 
     pub fn init() -> Self {
@@ -81,6 +80,7 @@ impl EpochWithGap {
             spill_offset: 0,
         }
     }
+
     pub fn new_with_epoch(epoch: u64) -> Self {
         Self {
             epoch,
@@ -88,7 +88,7 @@ impl EpochWithGap {
         }
     }
 
-    pub fn update_epoch(&mut self, next_epoch: u64){
+    pub fn update_epoch(&mut self, next_epoch: u64) {
         self.epoch = next_epoch;
         self.spill_offset = 0;
     }

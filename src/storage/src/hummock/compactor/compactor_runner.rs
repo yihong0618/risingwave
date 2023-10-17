@@ -748,7 +748,9 @@ where
             // information about whether a key is deleted by a delete range in
             // the same SST. Therefore we need to construct a corresponding
             // delete key to represent this.
-            iter_key.epoch.update_epoch( earliest_range_delete_which_can_see_iter_key);
+            iter_key
+                .epoch
+                .update_epoch(earliest_range_delete_which_can_see_iter_key);
             sst_builder
                 .add_full_key(iter_key, HummockValue::Delete, is_new_user_key)
                 .verbose_instrument_await("add_full_key_delete")

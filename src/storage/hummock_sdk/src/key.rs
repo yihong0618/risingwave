@@ -22,7 +22,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use risingwave_common::catalog::TableId;
 use risingwave_common::hash::VirtualNode;
 
-use crate::{HummockEpoch, EpochWithGap};
+use crate::{EpochWithGap, HummockEpoch};
 
 pub const EPOCH_LEN: usize = std::mem::size_of::<HummockEpoch>();
 pub const TABLE_PREFIX_LEN: usize = std::mem::size_of::<u32>();
@@ -573,7 +573,12 @@ pub struct FullKey<T: AsRef<[u8]>> {
 
 impl<T: AsRef<[u8]>> Debug for FullKey<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "FullKey {{ {:?}, {} }}", self.user_key, self.epoch.get_epoch())
+        write!(
+            f,
+            "FullKey {{ {:?}, {} }}",
+            self.user_key,
+            self.epoch.get_epoch()
+        )
     }
 }
 
@@ -586,14 +591,17 @@ impl<T: AsRef<[u8]>> FullKey<T> {
     }
 
     pub fn from_user_key(user_key: UserKey<T>, epoch: HummockEpoch) -> Self {
-        Self { user_key, epoch: EpochWithGap::new_with_epoch(epoch), }
+        Self {
+            user_key,
+            epoch: EpochWithGap::new_with_epoch(epoch),
+        }
     }
 
     /// Pass the inner type of `table_key` to make the code less verbose.
     pub fn for_test(table_id: TableId, table_key: T, epoch: HummockEpoch) -> Self {
         Self {
             user_key: UserKey::for_test(table_id, table_key),
-            epoch:EpochWithGap::init() ,
+            epoch: EpochWithGap::new_with_epoch(epoch),
         }
     }
 
@@ -658,7 +666,7 @@ impl<'a> FullKey<&'a [u8]> {
 
         Self {
             user_key: UserKey::new(table_id, TableKey(&slice_without_table_id[..epoch_pos])),
-            epoch:  EpochWithGap::new_with_epoch(epoch),
+            epoch: EpochWithGap::new_with_epoch(epoch),
         }
     }
 
@@ -669,7 +677,7 @@ impl<'a> FullKey<&'a [u8]> {
 
         Self {
             user_key: UserKey::decode(&slice[..epoch_pos]),
-            epoch:  EpochWithGap::new_with_epoch(u64::MAX - epoch),
+            epoch: EpochWithGap::new_with_epoch(u64::MAX - epoch),
         }
     }
 
