@@ -34,6 +34,7 @@ use strum_macros::{Display, EnumString};
 
 use super::catalog::{SinkFormat, SinkFormatDesc};
 use super::{Sink, SinkError, SinkParam};
+use crate::aws_auth::AwsAuthProps;
 use crate::common::KafkaCommon;
 use crate::sink::catalog::desc::SinkDesc;
 use crate::sink::formatter::SinkFormatterImpl;
@@ -274,8 +275,11 @@ pub struct KafkaSink {
     schema: Schema,
     pk_indices: Vec<usize>,
     format_desc: SinkFormatDesc,
+    // only used by debezium format right now
     db_name: String,
     sink_from_name: String,
+    // only used by `s3://` URL
+    aws_auth_props: Option<AwsAuthProps>,
 }
 
 impl TryFrom<SinkParam> for KafkaSink {
@@ -283,6 +287,12 @@ impl TryFrom<SinkParam> for KafkaSink {
 
     fn try_from(param: SinkParam) -> std::result::Result<Self, Self::Error> {
         let schema = param.schema();
+        let aws_auth_props = Some(AwsAuthProps::from_pairs(
+            param
+                .properties
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str())),
+        ));
         let config = KafkaConfig::from_hashmap(param.properties)?;
         Ok(Self {
             config,
@@ -293,6 +303,7 @@ impl TryFrom<SinkParam> for KafkaSink {
                 .ok_or_else(|| SinkError::Config(anyhow!("missing FORMAT ... ENCODE ...")))?,
             db_name: param.db_name,
             sink_from_name: param.sink_from_name,
+            aws_auth_props,
         })
     }
 }
@@ -314,6 +325,7 @@ impl Sink for KafkaSink {
             self.pk_indices.clone(),
             self.db_name.clone(),
             self.sink_from_name.clone(),
+            self.aws_auth_props.as_ref(),
         )
         .await?;
         KafkaLogSinker::new(self.config.clone(), formatter).await

@@ -144,9 +144,15 @@ impl KinesisSinkWriter {
         db_name: String,
         sink_from_name: String,
     ) -> Result<Self> {
-        let formatter =
-            SinkFormatterImpl::new(format_desc, schema, pk_indices, db_name, sink_from_name)
-                .await?;
+        let formatter = SinkFormatterImpl::new(
+            format_desc,
+            schema,
+            pk_indices,
+            db_name,
+            sink_from_name,
+            None,
+        )
+        .await?;
         let client = config
             .common
             .build_client()

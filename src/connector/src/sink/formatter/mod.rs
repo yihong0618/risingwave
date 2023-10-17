@@ -15,6 +15,7 @@
 use anyhow::anyhow;
 use risingwave_common::array::StreamChunk;
 
+use crate::aws_auth::AwsAuthProps;
 use crate::sink::{Result, SinkError};
 
 mod append_only;
@@ -72,8 +73,11 @@ impl SinkFormatterImpl {
         format_desc: &SinkFormatDesc,
         schema: Schema,
         pk_indices: Vec<usize>,
+        // only used by debezium format right now
         db_name: String,
         sink_from_name: String,
+        // only used by `s3://` URL
+        aws_auth_props: Option<&AwsAuthProps>,
     ) -> Result<Self> {
         let err_unsupported = || {
             Err(SinkError::Config(anyhow!(
@@ -102,10 +106,12 @@ impl SinkFormatterImpl {
                     }
                     SinkEncode::Protobuf => {
                         // By passing `None` as `aws_auth_props`, reading from `s3://` not supported yet.
-                        let descriptor =
-                            crate::schema::protobuf::fetch_descriptor(&format_desc.options, None)
-                                .await
-                                .map_err(|e| SinkError::Config(anyhow!("{e:?}")))?;
+                        let descriptor = crate::schema::protobuf::fetch_descriptor(
+                            &format_desc.options,
+                            aws_auth_props,
+                        )
+                        .await
+                        .map_err(|e| SinkError::Config(anyhow!("{e:?}")))?;
                         let val_encoder = ProtoEncoder::new(schema, None, descriptor)?;
                         let formatter = AppendOnlyFormatter::new(key_encoder, val_encoder);
                         Ok(SinkFormatterImpl::AppendOnlyProto(formatter))
