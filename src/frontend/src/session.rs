@@ -32,7 +32,7 @@ use risingwave_common::catalog::DEFAULT_SCHEMA_NAME;
 use risingwave_common::catalog::{
     DEFAULT_DATABASE_NAME, DEFAULT_SUPER_USER, DEFAULT_SUPER_USER_ID,
 };
-use risingwave_common::config::{load_config, BatchConfig, MetaConfig};
+use risingwave_common::config::{load_config, BatchConfig, MetaConfig, MetricLevel};
 use risingwave_common::error::{ErrorCode, Result, RwError};
 use risingwave_common::session_config::{ConfigMap, ConfigReporter, VisibilityMode};
 use risingwave_common::system_param::local_manager::LocalSystemParamsManager;
@@ -51,7 +51,7 @@ use risingwave_pb::health::health_server::HealthServer;
 use risingwave_pb::user::auth_info::EncryptionType;
 use risingwave_pb::user::grant_privilege::{Action, Object};
 use risingwave_rpc_client::{ComputeClientPool, ComputeClientPoolRef, MetaClient};
-use risingwave_sqlparser::ast::{ObjectName, ShowObject, Statement};
+use risingwave_sqlparser::ast::{ObjectName, Statement};
 use risingwave_sqlparser::parser::Parser;
 use thiserror::Error;
 use tokio::runtime::Builder;
@@ -86,6 +86,7 @@ use crate::user::user_authentication::md5_hash_with_salt;
 use crate::user::user_manager::UserInfoManager;
 use crate::user::user_service::{UserInfoReader, UserInfoWriter, UserInfoWriterImpl};
 use crate::user::UserId;
+use crate::utils::infer_stmt_row_desc::infer_show_object;
 use crate::{FrontendOpts, PgResponseStream};
 
 pub(crate) mod transaction;
@@ -251,8 +252,6 @@ impl FrontendEnv {
             user_info_updated_rx,
         ));
 
-        let telemetry_enabled = system_params_reader.telemetry_enabled();
-
         let system_params_manager =
             Arc::new(LocalSystemParamsManager::new(system_params_reader.clone()));
         let frontend_observer_node = FrontendObserverNode::new(
@@ -277,7 +276,7 @@ impl FrontendEnv {
         let frontend_metrics = Arc::new(GLOBAL_FRONTEND_METRICS.clone());
         let source_metrics = Arc::new(GLOBAL_SOURCE_METRICS.clone());
 
-        if config.server.metrics_level > 0 {
+        if config.server.metrics_level > MetricLevel::Disabled {
             MetricsManager::boot_metrics_service(opts.prometheus_listener_addr.clone());
         }
 
@@ -285,7 +284,6 @@ impl FrontendEnv {
         let host = opts.health_check_listener_addr.clone();
 
         let telemetry_manager = TelemetryManager::new(
-            system_params_manager.watch_params(),
             Arc::new(meta_client.clone()),
             Arc::new(FrontendTelemetryCreator::new()),
         );
@@ -293,14 +291,9 @@ impl FrontendEnv {
         // if the toml config file or env variable disables telemetry, do not watch system params
         // change because if any of configs disable telemetry, we should never start it
         if config.server.telemetry_enabled && telemetry_env_enabled() {
-            if telemetry_enabled {
-                telemetry_manager.start_telemetry_reporting().await;
-            }
-            let (telemetry_join_handle, telemetry_shutdown_sender) =
-                telemetry_manager.watch_params_change();
-
-            join_handles.push(telemetry_join_handle);
-            shutdown_senders.push(telemetry_shutdown_sender);
+            let (join_handle, shutdown_sender) = telemetry_manager.start().await;
+            join_handles.push(join_handle);
+            shutdown_senders.push(shutdown_sender);
         } else {
             tracing::info!("Telemetry didn't start due to config");
         }
@@ -1098,25 +1091,7 @@ fn infer(bound: Option<BoundStatement>, stmt: Statement) -> Result<Vec<PgFieldDe
         Statement::ShowObjects {
             object: show_object,
             ..
-        } => match show_object {
-            ShowObject::Columns { table: _ } => Ok(vec![
-                PgFieldDescriptor::new(
-                    "Name".to_owned(),
-                    DataType::Varchar.to_oid(),
-                    DataType::Varchar.type_len(),
-                ),
-                PgFieldDescriptor::new(
-                    "Type".to_owned(),
-                    DataType::Varchar.to_oid(),
-                    DataType::Varchar.type_len(),
-                ),
-            ]),
-            _ => Ok(vec![PgFieldDescriptor::new(
-                "Name".to_owned(),
-                DataType::Varchar.to_oid(),
-                DataType::Varchar.type_len(),
-            )]),
-        },
+        } => Ok(infer_show_object(&show_object)),
         Statement::ShowCreateObject { .. } => Ok(vec![
             PgFieldDescriptor::new(
                 "Name".to_owned(),
@@ -1165,6 +1140,11 @@ fn infer(bound: Option<BoundStatement>, stmt: Statement) -> Result<Vec<PgFieldDe
             ),
             PgFieldDescriptor::new(
                 "Type".to_owned(),
+                DataType::Varchar.to_oid(),
+                DataType::Varchar.type_len(),
+            ),
+            PgFieldDescriptor::new(
+                "Is Hidden".to_owned(),
                 DataType::Varchar.to_oid(),
                 DataType::Varchar.type_len(),
             ),
