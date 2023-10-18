@@ -54,8 +54,6 @@ const MEM_TABLE_SPILL_THRESHOLD: usize = 64 * 1024 * 1024;
 pub struct LocalHummockStorage {
     mem_table: MemTable,
 
-    gap_epoch: Option<u64>,
-    spill_offset: u64,
     epoch_with_gap: EpochWithGap,
     epoch: Option<u64>,
 
@@ -353,12 +351,6 @@ impl LocalStateStore for LocalHummockStorage {
 
             if self.epoch_with_gap.get_current_offset() < AVALIABLE_EPOCH_GAP {
                 self.epoch_with_gap.inc_gap();
-                self.spill_offset += 1;
-                let gap_epoch = self.epoch() + self.spill_offset;
-
-                self.gap_epoch
-                    .replace(gap_epoch)
-                    .expect("should have init epoch before seal the gap epoch");
 
                 self.flush(vec![]).await?;
             } else {
@@ -388,12 +380,6 @@ impl LocalStateStore for LocalHummockStorage {
             self.table_id
         );
 
-        assert!(
-            self.gap_epoch.replace(epoch.curr).is_none(),
-            "local state store of table id {:?} is init for more than once",
-            self.table_id
-        );
-
         self.epoch_with_gap.update_epoch(epoch.curr);
         Ok(())
     }
@@ -404,11 +390,8 @@ impl LocalStateStore for LocalHummockStorage {
             .epoch
             .replace(next_epoch)
             .expect("should have init epoch before seal the first epoch");
-        self.gap_epoch
-            .replace(next_epoch)
-            .expect("should have init epoch before seal the first epoch");
         self.epoch_with_gap.update_epoch(next_epoch);
-        self.spill_offset = 0;
+
         assert!(
             next_epoch > prev_epoch,
             "new epoch {} should be greater than current epoch: {}",
@@ -526,8 +509,6 @@ impl LocalHummockStorage {
         ]);
         Self {
             mem_table: MemTable::new(option.is_consistent_op),
-            gap_epoch: None,
-            spill_offset: 0,
             epoch_with_gap: EpochWithGap::init(),
             epoch: None,
             table_id: option.table_id,
