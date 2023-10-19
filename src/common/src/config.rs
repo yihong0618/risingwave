@@ -774,6 +774,9 @@ pub struct StreamingDeveloperConfig {
     /// The max heap size of dirty groups of `HashAggExecutor`.
     #[serde(default = "default::developer::stream_hash_agg_max_dirty_groups_heap_size")]
     pub hash_agg_max_dirty_groups_heap_size: usize,
+    /// The maximum number of entries that can be cached in a `HashJoinExecutor`'s in-memory cache.
+    #[serde(default = "default::developer::hash_join_max_cache_entry_size")]
+    pub hash_join_max_cache_entry_size: usize,
 }
 
 /// The subsections `[batch.developer]`.
@@ -1244,6 +1247,10 @@ pub mod default {
 
         pub fn unsafe_stream_extreme_cache_size() -> usize {
             10
+        }
+
+        pub fn hash_join_max_cache_entry_size() -> usize {
+            2048
         }
 
         pub fn stream_chunk_size() -> usize {
