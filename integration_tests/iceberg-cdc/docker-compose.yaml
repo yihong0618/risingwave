@@ -29,13 +29,20 @@ services:
   #   extends:
   #     file: ../../docker/docker-compose.yml
   #     service: prometheus-0
-  minio-0:
-    extends:
-      file: ../../docker/docker-compose.yml
-      service: minio-0
+  minio:
+    image: minio/minio
+    environment:
+      - MINIO_ROOT_USER=hummockadmin
+      - MINIO_ROOT_PASSWORD=hummockadmin
+      - MINIO_DOMAIN=minio
+    expose:
+      - 9001
+      - 9000
+    command: ["server", "/data", "--console-address", ":9001"]
+
   mc:
     depends_on:
-      - minio-0
+      - minio
     image: minio/mc
     environment:
       - AWS_ACCESS_KEY_ID=hummockadmin
@@ -43,7 +50,7 @@ services:
       - AWS_REGION=us-east-1
     entrypoint: >
       /bin/sh -c "
-      until (/usr/bin/mc config host add minio http://minio-0:9301 hummockadmin hummockadmin) do echo '...waiting...' && sleep 1; done;
+      until (/usr/bin/mc config host add minio http://minio:9000 hummockadmin hummockadmin) do echo '...waiting...' && sleep 1; done;
       /usr/bin/mc rm -r --force minio/icebergdata;
       /usr/bin/mc mb minio/icebergdata;
       /usr/bin/mc anonymous set public minio/icebergdata;
@@ -99,12 +106,12 @@ services:
       - CATALOG_URI=jdbc:sqlite:file:/tmp/iceberg_rest_mode=memory
       - CATALOG_WAREHOUSE=s3://icebergdata/demo
       - CATALOG_IO__IMPL=org.apache.iceberg.aws.s3.S3FileIO
-      - CATALOG_S3_ENDPOINT=http://minio-0:9301
+      - CATALOG_S3_ENDPOINT=http://minio:9000
     depends_on:
-      - minio-0
-    # let the rest access minio through: hummock001.minio-0
+      - minio
+      - mc
     links:
-      - minio-0:icebergdata.minio-0
+      - minio:icebergdata.minio
     expose:
       - 8181
     ports:
@@ -112,7 +119,7 @@ services:
   
   spark:
     depends_on:
-      - minio-0
+      - minio
       - rest
     build: ./spark
     environment:
@@ -124,7 +131,7 @@ services:
       - PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/opt/spark/bin:/opt/spark/sbin
     user: root
     links:
-      - minio-0:icebergdata.minio-0
+      - minio:icebergdata.minio
     expose:
       - 15002
     ports:
