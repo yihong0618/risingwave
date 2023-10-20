@@ -32,7 +32,7 @@ FORMAT UPSERT ENCODE AVRO (schema.registry = 'http://message_queue:8081');
 
 statement ok
 CREATE TABLE upsert_avro_json (
-  PRIMARY KEY("ID")
+  PRIMARY KEY("ITEM_ID")
 )
 WITH (
 connector = 'kafka',
