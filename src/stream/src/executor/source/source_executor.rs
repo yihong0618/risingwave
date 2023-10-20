@@ -338,7 +338,7 @@ impl<S: StateStore> SourceExecutor<S> {
         }
 
         if !cache.is_empty() {
-            tracing::debug!(actor_id = self.actor_ctx.id, state = ?cache, "take snapshot");
+            tracing::info!(actor_id = self.actor_ctx.id, state = ?cache, "take snapshot");
             core.split_state_store.take_snapshot(cache).await?
         }
         // commit anyway, even if no message saved
