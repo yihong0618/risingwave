@@ -19,7 +19,7 @@ use risingwave_common::catalog::{ColumnDesc, ColumnId, Schema, TableId, TableOpt
 use risingwave_common::util::sort_util::OrderType;
 use risingwave_connector::error::ConnectorError;
 use risingwave_connector::source::external::{CdcTableType, SchemaTableName};
-use risingwave_pb::plan_common::StorageTableDesc;
+use risingwave_pb::plan_common::{ExternalTableDesc, StorageTableDesc};
 use risingwave_pb::stream_plan::{ChainNode, ChainType};
 use risingwave_storage::table::batch_table::storage_table::StorageTable;
 use risingwave_storage::table::Distribution;
@@ -96,11 +96,8 @@ impl ExecutorBuilder for ChainExecutorBuilder {
             )
             .boxed(),
             ChainType::CdcBackfill => {
-                let table_desc: &StorageTableDesc = node.get_table_desc()?;
-                let properties =
-                    serde_json::from_str(table_desc.connect_properties.as_ref().ok_or_else(
-                        || ConnectorError::Internal(anyhow!("connect properties not found")),
-                    )?)
+                let table_desc: &ExternalTableDesc = node.get_cdc_table_desc()?;
+                let properties = serde_json::from_str(table_desc.connect_properties.as_str())
                     .map_err(|err| {
                         ConnectorError::Internal(anyhow!("invalid connect properties {}", err))
                     })?;

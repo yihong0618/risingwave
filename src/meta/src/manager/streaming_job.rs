@@ -24,8 +24,8 @@ use crate::model::FragmentId;
 #[derive(Default, Debug, Clone)]
 pub enum TableJobType {
     #[default]
-    Normal,
-    SharedCdcSource,
+    Normal, // upstream is a mview fragment
+    SharedCdcSource, // upstream is a cdc source job
 }
 
 impl TableJobType {
