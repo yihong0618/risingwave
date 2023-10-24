@@ -81,7 +81,7 @@ RisingWave isn’t a panacea for all data engineering hurdles. It has its own se
 
 RisingWave Cloud is a fully-managed and scalable stream processing platform powered by the open-source RisingWave project. Try it out for free at: [cloud.risingwave.com](https://cloud.risingwave.com).
 
-## Notes on telemetry
+## Notes on Telemetry
 
 RisingWave collects anonymous usage statistics to better understand how the community is using RisingWave. The sole intention of this exercise is to help improve the product. Users may opt out easily at any time. Please refer to the [user documentation](https://docs.risingwave.com/docs/current/telemetry/) for more details.
 
