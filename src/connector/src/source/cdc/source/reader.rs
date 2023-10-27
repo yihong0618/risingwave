@@ -137,7 +137,7 @@ impl<T: CdcSourceTypeTrait> CommonSplitReader for CdcSplitReader<T> {
         let source_id = get_event_stream_request.source_id.to_string();
         let source_type = get_event_stream_request.source_type.to_string();
 
-        std::thread::spawn(move || {
+        let _ = std::thread::spawn(move || {
             let mut env = JVM.get_or_init().unwrap().attach_current_thread().unwrap();
 
             let get_event_stream_request_bytes = env
@@ -155,10 +155,10 @@ impl<T: CdcSourceTypeTrait> CommonSplitReader for CdcSplitReader<T> {
 
             match result {
                 Ok(_) => {
-                    tracing::info!("end of jni call runJniDbzSourceThread");
+                    tracing::info!(source_id=?self.source_id, "End of JNI call runJniDbzSourceThread");
                 }
                 Err(e) => {
-                    tracing::error!("jni call error: {:?}", e);
+                    tracing::error!(source_id=?self.source_id, "JNI call error: {:?}", e);
                 }
             }
         });
@@ -174,6 +174,7 @@ impl<T: CdcSourceTypeTrait> CommonSplitReader for CdcSplitReader<T> {
             yield msgs;
         }
 
+        tracing::debug!(source_id=?self.source_id, "cdc split reader exit");
         Err(anyhow!("all senders are dropped"))?;
     }
 }

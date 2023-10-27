@@ -660,6 +660,7 @@ impl CommandContext {
             Command::DropStreamingJobs(table_ids) => {
                 // Tell compute nodes to drop actors.
                 let node_actors = self.fragment_manager.table_node_actors(table_ids).await?;
+                tracing::info!(?node_actors, "after collect barrier, drop actors");
                 self.clean_up(node_actors).await?;
                 // Drop fragment info in meta store.
                 self.fragment_manager

@@ -13,11 +13,12 @@
 // limitations under the License.
 
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use futures::future::try_join_all;
 use futures::stream::pending;
-use futures::StreamExt;
+use futures::{pin_mut, FutureExt, Stream, StreamExt};
 use futures_async_stream::try_stream;
 use itertools::Itertools;
 use risingwave_common::catalog::ColumnId;
@@ -30,7 +31,7 @@ use risingwave_connector::source::filesystem::{FsPage, FsPageItem, S3SplitEnumer
 use risingwave_connector::source::{
     create_split_reader, BoxSourceWithStateStream, BoxTryStream, Column, ConnectorProperties,
     ConnectorState, FsFilterCtrlCtx, FsListInner, SourceColumnDesc, SourceContext,
-    SourceEnumeratorContext, SplitEnumerator, SplitReader,
+    SourceEnumeratorContext, SplitEnumerator, SplitReader, StreamChunkWithState,
 };
 use tokio::time;
 use tokio::time::{Duration, MissedTickBehavior};
@@ -176,7 +177,12 @@ impl ConnectorSource {
                 .await?
             };
 
-            Ok(select_all(readers.into_iter().map(|r| r.into_stream())).boxed())
+            let mut stream = select_all(readers.into_iter().map(|r| r.into_stream()))
+                .boxed()
+                .peekable();
+            // peek the stream to make sure the underlying connector has been inited
+            let _ = Pin::new(&mut stream).peek().await;
+            Ok(stream.boxed())
         })
     }
 }

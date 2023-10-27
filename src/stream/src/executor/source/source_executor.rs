@@ -13,11 +13,12 @@
 // limitations under the License.
 
 use std::fmt::Formatter;
+use std::pin::Pin;
 use std::time::Duration;
 
 use anyhow::anyhow;
 use either::Either;
-use futures::StreamExt;
+use futures::{pin_mut, StreamExt};
 use futures_async_stream::try_stream;
 use risingwave_common::system_param::local_manager::SystemParamsReaderRef;
 use risingwave_connector::source::{

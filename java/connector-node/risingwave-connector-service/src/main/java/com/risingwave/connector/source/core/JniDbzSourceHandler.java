@@ -64,9 +64,9 @@ public class JniDbzSourceHandler {
         }
 
         try {
+            LOG.info("Start consuming events of table {}", config.getSourceId());
             // Start the engine
             runner.start();
-            LOG.info("Start consuming events of table {}", config.getSourceId());
 
             while (runner.isRunning()) {
                 // check whether the send queue has room for new messages
