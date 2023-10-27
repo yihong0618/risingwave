@@ -22,7 +22,7 @@ use risingwave_common::types::{
 use risingwave_expr::aggregate::AggStateDyn;
 use risingwave_expr::{function, ExprError, Result};
 
-use crate::aggregate::ToJson;
+// use crate::aggregate::ToJson;
 
 #[function("to_jsonb(struct) -> jsonb")]
 pub fn strict_to_jsonb(input: StructRef<'_>) -> JsonbVal {
@@ -34,10 +34,6 @@ pub fn strict_to_jsonb(input: StructRef<'_>) -> JsonbVal {
 #[function("to_jsonb(*int) -> jsonb")]
 #[function("to_jsonb(*float) -> jsonb")]
 #[function("to_jsonb(varchar) -> jsonb")]
-pub fn to_jsonb(input: impl ToJson) -> JsonbVal {
-    // println!("to_jsonb: {:?}", row);
-    // let _res = row.iter().flatten().map(|_scalar| {
-    //     // println!("to_jsonb: scalar {:?}", scalar);
-    // });
-    JsonbVal::null()
+pub fn to_jsonb<T>(input: T) -> JsonbVal {
+    JsonbVal::from(input)
 }

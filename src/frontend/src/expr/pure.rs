@@ -178,6 +178,7 @@ impl ExprVisitor for ImpureAnalyzer {
             | expr_node::Type::JsonbTypeof
             | expr_node::Type::JsonbArrayLength
             | expr_node::Type::IsJson
+            | expr_node::Type::ToJsonb
             | expr_node::Type::Sind
             | expr_node::Type::Cosd
             | expr_node::Type::Cotd

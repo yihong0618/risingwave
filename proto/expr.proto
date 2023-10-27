@@ -218,7 +218,8 @@ message ExprNode {
     JSONB_ARRAY_LENGTH = 603;
     IS_JSON = 604;
     JSONB_CAT = 605;
-
+    TO_JSONB = 606;
+    
     // Non-pure functions below (> 1000)
     // ------------------------
     // Internal functions
