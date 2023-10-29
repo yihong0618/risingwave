@@ -18,9 +18,13 @@ use std::hash::Hash;
 use bytes::Buf;
 use jsonbb::{Value, ValueRef};
 
+use super::Serial;
 use crate::estimate_size::EstimateSize;
-use crate::types::{Scalar, ScalarRef, F32, F64};
-
+use crate::for_all_scalar_variants;
+use crate::types::{
+    Date, Decimal, Int256Ref, Interval, ListRef, Scalar, ScalarRef, ScalarRefImpl, StructRef, Time,
+    Timestamp, Timestamptz, ToText, F32, F64,
+};
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct JsonbVal(pub(crate) Value);
 
@@ -194,6 +198,12 @@ impl JsonbVal {
     }
 }
 
+impl From<jsonbb::Value> for JsonbVal {
+    fn from(v: Value) -> Self {
+        Self(v)
+    }
+}
+
 impl From<serde_json::Value> for JsonbVal {
     fn from(v: serde_json::Value) -> Self {
         Self(v.into())
@@ -226,14 +236,20 @@ impl From<i64> for JsonbVal {
 
 impl From<F32> for JsonbVal {
     fn from(v: F32) -> Self {
+        Self(v.into())
+    }
+}
+
+impl From<F32> for Value {
+    fn from(v: F32) -> Self {
         if v.0 == f32::INFINITY {
-            Self("Infinity".into())
+            "Infinity".into()
         } else if v.0 == f32::NEG_INFINITY {
-            Self("-Infinity".into())
+            "-Infinity".into()
         } else if v.0.is_nan() {
-            Self("NaN".into())
+            "NaN".into()
         } else {
-            Self(v.0.into())
+            v.0.into()
         }
     }
 }
@@ -241,14 +257,20 @@ impl From<F32> for JsonbVal {
 // NOTE: Infinite or NaN values are not JSON numbers. They are stored as strings in Postgres.
 impl From<F64> for JsonbVal {
     fn from(v: F64) -> Self {
+        Self(v.into())
+    }
+}
+
+impl From<F64> for Value {
+    fn from(v: F64) -> Self {
         if v.0 == f64::INFINITY {
-            Self("Infinity".into())
+            "Infinity".into()
         } else if v.0 == f64::NEG_INFINITY {
-            Self("-Infinity".into())
+            "-Infinity".into()
         } else if v.0.is_nan() {
-            Self("NaN".into())
+            "NaN".into()
         } else {
-            Self(v.0.into())
+            v.0.into()
         }
     }
 }
@@ -259,17 +281,180 @@ impl From<&str> for JsonbVal {
     }
 }
 
+impl From<&[u8]> for JsonbVal {
+    fn from(v: &[u8]) -> Self {
+        Self(Value::from_bytes(v))
+    }
+}
+
 impl From<JsonbRef<'_>> for JsonbVal {
     fn from(v: JsonbRef<'_>) -> Self {
         Self(v.0.to_owned())
     }
 }
 
-impl From<Value> for JsonbVal {
-    fn from(v: Value) -> Self {
-        Self(v)
+impl From<JsonbRef<'_>> for Value {
+    fn from(v: JsonbRef<'_>) -> Self {
+        v.0.into()
     }
 }
+
+
+
+impl From<ListRef<'_>> for JsonbVal {
+    fn from(v: ListRef<'_>) -> Self {
+        // let values: Vec<Value> = v
+        //     .iter()
+        //     .map(|x| match x {
+        //         Some(x) => Value::from(x),
+        //         None => Value::null(),
+        //     })
+        //     .collect();
+        // JsonbVal(Value::array(values.iter().map(|v| v.as_ref())))
+        todo!()
+    }
+}
+
+impl From<StructRef<'_>> for JsonbVal {
+    fn from(v: StructRef<'_>) -> Self {
+        todo!()
+    }
+}
+
+impl From<ListRef<'_>> for Value {
+    fn from(v: ListRef<'_>) -> Self {
+        todo!()
+    }
+}
+
+impl From<StructRef<'_>> for Value {
+    fn from(v: StructRef<'_>) -> Self {
+        todo!()
+    }
+}
+
+impl From<Date> for Value {
+    fn from(v: Date) -> Self {
+        v.to_text().as_str().into()
+    }
+}
+
+impl From<Date> for JsonbVal {
+    fn from(v: Date) -> Self {
+        Self::from(v.to_text().as_str())
+    }
+}
+
+impl From<Time> for Value {
+    fn from(v: Time) -> Self {
+        v.to_text().as_str().into()
+    }
+}
+
+impl From<Time> for JsonbVal {
+    fn from(v: Time) -> Self {
+        Self::from(v.to_text().as_str())
+    }
+}
+
+impl From<Interval> for Value {
+    fn from(v: Interval) -> Self {
+        v.to_text().as_str().into()
+    }
+}
+
+impl From<Interval> for JsonbVal {
+    fn from(v: Interval) -> Self {
+        Self::from(v.to_text().as_str())
+    }
+}
+
+impl From<Timestamp> for Value {
+    fn from(v: Timestamp) -> Self {
+        v.to_text().as_str().into()
+    }
+}
+
+impl From<Timestamp> for JsonbVal {
+    fn from(v: Timestamp) -> Self {
+        Self::from(v.to_text().as_str())
+    }
+}
+
+impl From<Timestamptz> for Value {
+    fn from(v: Timestamptz) -> Self {
+        v.to_text().as_str().into()
+    }
+}
+
+impl From<Timestamptz> for JsonbVal {
+    fn from(v: Timestamptz) -> Self {
+        Self::from(v.to_text().as_str())
+    }
+}
+
+impl From<Decimal> for Value {
+    fn from(v: Decimal) -> Self {
+        v.to_text().as_str().into()
+    }
+}
+
+impl From<Decimal> for JsonbVal {
+    fn from(v: Decimal) -> Self {
+        Self::from(v.to_text().as_str())
+    }
+}
+
+impl From<Int256Ref<'_>> for Value {
+    fn from(v: Int256Ref<'_>) -> Self {
+        v.to_text().as_str().into()
+    }
+}
+
+impl From<Int256Ref<'_>> for JsonbVal {
+    fn from(v: Int256Ref<'_>) -> Self {
+        Self::from(v.to_text().as_str())
+    }
+}
+
+impl From<Serial> for Value {
+    fn from(v: Serial) -> Self {
+        v.to_text().as_str().into()
+    }
+}
+
+impl From<Serial> for JsonbVal {
+    fn from(v: Serial) -> Self {
+        Self::from(v.to_text().as_str())
+    }
+}
+
+// macro_rules! impl_jsonb_from {
+//     ($scalar_type:ty) => {
+//         impl From<$scalar_type> for Value {
+//             fn from(v: $scalar_type) -> Self {
+//                 v.to_text().as_str().into()
+//             }
+//         }
+//     };
+
+//     ($scalar_type:ty) => {
+//         impl From<$scalar_type> for JsonbVal {
+//             fn from(v: $scalar_type) -> Self {
+//                 Self::from(v.to_text().as_str())
+//             }
+//         }
+//     };
+// }
+
+// impl_jsonb_from!(Decimal);
+// impl_jsonb_from!(Serial);
+// impl_jsonb_from!(Int256Ref<'_>);
+// impl_jsonb_from!(Date);
+// impl_jsonb_from!(Time);
+// impl_jsonb_from!(Interval);
+// impl_jsonb_from!(Timestamp);
+// impl_jsonb_from!(Timestamptz);
 
 impl<'a> From<JsonbRef<'a>> for ValueRef<'a> {
     fn from(v: JsonbRef<'a>) -> Self {
@@ -448,3 +633,17 @@ impl serde_json::ser::Formatter for ToTextFormatter {
         writer.write_all(b": ")
     }
 }
+
+// macro_rules! impl_convert_to_jsonb_val {
+//     ($({ $variant_name:ident, $suffix_name:ident, $scalar:ty, $scalar_ref:ty }),*) => {
+//         impl From<ScalarRefImpl<'_>> for Value {
+//             fn from(val: ScalarRefImpl<'_>) -> Self {
+//                 match val {
+//                     $(ScalarRefImpl::$variant_name(inner) => inner.into()),*
+//                 }
+//             }
+//         }
+//     };
+// }
+
+// for_all_scalar_variants! { impl_convert_to_jsonb_val }

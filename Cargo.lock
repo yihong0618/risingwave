@@ -4148,6 +4148,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "jsonbb"
+version = "0.1.1"
+source = "git+https://github.com/risingwavelabs/jsonbb.git?rev=21c58e74ce107678410f3873adf9ac0ce4d71e77#21c58e74ce107678410f3873adf9ac0ce4d71e77"
+dependencies = [
+ "bytes",
+ "serde",
+ "serde_json",
+ "smallvec",
+]
+
+[[package]]
 name = "jsonschema-transpiler"
 version = "1.10.0"
 source = "git+https://github.com/mozilla/jsonschema-transpiler?rev=c1a89d720d118843d8bcca51084deb0ed223e4b4#c1a89d720d118843d8bcca51084deb0ed223e4b4"
@@ -7101,7 +7112,7 @@ dependencies = [
  "hytra",
  "itertools 0.11.0",
  "itoa",
- "jsonbb",
+ "jsonbb 0.1.1",
  "libc",
  "lru 0.7.6",
  "mach2",
@@ -7479,7 +7490,7 @@ dependencies = [
  "futures-util",
  "hex",
  "itertools 0.11.0",
- "jsonbb",
+ "jsonbb 0.1.0",
  "madsim-tokio",
  "md5",
  "num-traits",

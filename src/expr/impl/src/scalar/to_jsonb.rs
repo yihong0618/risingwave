@@ -14,26 +14,51 @@
 
 use std::fmt::Debug;
 
-use risingwave_common::estimate_size::EstimateSize;
-use risingwave_common::row::Row;
-use risingwave_common::types::{
-    JsonbRef, JsonbVal, Scalar, ScalarImpl, ScalarRef, ScalarRefImpl, StructRef, F32, F64,
-};
-use risingwave_expr::aggregate::AggStateDyn;
-use risingwave_expr::{function, ExprError, Result};
-
-// use crate::aggregate::ToJson;
-
-#[function("to_jsonb(struct) -> jsonb")]
-pub fn strict_to_jsonb(input: StructRef<'_>) -> JsonbVal {
-    println!("to_jsonb: {:?}", input);
-    JsonbVal::null()
-}
+use risingwave_common::types::{JsonbVal, ListRef, StructRef};
+use risingwave_expr::function;
 
 #[function("to_jsonb(boolean) -> jsonb")]
 #[function("to_jsonb(*int) -> jsonb")]
+#[function("to_jsonb(int256) -> jsonb")]
 #[function("to_jsonb(*float) -> jsonb")]
+#[function("to_jsonb(decimal) -> jsonb")]
+#[function("to_jsonb(serial) -> jsonb")]
+#[function("to_jsonb(date) -> jsonb")]
+#[function("to_jsonb(time) -> jsonb")]
+#[function("to_jsonb(timestamp) -> jsonb")]
+#[function("to_jsonb(timestamptz) -> jsonb")]
+#[function("to_jsonb(interval) -> jsonb")]
 #[function("to_jsonb(varchar) -> jsonb")]
-pub fn to_jsonb<T>(input: T) -> JsonbVal {
-    JsonbVal::from(input)
+#[function("to_jsonb(bytea) -> jsonb")]
+#[function("to_jsonb(jsonb) -> jsonb")]
+#[function("to_jsonb(anyarray) -> jsonb")]
+#[function("to_jsonb(struct) -> jsonb")]
+pub fn to_jsonb(input: impl Into<JsonbVal>) -> JsonbVal {
+    input.into()
 }
+
+// case:
+// select to_jsonb(null);
+
+// select to_jsonb('2199-01-02 00:00:00.000000'::timestamp);
+// rw "2199-01-02 00:00:00"
+// pg "2199-01-02T00:00:00"
+
+// create table t(d1 int, c2 varchar);
+// insert into t values(1,  '4'), (2, '5');
+
+// create table t2(n1 int, c2 varchar);
+// insert into t2 values(1,  'ffff'), (2, '5');
+
+// create table t3(n1 int, c2 interval);
+// insert into t3 values(1, '10 second'::interval), (2, '30 second'::interval);
+
+// create table t4(n1 int, c2 interval);
+// insert into t4 values(1, null);
+
+// select to_jsonb(row(n1, c2)) from t3;
+
+// select to_jsonb('30 second'::interval);
+// -- select to_jsonb(null);
+
+// select to_jsonb(row(n1, c2)) from t4;
