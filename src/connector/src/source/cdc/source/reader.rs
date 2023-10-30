@@ -137,7 +137,7 @@ impl<T: CdcSourceTypeTrait> CommonSplitReader for CdcSplitReader<T> {
         let source_id = get_event_stream_request.source_id.to_string();
         let source_type = get_event_stream_request.source_type.to_string();
 
-        let _ = std::thread::spawn(move || {
+        std::thread::spawn(move || {
             let mut env = JVM.get_or_init().unwrap().attach_current_thread().unwrap();
 
             let get_event_stream_request_bytes = env
@@ -174,7 +174,6 @@ impl<T: CdcSourceTypeTrait> CommonSplitReader for CdcSplitReader<T> {
             yield msgs;
         }
 
-        tracing::debug!(source_id=?self.source_id, "cdc split reader exit");
         Err(anyhow!("all senders are dropped"))?;
     }
 }
