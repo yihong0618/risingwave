@@ -415,12 +415,12 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
             let table_iter_fut = self.state.table.iter_with_prefix(
                 &key,
                 sub_range,
-                PrefetchOptions::new_for_exhaust_iter(),
+                PrefetchOptions::default(),
             );
             let degree_table_iter_fut = self.degree_state.table.iter_with_prefix(
                 &key,
                 sub_range,
-                PrefetchOptions::new_for_exhaust_iter(),
+                PrefetchOptions::default(),
             );
 
             let (table_iter, degree_table_iter) =
@@ -454,7 +454,7 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
             let table_iter = self
                 .state
                 .table
-                .iter_with_prefix(&key, sub_range, PrefetchOptions::new_for_exhaust_iter())
+                .iter_with_prefix(&key, sub_range, PrefetchOptions::default())
                 .await?;
 
             #[for_await]

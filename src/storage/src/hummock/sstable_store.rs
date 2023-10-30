@@ -254,6 +254,42 @@ impl SstableStore {
             .map_err(HummockError::object_io_error)
     }
 
+    pub async fn preload_blocks(
+        &self,
+        sst: &Sstable,
+        start_index: usize,
+        end_index: usize,
+    ) -> HummockResult<Vec<BlockHolder>> {
+        let object_id = sst.id;
+        let mut blocks_infos = Vec::with_capacity(end_index - start_index);
+        let mut blocks = Vec::with_capacity(end_index - start_index);
+        let start_offset = sst.meta.block_metas[start_index].offset as usize;
+        let mut end_offset = start_offset;
+        for idx in start_index..end_index {
+            if self.block_cache.exists_block(object_id, idx as u64) {
+                break;
+            }
+            end_offset += sst.meta.block_metas[idx].len as  usize;
+            blocks_infos.push((sst.meta.block_metas[idx].len as usize, sst.meta.block_metas[idx].uncompressed_size));
+        }
+        if blocks_infos.is_empty() {
+            return Ok(vec![]);
+        }
+        let data_path = self.get_sst_data_path(object_id);
+        let data = self.store.read(&data_path, start_offset..end_offset).await?;
+        let mut last_offset = 0;
+        let mut cur_idx = start_index;
+        for (block_len, uncompressed_size) in blocks_infos {
+            let block = Box::new(Block::decode(
+                Bytes::copy_from_slice(&data[last_offset..(last_offset+block_len)]), uncompressed_size as usize)?);
+            last_offset += block_len;
+            let block = self.block_cache.insert(object_id, cur_idx as u64, block, CachePriority::High);
+            blocks.push(block);
+            cur_idx += 1;
+        }
+        Ok(blocks)
+    }
+
     pub async fn get_block_response(
         &self,
         sst: &Sstable,
@@ -509,10 +545,12 @@ impl SstableStore {
             .get(block_index)
             .ok_or_else(HummockError::invalid_block)?;
         let start_pos = block_meta.offset as usize;
+        let end_pos = metas.iter().map(|meta|meta.len as usize).sum::<usize>() + start_pos;
+        let range = start_pos..end_pos;
 
         Ok(BlockStream::new(
             store
-                .streaming_read(&data_path, Some(start_pos))
+                .streaming_read(&data_path, range)
                 .await
                 .map_err(HummockError::object_io_error)?,
             block_index,

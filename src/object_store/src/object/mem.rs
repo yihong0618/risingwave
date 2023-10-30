@@ -14,6 +14,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
+use std::ops::Range;
 use std::pin::Pin;
 use std::sync::{Arc, LazyLock};
 use std::task::{Context, Poll};
@@ -143,13 +144,13 @@ impl ObjectStore for InMemObjectStore {
     async fn streaming_read(
         &self,
         path: &str,
-        start_pos: Option<usize>,
+        read_range: Range<usize>,
     ) -> ObjectResult<Box<dyn AsyncRead + Unpin + Send + Sync>> {
         fail_point!("mem_streaming_read_err", |_| Err(ObjectError::internal(
             "mem streaming read error"
         )));
         let bytes = self
-            .get_object(path, start_pos.unwrap_or_default()..)
+            .get_object(path, read_range)
             .await?;
         Ok(Box::new(Cursor::new(bytes)))
     }

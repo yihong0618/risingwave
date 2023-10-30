@@ -111,7 +111,7 @@ pub async fn do_bench(context: &CtlContext, cmd: BenchCommands) -> Result<()> {
                             .iter_with_prefix(
                                 row::empty(),
                                 sub_range,
-                                PrefetchOptions::new_for_exhaust_iter(),
+                                PrefetchOptions::default(),
                             )
                             .await?;
                         pin_mut!(stream);

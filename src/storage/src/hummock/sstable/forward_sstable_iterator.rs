@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::cmp::Ordering::{Equal, Less};
-use std::collections::VecDeque;
 use std::future::Future;
 use std::ops::Bound::*;
 use std::sync::Arc;
@@ -21,11 +20,10 @@ use std::sync::Arc;
 use risingwave_hummock_sdk::key::FullKey;
 
 use super::super::{HummockResult, HummockValue};
-use super::Sstable;
 use crate::hummock::iterator::{Forward, HummockIterator};
 use crate::hummock::sstable::SstableIteratorReadOptions;
 use crate::hummock::{
-    BlockHolder, BlockIterator, BlockResponse, CachePolicy, SstableStore, SstableStoreRef,
+    BlockHolder, BlockIterator, SstableStoreRef,
     TableHolder,
 };
 use crate::monitor::StoreLocalStatistic;
@@ -38,105 +36,8 @@ pub trait SstableIteratorType: HummockIterator + 'static {
     ) -> Self;
 }
 
-/// Prefetching may increase the memory footprint of the CN process because the prefetched blocks
-/// cannot be evicted.
-enum BlockFetcher {
-    Simple(SimpleFetchContext),
-    Prefetch(PrefetchContext),
-}
+const MAX_PREFETCH_BLOCK_NUM: usize = 10;
 
-impl BlockFetcher {
-    async fn get_block(
-        &mut self,
-        sst: &Sstable,
-        block_idx: usize,
-        sstable_store: &SstableStore,
-        stats: &mut StoreLocalStatistic,
-    ) -> HummockResult<BlockHolder> {
-        match self {
-            BlockFetcher::Simple(context) => {
-                sstable_store
-                    .get(sst, block_idx, context.cache_policy, stats)
-                    .await
-            }
-            BlockFetcher::Prefetch(context) => {
-                context
-                    .get_block(sst, block_idx, sstable_store, stats)
-                    .await
-            }
-        }
-    }
-}
-
-struct SimpleFetchContext {
-    cache_policy: CachePolicy,
-}
-
-struct PrefetchContext {
-    prefetched_blocks: VecDeque<(usize, BlockResponse)>,
-
-    /// block[cur_idx..=dest_idx] will definitely be visited in the future.
-    dest_idx: usize,
-
-    cache_policy: CachePolicy,
-}
-
-const DEFAULT_PREFETCH_BLOCK_NUM: usize = 1;
-
-impl PrefetchContext {
-    fn new(dest_idx: usize, cache_policy: CachePolicy) -> Self {
-        Self {
-            prefetched_blocks: VecDeque::with_capacity(DEFAULT_PREFETCH_BLOCK_NUM + 1),
-            dest_idx,
-            cache_policy,
-        }
-    }
-
-    async fn get_block(
-        &mut self,
-        sst: &Sstable,
-        idx: usize,
-        sstable_store: &SstableStore,
-        stats: &mut StoreLocalStatistic,
-    ) -> HummockResult<BlockHolder> {
-        let is_empty = if let Some((prefetched_idx, _)) = self.prefetched_blocks.front() {
-            if *prefetched_idx == idx {
-                false
-            } else {
-                tracing::warn!(target: "events::storage::sstable::block_seek", "prefetch mismatch: sstable_object_id = {}, block_id = {}, prefetched_block_id = {}", sst.id, idx, *prefetched_idx);
-                self.prefetched_blocks.clear();
-                true
-            }
-        } else {
-            true
-        };
-        if is_empty {
-            self.prefetched_blocks.push_back((
-                idx,
-                sstable_store
-                    .get_block_response(sst, idx, self.cache_policy, stats)
-                    .await?,
-            ));
-        }
-        let block_response = self.prefetched_blocks.pop_front().unwrap().1;
-
-        let next_prefetch_idx = self
-            .prefetched_blocks
-            .back()
-            .map_or(idx, |(latest_idx, _)| *latest_idx)
-            + 1;
-        if next_prefetch_idx <= self.dest_idx {
-            self.prefetched_blocks.push_back((
-                next_prefetch_idx,
-                sstable_store
-                    .get_block_response(sst, next_prefetch_idx, self.cache_policy, stats)
-                    .await?,
-            ));
-        }
-
-        block_response.wait().await
-    }
-}
 
 /// Iterates on a sstable.
 pub struct SstableIterator {
@@ -146,9 +47,7 @@ pub struct SstableIterator {
     /// Current block index.
     cur_idx: usize,
 
-    /// simple or prefetch strategy
-    block_fetcher: BlockFetcher,
-
+    blocks: Vec<BlockHolder>,
     /// Reference to the sst
     pub sst: TableHolder,
 
@@ -166,9 +65,7 @@ impl SstableIterator {
         Self {
             block_iter: None,
             cur_idx: 0,
-            block_fetcher: BlockFetcher::Simple(SimpleFetchContext {
-                cache_policy: options.cache_policy,
-            }),
+            blocks: vec![],
             sst: sstable,
             sstable_store,
             stats: StoreLocalStatistic::default(),
@@ -176,19 +73,19 @@ impl SstableIterator {
         }
     }
 
-    fn init_block_fetcher(&mut self, start_idx: usize) {
+    async fn init_block_fetcher(&mut self, start_idx: usize) -> HummockResult<()> {
         if let Some(bound) = self.options.must_iterated_end_user_key.as_ref() {
             let block_metas = &self.sst.value().meta.block_metas;
             let next_to_start_idx = start_idx + 1;
             if next_to_start_idx < block_metas.len() {
                 let dest_idx = match bound {
-                    Unbounded => block_metas.len() - 1, // will not overflow
+                    Unbounded => block_metas.len() , // will not overflow
                     Included(dest_key) => {
                         let dest_key = dest_key.as_ref();
                         if FullKey::decode(&block_metas[next_to_start_idx].smallest_key).user_key
                             > dest_key
                         {
-                            start_idx
+                            start_idx + 1
                         } else {
                             next_to_start_idx
                                 + block_metas[(next_to_start_idx + 1)..].partition_point(
@@ -204,7 +101,7 @@ impl SstableIterator {
                         if FullKey::decode(&block_metas[next_to_start_idx].smallest_key).user_key
                             >= end_key
                         {
-                            start_idx
+                            start_idx + 1
                         } else {
                             next_to_start_idx
                                 + block_metas[(next_to_start_idx + 1)..].partition_point(
@@ -215,14 +112,14 @@ impl SstableIterator {
                         }
                     }
                 };
-                if start_idx < dest_idx {
-                    self.block_fetcher = BlockFetcher::Prefetch(PrefetchContext::new(
-                        dest_idx,
-                        self.options.cache_policy,
-                    ));
+                if start_idx + 1 < dest_idx {
+                    self.blocks = self.sstable_store.preload_blocks(self.sst.value(),
+                                                                    start_idx,
+                                                                    std::cmp::min(dest_idx, MAX_PREFETCH_BLOCK_NUM)).await?;
                 }
             }
         }
+        Ok(())
     }
 
     pub(crate) fn sst(&self) -> &TableHolder {
@@ -251,8 +148,8 @@ impl SstableIterator {
             self.block_iter = None;
         } else {
             let block = self
-                .block_fetcher
-                .get_block(self.sst.value(), idx, &self.sstable_store, &mut self.stats)
+                .sstable_store
+                .get(self.sst.value(), idx, self.options.cache_policy, &mut self.stats)
                 .await?;
             let mut block_iter = BlockIterator::new(block);
             if let Some(key) = seek_key {
@@ -304,7 +201,7 @@ impl HummockIterator for SstableIterator {
 
     fn rewind(&mut self) -> Self::RewindFuture<'_> {
         async move {
-            self.init_block_fetcher(0);
+            self.init_block_fetcher(0).await?;
             self.seek_idx(0, None).await?;
             Ok(())
         }
@@ -325,7 +222,7 @@ impl HummockIterator for SstableIterator {
                     ord == Less || ord == Equal
                 })
                 .saturating_sub(1); // considering the boundary of 0
-            self.init_block_fetcher(block_idx);
+            self.init_block_fetcher(block_idx).await?;
 
             self.seek_idx(block_idx, Some(key)).await?;
             if !self.is_valid() {

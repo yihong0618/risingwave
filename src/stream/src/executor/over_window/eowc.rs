@@ -203,7 +203,7 @@ impl<S: StateStore> EowcOverWindowExecutor<S> {
             .iter_with_prefix(
                 partition_key,
                 sub_range,
-                PrefetchOptions::new_for_exhaust_iter(),
+                PrefetchOptions::default(),
             )
             .await?;
 

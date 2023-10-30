@@ -14,6 +14,7 @@
 
 use std::cmp;
 use std::collections::VecDeque;
+use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{ready, Context, Poll};
@@ -426,7 +427,7 @@ impl ObjectStore for S3ObjectStore {
     async fn streaming_read(
         &self,
         path: &str,
-        start_pos: Option<usize>,
+        range: Range<usize>,
     ) -> ObjectResult<Box<dyn AsyncRead + Unpin + Send + Sync>> {
         fail_point!("s3_streaming_read_err", |_| Err(ObjectError::internal(
             "s3 streaming read error"
@@ -437,7 +438,7 @@ impl ObjectStore for S3ObjectStore {
             self.config.get_retry_strategy(),
             || async {
                 match self
-                    .obj_store_request(path, start_pos.unwrap_or_default()..)
+                    .obj_store_request(path, range.clone())
                     .send()
                     .await
                 {

@@ -765,7 +765,7 @@ impl HummockVersionReader {
             .start_timer();
 
         let mut sst_read_options = SstableIteratorReadOptions::from_read_options(&read_options);
-        if read_options.prefetch_options.exhaust_iter {
+        if read_options.prefetch_options.preload {
             sst_read_options.must_iterated_end_user_key =
                 Some(user_key_range.1.map(|key| key.cloned()));
         }

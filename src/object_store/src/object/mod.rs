@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::RangeBounds;
+use std::ops::{Range, RangeBounds};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -98,7 +98,7 @@ pub trait ObjectStore: Send + Sync {
     async fn streaming_read(
         &self,
         path: &str,
-        start_pos: Option<usize>,
+        read_range: Range<usize>,
     ) -> ObjectResult<Box<dyn AsyncRead + Unpin + Send + Sync>>;
 
     /// Obtains the object metadata.
@@ -205,7 +205,7 @@ impl ObjectStoreImpl {
     pub async fn streaming_read(
         &self,
         path: &str,
-        start_loc: Option<usize>,
+        start_loc: Range<usize>,
     ) -> ObjectResult<MonitoredStreamingReader> {
         object_store_impl_method_body!(self, streaming_read, dispatch_async, path, start_loc)
     }
@@ -640,7 +640,7 @@ impl<OS: ObjectStore> MonitoredObjectStore<OS> {
     async fn streaming_read(
         &self,
         path: &str,
-        start_pos: Option<usize>,
+        range: Range<usize>,
     ) -> ObjectResult<MonitoredStreamingReader> {
         let operation_type = "streaming_read_start";
         let media_type = self.media_type();
@@ -651,7 +651,7 @@ impl<OS: ObjectStore> MonitoredObjectStore<OS> {
             .start_timer();
         let future = async {
             self.inner
-                .streaming_read(path, start_pos)
+                .streaming_read(path, range)
                 .verbose_instrument_await("object_store_streaming_read")
                 .await
         };

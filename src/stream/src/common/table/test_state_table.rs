@@ -1018,7 +1018,7 @@ async fn test_state_table_write_chunk() {
         .iter_with_prefix(
             row::empty(),
             sub_range,
-            PrefetchOptions::new_for_exhaust_iter(),
+            PrefetchOptions::default(),
         )
         .await
         .unwrap()
@@ -1136,7 +1136,7 @@ async fn test_state_table_write_chunk_visibility() {
         .iter_with_prefix(
             row::empty(),
             sub_range,
-            PrefetchOptions::new_for_exhaust_iter(),
+            PrefetchOptions::default(),
         )
         .await
         .unwrap()
@@ -1252,7 +1252,7 @@ async fn test_state_table_write_chunk_value_indices() {
         .iter_with_prefix(
             row::empty(),
             sub_range,
-            PrefetchOptions::new_for_exhaust_iter(),
+            PrefetchOptions::default(),
         )
         .await
         .unwrap()
@@ -1538,7 +1538,7 @@ async fn test_state_table_watermark_cache_ignore_null() {
         .iter_with_prefix(
             row::empty(),
             sub_range,
-            PrefetchOptions::new_for_exhaust_iter(),
+            PrefetchOptions::default(),
         )
         .await
         .unwrap()
@@ -1829,7 +1829,7 @@ async fn test_state_table_watermark_cache_refill() {
         .iter_with_prefix(
             row::empty(),
             sub_range,
-            PrefetchOptions::new_for_exhaust_iter(),
+            PrefetchOptions::default(),
         )
         .await
         .unwrap()

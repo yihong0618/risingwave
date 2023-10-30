@@ -104,7 +104,7 @@ impl<S: StateStore> SourceStateTableHandler<S> {
             .iter_with_vnode(
                 VirtualNode::ZERO,
                 &(start, end),
-                PrefetchOptions::new_for_exhaust_iter(),
+                PrefetchOptions::default(),
             )
             .await?;
 
