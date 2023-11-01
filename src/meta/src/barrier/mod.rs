@@ -739,10 +739,9 @@ impl GlobalBarrierManager {
         send_latency_timer.observe_duration();
 
         tracing::info!(
-            "new barrier enqueued: prev {:?}, curr {:?}, command {:?}",
+            "new barrier enqueued: prev {:?}, curr {:?}",
             prev_epoch.value(),
             curr_epoch.value(),
-            command,
         );
         self.inject_barrier(command_ctx.clone(), barrier_complete_tx)
             .instrument(span)

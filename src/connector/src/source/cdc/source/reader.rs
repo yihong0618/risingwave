@@ -132,6 +132,13 @@ impl<T: CdcSourceTypeTrait> CommonSplitReader for CdcSplitReader<T> {
         // Force init, because we don't want to see initialization failure in the following thread.
         JVM.get_or_init()?;
 
+        // put a dumb message to make the stream become ready for peek
+        tx.send(GetEventStreamResponse {
+            source_id: 0,
+            events: vec![],
+        })
+        .await?;
+
         let get_event_stream_request = GetEventStreamRequest {
             source_id: self.source_id,
             source_type: self.conn_props.get_source_type_pb() as _,
@@ -169,12 +176,9 @@ impl<T: CdcSourceTypeTrait> CommonSplitReader for CdcSplitReader<T> {
             }
         });
 
-        // select with a timeout
-        let stream = select_all(vec![event_stream(rx), dumb_stream()]).boxed();
-
-        pin_mut!(stream);
-        while let Some(msg) = stream.next().instrument_await("stream_next").await {
-            let GetEventStreamResponse { events, .. } = msg?;
+        while let Some(GetEventStreamResponse { events, .. }) =
+            rx.recv().instrument_await("cdc_recv").await
+        {
             tracing::debug!("receive events {:?} ", events.len());
             self.source_ctx
                 .metrics
@@ -186,23 +190,5 @@ impl<T: CdcSourceTypeTrait> CommonSplitReader for CdcSplitReader<T> {
         }
 
         Err(anyhow!("all senders are dropped"))?;
-    }
-}
-
-#[try_stream(boxed, ok = GetEventStreamResponse, error = anyhow::Error)]
-async fn event_stream(mut rx: mpsc::Receiver<GetEventStreamResponse>) {
-    while let Some(events) = rx.recv().instrument_await("cdc_recv").await {
-        yield events;
-    }
-}
-
-#[try_stream(boxed, ok = GetEventStreamResponse, error = anyhow::Error)]
-async fn dumb_stream() {
-    loop {
-        yield GetEventStreamResponse {
-            source_id: 0,
-            events: vec![],
-        };
-        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }

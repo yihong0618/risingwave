@@ -148,7 +148,7 @@ impl<S: StateStore> FsFetchExecutor<S> {
     ) -> StreamExecutorResult<BoxSourceWithStateStream> {
         source_desc
             .source
-            .stream_reader(batch, column_ids, Arc::new(source_ctx), false)
+            .stream_reader(batch, column_ids, Arc::new(source_ctx))
             .await
             .map_err(StreamExecutorError::connector_error)
     }

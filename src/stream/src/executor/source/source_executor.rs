@@ -100,7 +100,6 @@ impl<S: StateStore> SourceExecutor<S> {
         &self,
         source_desc: &SourceDesc,
         state: ConnectorState,
-        init_connector: bool,
     ) -> StreamExecutorResult<BoxSourceWithStateStream> {
         let column_ids = source_desc
             .columns
@@ -118,7 +117,7 @@ impl<S: StateStore> SourceExecutor<S> {
         );
         source_desc
             .source
-            .stream_reader(state, column_ids, Arc::new(source_ctx), init_connector)
+            .stream_reader(state, column_ids, Arc::new(source_ctx))
             .await
             .map_err(StreamExecutorError::connector_error)
     }
@@ -294,7 +293,7 @@ impl<S: StateStore> SourceExecutor<S> {
 
         // Replace the source reader with a new one of the new state.
         let reader = self
-            .build_stream_source_reader(source_desc, Some(target_state.clone()), false)
+            .build_stream_source_reader(source_desc, Some(target_state.clone()))
             .await?;
 
         // try init the connector
@@ -425,7 +424,7 @@ impl<S: StateStore> SourceExecutor<S> {
         let recover_state: ConnectorState = (!boot_state.is_empty()).then_some(boot_state);
         tracing::info!(actor_id = self.actor_ctx.id, state = ?recover_state, "start with state");
         let source_chunk_reader = self
-            .build_stream_source_reader(&source_desc, recover_state, true)
+            .build_stream_source_reader(&source_desc, recover_state)
             .instrument_await("source_build_reader")
             .await?;
 
