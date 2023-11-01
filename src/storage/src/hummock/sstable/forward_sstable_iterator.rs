@@ -36,7 +36,7 @@ pub trait SstableIteratorType: HummockIterator + 'static {
     ) -> Self;
 }
 
-const MAX_PREFETCH_BLOCK_NUM: usize = 10;
+const MAX_PREFETCH_BLOCK_NUM: usize = 64;
 
 
 /// Iterates on a sstable.
