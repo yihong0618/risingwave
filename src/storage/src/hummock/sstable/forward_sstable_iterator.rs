@@ -115,7 +115,7 @@ impl SstableIterator {
                 if start_idx + 1 < dest_idx {
                     self.blocks = self.sstable_store.preload_blocks(self.sst.value(),
                                                                     start_idx,
-                                                                    std::cmp::min(dest_idx, MAX_PREFETCH_BLOCK_NUM)).await?;
+                                                                    std::cmp::min(dest_idx, start_idx + MAX_PREFETCH_BLOCK_NUM)).await?;
                 }
             }
         }
