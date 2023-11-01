@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::fmt::Formatter;
+use std::pin::Pin;
 use std::time::Duration;
 
 use anyhow::anyhow;
@@ -99,6 +100,7 @@ impl<S: StateStore> SourceExecutor<S> {
         &self,
         source_desc: &SourceDesc,
         state: ConnectorState,
+        init_connector: bool,
     ) -> StreamExecutorResult<BoxSourceWithStateStream> {
         let column_ids = source_desc
             .columns
@@ -116,7 +118,7 @@ impl<S: StateStore> SourceExecutor<S> {
         );
         source_desc
             .source
-            .stream_reader(state, column_ids, Arc::new(source_ctx))
+            .stream_reader(state, column_ids, Arc::new(source_ctx), init_connector)
             .await
             .map_err(StreamExecutorError::connector_error)
     }
@@ -281,7 +283,7 @@ impl<S: StateStore> SourceExecutor<S> {
     async fn replace_stream_reader_with_target_state<const BIASED: bool>(
         &mut self,
         source_desc: &SourceDesc,
-        stream: &mut StreamReaderWithPause<BIASED, StreamChunkWithState>,
+        stream_reader: &mut StreamReaderWithPause<BIASED, StreamChunkWithState>,
         target_state: Vec<SplitImpl>,
     ) -> StreamExecutorResult<()> {
         tracing::info!(
@@ -292,10 +294,14 @@ impl<S: StateStore> SourceExecutor<S> {
 
         // Replace the source reader with a new one of the new state.
         let reader = self
-            .build_stream_source_reader(source_desc, Some(target_state.clone()))
+            .build_stream_source_reader(source_desc, Some(target_state.clone()), false)
             .await?;
 
-        stream.replace_data_stream(reader);
+        // try init the connector
+        // let mut stream = reader.peekable();
+        // let _ = Pin::new(&mut stream).peek().await;
+
+        stream_reader.replace_data_stream(reader);
 
         Ok(())
     }
@@ -419,7 +425,7 @@ impl<S: StateStore> SourceExecutor<S> {
         let recover_state: ConnectorState = (!boot_state.is_empty()).then_some(boot_state);
         tracing::info!(actor_id = self.actor_ctx.id, state = ?recover_state, "start with state");
         let source_chunk_reader = self
-            .build_stream_source_reader(&source_desc, recover_state)
+            .build_stream_source_reader(&source_desc, recover_state, true)
             .instrument_await("source_build_reader")
             .await?;
 
@@ -433,8 +439,20 @@ impl<S: StateStore> SourceExecutor<S> {
 
         // If the first barrier requires us to pause on startup, pause the stream.
         if barrier.is_pause_on_startup() {
+            debug!("barrier pause on startup");
             stream.pause_stream();
         }
+
+        stream
+            .peek_stream()
+            .instrument_await("initial_peek_stream")
+            .await;
+
+        tracing::debug!(
+            "initial: peek to init connector, epoch: {:?}, mutation: {:?}",
+            barrier.epoch,
+            barrier.mutation
+        );
 
         yield Message::Barrier(barrier);
 
@@ -463,6 +481,10 @@ impl<S: StateStore> SourceExecutor<S> {
                         // This branch will be preferred.
                         Either::Left(msg) => match &msg {
                             Message::Barrier(barrier) => {
+                                debug!(
+                                    "receive barrier epoch {:?}, mutation: {:?}",
+                                    barrier.epoch, barrier.mutation
+                                );
                                 last_barrier_time = Instant::now();
 
                                 if self_paused {
@@ -478,7 +500,14 @@ impl<S: StateStore> SourceExecutor<S> {
                                 if let Some(ref mutation) = barrier.mutation.as_deref() {
                                     match mutation {
                                         Mutation::Pause => stream.pause_stream(),
-                                        Mutation::Resume => stream.resume_stream(),
+                                        Mutation::Resume => {
+                                            stream.resume_stream();
+                                            stream
+                                                .peek_stream()
+                                                .instrument_await("resume_peek_stream")
+                                                .await;
+                                            tracing::debug!("resume: peek to init connector");
+                                        }
                                         Mutation::SourceChangeSplit(actor_splits) => {
                                             tracing::info!(
                                                 actor_id = self.actor_ctx.id,
@@ -497,6 +526,9 @@ impl<S: StateStore> SourceExecutor<S> {
                                         }
 
                                         Mutation::Update { actor_splits, .. } => {
+                                            tracing::debug!(
+                                                "UpdateMutation: rebuild stream reader"
+                                            );
                                             target_state = self
                                                 .apply_split_change(
                                                     &source_desc,

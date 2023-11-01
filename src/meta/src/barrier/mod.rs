@@ -730,7 +730,7 @@ impl GlobalBarrierManager {
             prev_epoch.clone(),
             curr_epoch.clone(),
             state.paused_reason(),
-            command,
+            command.clone(),
             kind,
             self.source_manager.clone(),
             span.clone(),
@@ -738,6 +738,12 @@ impl GlobalBarrierManager {
 
         send_latency_timer.observe_duration();
 
+        tracing::info!(
+            "new barrier enqueued: prev {:?}, curr {:?}, command {:?}",
+            prev_epoch.value(),
+            curr_epoch.value(),
+            command,
+        );
         self.inject_barrier(command_ctx.clone(), barrier_complete_tx)
             .instrument(span)
             .await;

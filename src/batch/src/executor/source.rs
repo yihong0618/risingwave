@@ -152,7 +152,7 @@ impl SourceExecutor {
         ));
         let stream = self
             .connector_source
-            .stream_reader(Some(vec![self.split]), self.column_ids, source_ctx)
+            .stream_reader(Some(vec![self.split]), self.column_ids, source_ctx, false)
             .await?;
 
         #[for_await]

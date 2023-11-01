@@ -827,6 +827,7 @@ impl CommandContext {
 
                 // Tell compute nodes to drop actors.
                 let node_actors = self.fragment_manager.table_node_actors(&table_ids).await?;
+                tracing::debug!("post ReplaceTable, start to drop actors");
                 self.clean_up(node_actors).await?;
 
                 // Drop fragment info in meta store.

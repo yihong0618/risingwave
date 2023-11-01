@@ -113,6 +113,7 @@ impl ConnectorSource {
         state: ConnectorState,
         column_ids: Vec<ColumnId>,
         source_ctx: Arc<SourceContext>,
+        _init_connector: bool,
     ) -> Result<BoxSourceWithStateStream> {
         let Some(splits) = state else {
             return Ok(pending().boxed());
@@ -177,10 +178,13 @@ impl ConnectorSource {
                 .await?
             };
 
-            let mut stream = select_all(readers.into_iter().map(|r| r.into_stream())).peekable();
-            // peek the stream to make sure the underlying connector has been inited
-            let _ = Pin::new(&mut stream).peek().await;
-            Ok(stream.boxed())
+            Ok(select_all(readers.into_iter().map(|r| r.into_stream())).boxed())
+            // let mut stream = select_all(readers.into_iter().map(|r| r.into_stream())).peekable();
+            // if init_connector {
+            //     // peek the stream to make sure the underlying connector has been inited
+            //     let _ = Pin::new(&mut stream).peek().await;
+            // }
+            // Ok(stream.boxed())
         })
     }
 }

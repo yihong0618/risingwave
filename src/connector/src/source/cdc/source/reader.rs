@@ -13,14 +13,19 @@
 // limitations under the License.
 
 use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use await_tree::InstrumentAwait;
+use futures::{pin_mut, StreamExt};
 use futures_async_stream::try_stream;
 use itertools::Itertools;
 use jni::objects::JValue;
 use prost::Message;
 use risingwave_common::util::addr::HostAddr;
+use risingwave_common::util::select_all;
 use risingwave_jni_core::jvm_runtime::JVM;
 use risingwave_jni_core::GetEventStreamJniSender;
 use risingwave_pb::connector_service::{GetEventStreamRequest, GetEventStreamResponse};
@@ -29,6 +34,7 @@ use tokio::sync::mpsc;
 use crate::parser::ParserConfig;
 use crate::source::base::SourceMessage;
 use crate::source::cdc::{CdcProperties, CdcSourceType, CdcSourceTypeTrait, DebeziumCdcSplit};
+use crate::source::monitor::SourceMetrics;
 use crate::source::{
     into_chunk_stream, BoxSourceWithStateStream, Column, CommonSplitReader, SourceContextRef,
     SplitId, SplitMetaData, SplitReader,
@@ -163,8 +169,13 @@ impl<T: CdcSourceTypeTrait> CommonSplitReader for CdcSplitReader<T> {
             }
         });
 
-        while let Some(GetEventStreamResponse { events, .. }) = rx.recv().await {
-            tracing::trace!("receive events {:?}", events.len());
+        // select with a timeout
+        let stream = select_all(vec![event_stream(rx), dumb_stream()]).boxed();
+
+        pin_mut!(stream);
+        while let Some(msg) = stream.next().instrument_await("stream_next").await {
+            let GetEventStreamResponse { events, .. } = msg?;
+            tracing::debug!("receive events {:?} ", events.len());
             self.source_ctx
                 .metrics
                 .connector_source_rows_received
@@ -175,5 +186,23 @@ impl<T: CdcSourceTypeTrait> CommonSplitReader for CdcSplitReader<T> {
         }
 
         Err(anyhow!("all senders are dropped"))?;
+    }
+}
+
+#[try_stream(boxed, ok = GetEventStreamResponse, error = anyhow::Error)]
+async fn event_stream(mut rx: mpsc::Receiver<GetEventStreamResponse>) {
+    while let Some(events) = rx.recv().instrument_await("cdc_recv").await {
+        yield events;
+    }
+}
+
+#[try_stream(boxed, ok = GetEventStreamResponse, error = anyhow::Error)]
+async fn dumb_stream() {
+    loop {
+        yield GetEventStreamResponse {
+            source_id: 0,
+            events: vec![],
+        };
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }

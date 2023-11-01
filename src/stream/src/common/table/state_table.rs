@@ -899,8 +899,13 @@ where
     }
 
     pub async fn commit(&mut self, new_epoch: EpochPair) -> StreamExecutorResult<()> {
-        assert_eq!(self.epoch(), new_epoch.prev);
-        trace!(
+        assert_eq!(
+            self.epoch(),
+            new_epoch.prev,
+            "epoch mismatch: {:?}",
+            new_epoch
+        );
+        debug!(
             table_id = %self.table_id,
             epoch = ?self.epoch(),
             "commit state table"

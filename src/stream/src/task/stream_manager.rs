@@ -261,12 +261,12 @@ impl LocalStreamManager {
                 .store(barrier.epoch.curr, std::sync::atomic::Ordering::SeqCst);
         }
         let mut barrier_manager = self.context.lock_barrier_manager();
-        barrier_manager.send_barrier(
-            barrier,
-            actor_ids_to_send,
-            actor_ids_to_collect,
-            Some(timer),
-        )?;
+        let actor_to_send = actor_ids_to_send.into_iter().collect_vec();
+        debug!(
+            "send barrier to actors {:?} epoch: {:?}, mutation {:?}",
+            actor_to_send, barrier.epoch, barrier.mutation
+        );
+        barrier_manager.send_barrier(barrier, actor_to_send, actor_ids_to_collect, Some(timer))?;
         Ok(())
     }
 

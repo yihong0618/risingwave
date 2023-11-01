@@ -104,9 +104,8 @@ impl JavaVmWrapper {
             // > shutdown and that each source record is sent to the application exactly one time.
             // In RisingWave we assume the upstream changelog may contain duplicate events and
             // handle conflicts in the mview operator, thus we don't need to obey the above
-            // instructions. So we decrease the wait time to 1 second here to reclaim jvm thread
-            // faster.
-            .option("-Ddebezium.embedded.shutdown.pause.before.interrupt.ms=1000");
+            // instructions. So we decrease the wait time here to reclaim jvm thread faster.
+            .option("-Ddebezium.embedded.shutdown.pause.before.interrupt.ms=1");
 
         tracing::info!("JVM args: {:?}", args_builder);
         let jvm_args = args_builder.build().unwrap();

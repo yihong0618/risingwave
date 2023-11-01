@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt::Debug;
 use std::pin::Pin;
 use std::task::Poll;
 
 use either::Either;
-use futures::stream::{select_with_strategy, BoxStream, PollNext, SelectWithStrategy};
+use futures::stream::{select_with_strategy, BoxStream, Peekable, PollNext, SelectWithStrategy};
 use futures::{Stream, StreamExt, TryStreamExt};
 use futures_async_stream::try_stream;
 use risingwave_connector::source::BoxTryStream;
@@ -27,6 +28,10 @@ use crate::executor::Message;
 type ExecutorMessageStream = BoxStream<'static, StreamExecutorResult<Message>>;
 type StreamReaderData<M> = StreamExecutorResult<Either<Message, M>>;
 type ReaderArm<M> = BoxStream<'static, StreamReaderData<M>>;
+// type StreamReaderWithPauseInner<M> = Peekable<
+//     SelectWithStrategy<ReaderArm<M>, ReaderArm<M>, impl FnMut(&mut PollNext) -> PollNext, PollNext>,
+// >;
+
 type StreamReaderWithPauseInner<M> =
     SelectWithStrategy<ReaderArm<M>, ReaderArm<M>, impl FnMut(&mut PollNext) -> PollNext, PollNext>;
 
@@ -47,7 +52,7 @@ pub(super) struct StreamReaderWithPause<const BIASED: bool, M> {
     paused: bool,
 }
 
-impl<const BIASED: bool, M: Send + 'static> StreamReaderWithPause<BIASED, M> {
+impl<const BIASED: bool, M: Send + Debug + 'static> StreamReaderWithPause<BIASED, M> {
     /// Receive messages from the reader. Hang up on error.
     #[try_stream(ok = M, error = StreamExecutorError)]
     async fn data_stream(stream: BoxTryStream<M>) {
@@ -114,6 +119,11 @@ impl<const BIASED: bool, M: Send + 'static> StreamReaderWithPause<BIASED, M> {
     pub fn resume_stream(&mut self) {
         assert!(self.paused, "not paused");
         self.paused = false;
+    }
+
+    pub async fn peek_stream(&mut self) {
+        let mut peek_stream = self.inner.get_mut().1.peekable();
+        let _ = Pin::new(&mut peek_stream).peek().await;
     }
 }
 
