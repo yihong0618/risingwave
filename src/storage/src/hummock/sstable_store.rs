@@ -989,7 +989,7 @@ impl BlockStream {
             let mut read_buf = BytesMut::with_capacity(block_meta.len as usize);
             let start_pos = if self.buff_offset < self.buff.len() {
                 assert!(offset < self.file_pos + self.buff.len());
-                read_buf.copy_from_slice(&self.buff[self.buff_offset..]);
+                read_buf.extend_from_slice(&self.buff[self.buff_offset..]);
                 self.buff.len() - self.buff_offset
             } else {
                 0
@@ -1004,7 +1004,7 @@ impl BlockStream {
                     .await
                     .unwrap_or_else(|| Err(ObjectError::internal("read unexpected EOF")))?;
                 let read_len = std::cmp::min(next_packet.len(), rest);
-                read_buf.copy_from_slice(&next_packet[..read_len]);
+                read_buf.extend_from_slice(&next_packet[..read_len]);
                 rest -= read_len;
                 if rest == 0 {
                     self.buff_offset = read_len;
@@ -1054,7 +1054,7 @@ pub struct BatchBlockStream {
     /// about block 0 and block 1.
     block_metas: Vec<BlockMeta>,
 
-    buff: Bytes,
+    buf: Bytes,
 
     buff_offset: usize,
 
@@ -1090,7 +1090,7 @@ impl BatchBlockStream {
             byte_stream,
             block_idx: 0,
             block_metas,
-            buff: Bytes::default(),
+            buf: Bytes::default(),
             buff_offset: 0,
             object_id,
             cache,
@@ -1111,29 +1111,33 @@ impl BatchBlockStream {
             HummockError::object_io_error(ObjectError::internal("stream read error"))
         ));
         if let Some(block) = self.blocks.pop_front() {
+            self.block_idx += 1;
             return Ok(Some(block));
         }
         let mut read_buf = BytesMut::with_capacity(block_meta.len as usize);
-        let start_pos = if self.buff_offset < self.buff.len() {
-            read_buf.copy_from_slice(&self.buff[self.buff_offset..]);
-            self.buff.len() - self.buff_offset
+        let start_pos = if self.buff_offset < self.buf.len() {
+            read_buf.extend_from_slice(&self.buf[self.buff_offset..]);
+            self.buf.len() - self.buff_offset
         } else {
             0
         };
         let mut rest = block_meta.len as usize - start_pos;
         self.buff_offset = 0;
         while rest > 0 {
-            let next_packet = self
-                .byte_stream
-                .read_bytes()
-                .await
-                .unwrap_or_else(|| Err(ObjectError::internal("read unexpected EOF")))?;
+            let next_packet = match self.byte_stream.read_bytes().await {
+                Some(Ok(data)) => data,
+                Some(Err(e)) => return Err(e.into()),
+                None => {
+                    panic!("read eof: {}, {}", start_pos, rest);
+                }
+            };
+
             let read_len = std::cmp::min(next_packet.len(), rest);
-            read_buf.copy_from_slice(&next_packet[..read_len]);
+            read_buf.extend_from_slice(&next_packet[..read_len]);
             rest -= read_len;
             if rest == 0 {
                 self.buff_offset = read_len;
-                self.buff = next_packet;
+                self.buf = next_packet;
                 break;
             }
         }
@@ -1151,13 +1155,12 @@ impl BatchBlockStream {
         let mut buff_offset = self.buff_offset;
         while block_idx < self.block_metas.len() {
             let end = buff_offset + self.block_metas[block_idx].len as usize;
-            if end > self.buff.len() {
-                self.buff_offset = buff_offset;
+            if end > self.buf.len() {
                 break;
             }
             // copy again to avoid hold a large bytes reference in block-cache.
             let block = Block::decode(
-                Bytes::copy_from_slice(&self.buff[self.buff_offset..end]),
+                Bytes::copy_from_slice(&self.buf[buff_offset..end]),
                 self.block_metas[block_idx].uncompressed_size as usize,
             )?;
             let next_holder = self.cache.insert(
@@ -1171,6 +1174,7 @@ impl BatchBlockStream {
             block_idx += 1;
         }
 
+        self.buff_offset = buff_offset;
         self.block_idx += 1;
         Ok(Some(holder))
     }

@@ -205,12 +205,13 @@ impl ObjectStore for InMemObjectStore {
 }
 
 pub struct InMemDataIterator {
-    data: Option<Bytes>,
+    data: Bytes,
+    offset: usize,
 }
 
 impl InMemDataIterator {
     pub fn new(data: Bytes) -> Self {
-        Self { data: Some(data) }
+        Self { data, offset: 0 }
     }
 }
 
@@ -218,7 +219,14 @@ impl Stream for InMemDataIterator {
     type Item = ObjectResult<Bytes>;
 
     fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Poll::Ready(self.data.take().map(Ok))
+        const MAX_PACKET_SIZE: usize = 128 * 1024;
+        if self.offset >= self.data.len() {
+            return Poll::Ready(None);
+        }
+        let read_len = std::cmp::min(self.data.len() - self.offset, MAX_PACKET_SIZE);
+        let data = self.data.slice(self.offset..(self.offset + read_len));
+        self.offset += read_len;
+        Poll::Ready(Some(Ok(data)))
     }
 }
 

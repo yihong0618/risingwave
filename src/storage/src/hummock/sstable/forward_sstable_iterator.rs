@@ -120,16 +120,22 @@ impl SstableIterator {
         // do cooperative scheduling.
         tokio::task::consume_budget().await;
 
-        let block = if idx >= self.sst.value().block_count() {
-            self.block_iter = None;
+        self.block_iter = None;
+        if idx >= self.sst.value().block_count() {
             return Ok(());
         } else if let Some(preload_stream) = self.preload_stream.as_mut() && preload_stream.next_block_index() <= idx {
             while preload_stream.next_block_index() < idx {
                 preload_stream.next_block().await?;
             }
-            preload_stream.next_block().await?.expect("can read eof")
-        } else {
-            self
+            match preload_stream.next_block().await? {
+                Some(block) => self.block_iter = Some(BlockIterator::new(block)),
+                None => {
+                    self.preload_stream.take();
+                },
+            }
+        }
+        if self.block_iter.is_none() {
+            let block = self
                 .sstable_store
                 .get(
                     self.sst.value(),
@@ -137,16 +143,16 @@ impl SstableIterator {
                     self.options.cache_policy,
                     &mut self.stats,
                 )
-                .await?
+                .await?;
+            self.block_iter = Some(BlockIterator::new(block));
         };
-        let mut block_iter = BlockIterator::new(block);
+        let block_iter = self.block_iter.as_mut().unwrap();
         if let Some(key) = seek_key {
             block_iter.seek(key);
         } else {
             block_iter.seek_to_first();
         }
 
-        self.block_iter = Some(block_iter);
         self.cur_idx = idx;
         Ok(())
     }
@@ -236,11 +242,15 @@ impl SstableIteratorType for SstableIterator {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::Bound;
+
+    use bytes::Bytes;
     use itertools::Itertools;
     use rand::prelude::*;
     use risingwave_common::cache::CachePriority;
     use risingwave_common::catalog::TableId;
     use risingwave_common::hash::VirtualNode;
+    use risingwave_hummock_sdk::key::{TableKey, UserKey};
 
     use super::*;
     use crate::assert_bytes_eq;
@@ -393,12 +403,17 @@ mod tests {
         )
         .await;
 
+        let end_key = test_key_of(TEST_KEYS_COUNT / 2);
+        let uk = UserKey::new(
+            end_key.user_key.table_id,
+            TableKey(Bytes::from(end_key.user_key.table_key.0)),
+        );
         let mut sstable_iter = SstableIterator::create(
             table,
             sstable_store,
             Arc::new(SstableIteratorReadOptions {
                 cache_policy: CachePolicy::Fill(CachePriority::High),
-                must_iterated_end_user_key: None,
+                must_iterated_end_user_key: Some(Bound::Included(uk)),
             }),
         );
         let mut cnt = 0;
