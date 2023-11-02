@@ -218,8 +218,10 @@ impl GlobalBarrierManager {
     pub async fn recovery(
         &self,
         prev_epoch: TracedEpoch,
-        paused_reason: Option<PausedReason>,
+        _paused_reason: Option<PausedReason>,
     ) -> BarrierManagerState {
+        let paused_reason = Some(PausedReason::Manual);
+
         // Mark blocked and abort buffered schedules, they might be dirty already.
         self.scheduled_barriers
             .abort_and_mark_blocked("cluster is under recovering")
