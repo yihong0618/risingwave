@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 use std::clone::Clone;
+use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -257,47 +258,43 @@ impl SstableStore {
     pub async fn preload_blocks(
         &self,
         sst: &Sstable,
-        start_index: usize,
-        end_index: usize,
-    ) -> HummockResult<Vec<BlockHolder>> {
+        mut start_index: usize,
+        mut end_index: usize,
+    ) -> HummockResult<Option<BatchBlockStream>> {
         let object_id = sst.id;
-        let mut blocks_infos = Vec::with_capacity(end_index - start_index);
-        let mut blocks = Vec::with_capacity(end_index - start_index);
+        while start_index < end_index
+            && self.block_cache.exists_block(object_id, start_index as u64)
+        {
+            start_index += 1;
+        }
+        if start_index >= end_index {
+            return Ok(None);
+        }
         let start_offset = sst.meta.block_metas[start_index].offset as usize;
         let mut end_offset = start_offset;
         for idx in start_index..end_index {
             if self.block_cache.exists_block(object_id, idx as u64) {
+                end_index = idx;
                 break;
             }
             end_offset += sst.meta.block_metas[idx].len as usize;
-            blocks_infos.push((
-                sst.meta.block_metas[idx].len as usize,
-                sst.meta.block_metas[idx].uncompressed_size,
-            ));
         }
-        if blocks_infos.is_empty() {
-            return Ok(vec![]);
+        if end_offset == start_offset {
+            return Ok(None);
         }
         let data_path = self.get_sst_data_path(object_id);
-        let data = self
+        let reader = self
             .store
-            .read(&data_path, start_offset..end_offset)
+            .streaming_read(&data_path, start_offset..end_offset)
             .await?;
-        let mut last_offset = 0;
-        let mut cur_idx = start_index;
-        for (block_len, uncompressed_size) in blocks_infos {
-            let block = Box::new(Block::decode(
-                Bytes::copy_from_slice(&data[last_offset..(last_offset + block_len)]),
-                uncompressed_size as usize,
-            )?);
-            last_offset += block_len;
-            let block =
-                self.block_cache
-                    .insert(object_id, cur_idx as u64, block, CachePriority::High);
-            blocks.push(block);
-            cur_idx += 1;
-        }
-        Ok(blocks)
+        let block_metas = sst.meta.block_metas[start_index..end_index].to_vec();
+        Ok(Some(BatchBlockStream::new(
+            reader,
+            self.block_cache.clone(),
+            object_id,
+            start_index,
+            block_metas,
+        )))
     }
 
     pub async fn get_block_response(
@@ -1036,6 +1033,151 @@ impl BlockStream {
                 meta.uncompressed_size as usize,
             )?))),
         }
+    }
+}
+
+/// An iterator that reads the blocks of an SST step by step from a given stream of bytes.
+pub struct BatchBlockStream {
+    /// The stream that provides raw data.
+    byte_stream: MonitoredStreamingReader,
+
+    /// The index of the next block. Note that `block_idx` is relative to the start index of the
+    /// stream (and is compatible with `block_size_vec`); it is not relative to the corresponding
+    /// SST. That is, if streaming starts at block 2 of a given SST `T`, then `block_idx = 0`
+    /// refers to the third block of `T`.
+    block_idx: usize,
+
+    /// The sizes of each block which the stream reads. The first number states the compressed size
+    /// in the stream. The second number is the block's uncompressed size.  Note that the list does
+    /// not contain the size of blocks which precede the first streamed block. That is, if
+    /// streaming starts at block 2 of a given SST, then the list does not contain information
+    /// about block 0 and block 1.
+    block_metas: Vec<BlockMeta>,
+
+    buff: Bytes,
+
+    buff_offset: usize,
+
+    blocks: VecDeque<BlockHolder>,
+
+    cache: BlockCache,
+
+    object_id: HummockSstableObjectId,
+
+    start_block_index: usize,
+}
+
+impl BatchBlockStream {
+    /// Constructs a new `BlockStream` object that reads from the given `byte_stream` and interprets
+    /// the data as blocks of the SST described in `sst_meta`, starting at block `block_index`.
+    ///
+    /// If `block_index >= sst_meta.block_metas.len()`, then `BlockStream` will not read any data
+    /// from `byte_stream`.
+    fn new(
+        // The stream that provides raw data.
+        byte_stream: MonitoredStreamingReader,
+
+        cache: BlockCache,
+
+        object_id: HummockSstableObjectId,
+        // Index of the SST's block where the stream starts.
+        start_block_index: usize,
+        // Meta data of the SST that is streamed.
+        block_metas: Vec<BlockMeta>,
+    ) -> Self {
+        // Avoids panicking if `block_index` is too large.
+        Self {
+            byte_stream,
+            block_idx: 0,
+            block_metas,
+            buff: Bytes::default(),
+            buff_offset: 0,
+            object_id,
+            cache,
+            blocks: VecDeque::default(),
+            start_block_index,
+        }
+    }
+
+    /// Reads the next block from the stream and returns it. Returns `None` if there are no blocks
+    /// left to read.
+    pub async fn next_block(&mut self) -> HummockResult<Option<BlockHolder>> {
+        if self.block_idx >= self.block_metas.len() {
+            return Ok(None);
+        }
+
+        let block_meta = &self.block_metas[self.block_idx];
+        fail_point!("stream_batch_read_err", |_| Err(
+            HummockError::object_io_error(ObjectError::internal("stream read error"))
+        ));
+        let offset = block_meta.offset as usize;
+        if let Some(block) = self.blocks.pop_front() {
+            return Ok(Some(block));
+        }
+        let mut read_buf = BytesMut::with_capacity(block_meta.len as usize);
+        let start_pos = if self.buff_offset < self.buff.len() {
+            read_buf.copy_from_slice(&self.buff[self.buff_offset..]);
+            self.buff.len() - self.buff_offset
+        } else {
+            0
+        };
+        let mut rest = block_meta.len as usize - start_pos;
+        self.buff_offset = 0;
+        while rest > 0 {
+            let next_packet = self
+                .byte_stream
+                .read_bytes()
+                .await
+                .unwrap_or_else(|| Err(ObjectError::internal("read unexpected EOF")))?;
+            let read_len = std::cmp::min(next_packet.len(), rest);
+            read_buf.copy_from_slice(&next_packet[..read_len]);
+            rest -= read_len;
+            if rest == 0 {
+                self.buff_offset = read_len;
+                self.buff = next_packet;
+                break;
+            }
+        }
+        let block = Block::decode(
+            read_buf.freeze(),
+            self.block_metas[self.block_idx].uncompressed_size as usize,
+        )?;
+        let holder = self.cache.insert(
+            self.object_id,
+            self.block_idx as u64,
+            Box::new(block),
+            CachePriority::Low,
+        );
+        let mut block_idx = self.block_idx + 1;
+        let mut buff_offset = self.buff_offset;
+        while block_idx < self.block_metas.len() {
+            let end = buff_offset + self.block_metas[block_idx].len as usize;
+            if end > self.buff.len() {
+                self.buff_offset = buff_offset;
+                break;
+            }
+            // copy again to avoid hold a large bytes reference in block-cache.
+            let block = Block::decode(
+                Bytes::copy_from_slice(&self.buff[self.buff_offset..end]),
+                self.block_metas[block_idx].uncompressed_size as usize,
+            )?;
+            let next_holder = self.cache.insert(
+                self.object_id,
+                self.block_idx as u64,
+                Box::new(block),
+                CachePriority::Low,
+            );
+            self.blocks.push_back(next_holder);
+            buff_offset = end;
+            block_idx += 1;
+        }
+
+        self.block_idx += 1;
+        Ok(Some(holder))
+    }
+
+    pub fn next_block_index(&self) -> usize {
+        self.block_idx + self.start_block_index
     }
 }
 

@@ -22,7 +22,7 @@ use risingwave_hummock_sdk::key::FullKey;
 use super::super::{HummockResult, HummockValue};
 use crate::hummock::iterator::{Forward, HummockIterator};
 use crate::hummock::sstable::SstableIteratorReadOptions;
-use crate::hummock::{BlockHolder, BlockIterator, SstableStoreRef, TableHolder};
+use crate::hummock::{BatchBlockStream, BlockIterator, SstableStoreRef, TableHolder};
 use crate::monitor::StoreLocalStatistic;
 
 pub trait SstableIteratorType: HummockIterator + 'static {
@@ -33,8 +33,6 @@ pub trait SstableIteratorType: HummockIterator + 'static {
     ) -> Self;
 }
 
-const MAX_PREFETCH_BLOCK_NUM: usize = 10;
-
 /// Iterates on a sstable.
 pub struct SstableIterator {
     /// The iterator of the current block.
@@ -43,7 +41,7 @@ pub struct SstableIterator {
     /// Current block index.
     cur_idx: usize,
 
-    blocks: Vec<BlockHolder>,
+    preload_stream: Option<BatchBlockStream>,
     /// Reference to the sst
     pub sst: TableHolder,
 
@@ -61,7 +59,7 @@ impl SstableIterator {
         Self {
             block_iter: None,
             cur_idx: 0,
-            blocks: vec![],
+            preload_stream: None,
             sst: sstable,
             sstable_store,
             stats: StoreLocalStatistic::default(),
@@ -75,47 +73,24 @@ impl SstableIterator {
             let next_to_start_idx = start_idx + 1;
             if next_to_start_idx < block_metas.len() {
                 let dest_idx = match bound {
-                    Unbounded => block_metas.len(), // will not overflow
+                    Unbounded => block_metas.len(),
                     Included(dest_key) => {
                         let dest_key = dest_key.as_ref();
-                        if FullKey::decode(&block_metas[next_to_start_idx].smallest_key).user_key
-                            > dest_key
-                        {
-                            start_idx + 1
-                        } else {
-                            next_to_start_idx
-                                + block_metas[(next_to_start_idx + 1)..].partition_point(
-                                    |block_meta| {
-                                        FullKey::decode(&block_meta.smallest_key).user_key
-                                            <= dest_key
-                                    },
-                                )
-                        }
+                        block_metas.partition_point(|block_meta| {
+                            FullKey::decode(&block_meta.smallest_key).user_key <= dest_key
+                        })
                     }
                     Excluded(end_key) => {
                         let end_key = end_key.as_ref();
-                        if FullKey::decode(&block_metas[next_to_start_idx].smallest_key).user_key
-                            >= end_key
-                        {
-                            start_idx + 1
-                        } else {
-                            next_to_start_idx
-                                + block_metas[(next_to_start_idx + 1)..].partition_point(
-                                    |block_meta| {
-                                        FullKey::decode(&block_meta.smallest_key).user_key < end_key
-                                    },
-                                )
-                        }
+                        block_metas.partition_point(|block_meta| {
+                            FullKey::decode(&block_meta.smallest_key).user_key < end_key
+                        })
                     }
                 };
                 if start_idx + 1 < dest_idx {
-                    self.blocks = self
+                    self.preload_stream = self
                         .sstable_store
-                        .preload_blocks(
-                            self.sst.value(),
-                            start_idx,
-                            std::cmp::min(dest_idx, MAX_PREFETCH_BLOCK_NUM),
-                        )
+                        .preload_blocks(self.sst.value(), start_idx, dest_idx)
                         .await?;
                 }
             }
@@ -145,10 +120,16 @@ impl SstableIterator {
         // do cooperative scheduling.
         tokio::task::consume_budget().await;
 
-        if idx >= self.sst.value().block_count() {
+        let block = if idx >= self.sst.value().block_count() {
             self.block_iter = None;
+            return Ok(());
+        } else if let Some(preload_stream) = self.preload_stream.as_mut() && preload_stream.next_block_index() <= idx {
+            while preload_stream.next_block_index() < idx {
+                preload_stream.next_block().await?;
+            }
+            preload_stream.next_block().await?.expect("can read eof")
         } else {
-            let block = self
+            self
                 .sstable_store
                 .get(
                     self.sst.value(),
@@ -156,18 +137,17 @@ impl SstableIterator {
                     self.options.cache_policy,
                     &mut self.stats,
                 )
-                .await?;
-            let mut block_iter = BlockIterator::new(block);
-            if let Some(key) = seek_key {
-                block_iter.seek(key);
-            } else {
-                block_iter.seek_to_first();
-            }
-
-            self.block_iter = Some(block_iter);
-            self.cur_idx = idx;
+                .await?
+        };
+        let mut block_iter = BlockIterator::new(block);
+        if let Some(key) = seek_key {
+            block_iter.seek(key);
+        } else {
+            block_iter.seek_to_first();
         }
 
+        self.block_iter = Some(block_iter);
+        self.cur_idx = idx;
         Ok(())
     }
 }
