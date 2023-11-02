@@ -17,7 +17,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use await_tree::InstrumentAwait;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use fail::fail_point;
 use futures::{future, StreamExt};
 use itertools::Itertools;
@@ -269,21 +269,31 @@ impl SstableStore {
             if self.block_cache.exists_block(object_id, idx as u64) {
                 break;
             }
-            end_offset += sst.meta.block_metas[idx].len as  usize;
-            blocks_infos.push((sst.meta.block_metas[idx].len as usize, sst.meta.block_metas[idx].uncompressed_size));
+            end_offset += sst.meta.block_metas[idx].len as usize;
+            blocks_infos.push((
+                sst.meta.block_metas[idx].len as usize,
+                sst.meta.block_metas[idx].uncompressed_size,
+            ));
         }
         if blocks_infos.is_empty() {
             return Ok(vec![]);
         }
         let data_path = self.get_sst_data_path(object_id);
-        let data = self.store.read(&data_path, start_offset..end_offset).await?;
+        let data = self
+            .store
+            .read(&data_path, start_offset..end_offset)
+            .await?;
         let mut last_offset = 0;
         let mut cur_idx = start_index;
         for (block_len, uncompressed_size) in blocks_infos {
             let block = Box::new(Block::decode(
-                Bytes::copy_from_slice(&data[last_offset..(last_offset+block_len)]), uncompressed_size as usize)?);
+                Bytes::copy_from_slice(&data[last_offset..(last_offset + block_len)]),
+                uncompressed_size as usize,
+            )?);
             last_offset += block_len;
-            let block = self.block_cache.insert(object_id, cur_idx as u64, block, CachePriority::High);
+            let block =
+                self.block_cache
+                    .insert(object_id, cur_idx as u64, block, CachePriority::High);
             blocks.push(block);
             cur_idx += 1;
         }
@@ -545,7 +555,7 @@ impl SstableStore {
             .get(block_index)
             .ok_or_else(HummockError::invalid_block)?;
         let start_pos = block_meta.offset as usize;
-        let end_pos = metas.iter().map(|meta|meta.len as usize).sum::<usize>() + start_pos;
+        let end_pos = metas.iter().map(|meta| meta.len as usize).sum::<usize>() + start_pos;
         let range = start_pos..end_pos;
 
         Ok(BlockStream::new(
@@ -555,6 +565,7 @@ impl SstableStore {
                 .map_err(HummockError::object_io_error)?,
             block_index,
             metas,
+            start_pos,
         ))
     }
 
@@ -926,6 +937,12 @@ pub struct BlockStream {
     /// streaming starts at block 2 of a given SST, then the list does not contain information
     /// about block 0 and block 1.
     block_metas: Vec<BlockMeta>,
+
+    buff: Bytes,
+
+    file_pos: usize,
+
+    buff_offset: usize,
 }
 
 impl BlockStream {
@@ -943,6 +960,7 @@ impl BlockStream {
 
         // Meta data of the SST that is streamed.
         metas: &[BlockMeta],
+        start_offset: usize,
     ) -> Self {
         // Avoids panicking if `block_index` is too large.
         let block_index = std::cmp::min(block_index, metas.len());
@@ -951,6 +969,9 @@ impl BlockStream {
             byte_stream,
             block_idx: 0,
             block_metas: metas[block_index..].to_vec(),
+            buff: Bytes::default(),
+            file_pos: start_offset,
+            buff_offset: 0,
         }
     }
 
@@ -962,27 +983,49 @@ impl BlockStream {
         }
 
         let block_meta = &self.block_metas[self.block_idx];
-        let mut buffer = vec![0; block_meta.len as usize];
         fail_point!("stream_read_err", |_| Err(HummockError::object_io_error(
             ObjectError::internal("stream read error")
         )));
-
-        let bytes_read = self
-            .byte_stream
-            .read_bytes(&mut buffer[..])
-            .await
-            .map_err(|e| HummockError::object_io_error(ObjectError::internal(e)))?;
-
-        if bytes_read != block_meta.len as usize {
-            return Err(HummockError::decode_error(ObjectError::internal(format!(
-                "unexpected number of bytes: expected: {} read: {}",
-                block_meta.len, bytes_read
-            ))));
-        }
+        let offset = block_meta.offset as usize;
+        let end = offset + block_meta.len as usize;
+        let data = if end > self.file_pos + self.buff.len() {
+            let mut read_buf = BytesMut::with_capacity(block_meta.len as usize);
+            let start_pos = if self.buff_offset < self.buff.len() {
+                assert!(offset < self.file_pos + self.buff.len());
+                read_buf.copy_from_slice(&self.buff[self.buff_offset..]);
+                self.buff.len() - self.buff_offset
+            } else {
+                0
+            };
+            let mut rest = block_meta.len as usize - start_pos;
+            self.buff_offset = 0;
+            self.file_pos += self.buff.len();
+            while rest > 0 {
+                let next_packet = self
+                    .byte_stream
+                    .read_bytes()
+                    .await
+                    .unwrap_or_else(|| Err(ObjectError::internal("read unexpected EOF")))?;
+                let read_len = std::cmp::min(next_packet.len(), rest);
+                read_buf.copy_from_slice(&next_packet[..read_len]);
+                rest -= read_len;
+                if rest == 0 {
+                    self.buff_offset = read_len;
+                    self.buff = next_packet;
+                    break;
+                }
+                self.file_pos += next_packet.len();
+            }
+            read_buf.freeze()
+        } else {
+            let end = self.buff_offset + block_meta.len as usize;
+            let data = self.buff.slice(self.buff_offset..end);
+            self.buff_offset = end;
+            data
+        };
 
         self.block_idx += 1;
-
-        Ok(Some((Bytes::from(buffer), block_meta.clone())))
+        Ok(Some((data, block_meta.clone())))
     }
 
     pub async fn next_block(&mut self) -> HummockResult<Option<Box<Block>>> {

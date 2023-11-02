@@ -412,11 +412,10 @@ impl<K: HashKey, S: StateStore> JoinHashMap<K, S> {
         if self.need_degree_table {
             let sub_range: &(Bound<OwnedRow>, Bound<OwnedRow>) =
                 &(Bound::Unbounded, Bound::Unbounded);
-            let table_iter_fut = self.state.table.iter_with_prefix(
-                &key,
-                sub_range,
-                PrefetchOptions::default(),
-            );
+            let table_iter_fut =
+                self.state
+                    .table
+                    .iter_with_prefix(&key, sub_range, PrefetchOptions::default());
             let degree_table_iter_fut = self.degree_state.table.iter_with_prefix(
                 &key,
                 sub_range,

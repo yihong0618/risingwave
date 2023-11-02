@@ -38,13 +38,12 @@ use aws_smithy_types::retry::RetryConfig;
 use either::Either;
 use fail::fail_point;
 use futures::future::{try_join_all, BoxFuture, FutureExt};
-use futures::{stream, Stream};
+use futures::{stream, Stream, StreamExt};
 use hyper::Body;
 use itertools::Itertools;
 use risingwave_common::config::default::s3_objstore_config;
 use risingwave_common::monitor::connection::monitor_connector;
 use risingwave_common::range::RangeBoundsExt;
-use tokio::io::AsyncRead;
 use tokio::task::JoinHandle;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 
@@ -53,7 +52,7 @@ use super::{
     BoxedStreamingUploader, Bytes, ObjectError, ObjectMetadata, ObjectRangeBounds, ObjectResult,
     ObjectStore, StreamingUploader,
 };
-use crate::object::{try_update_failure_metric, ObjectMetadataIter};
+use crate::object::{try_update_failure_metric, ObjectDataStream, ObjectMetadataIter};
 
 type PartId = i32;
 
@@ -428,7 +427,7 @@ impl ObjectStore for S3ObjectStore {
         &self,
         path: &str,
         range: Range<usize>,
-    ) -> ObjectResult<Box<dyn AsyncRead + Unpin + Send + Sync>> {
+    ) -> ObjectResult<ObjectDataStream> {
         fail_point!("s3_streaming_read_err", |_| Err(ObjectError::internal(
             "s3 streaming read error"
         )));
@@ -437,11 +436,7 @@ impl ObjectStore for S3ObjectStore {
         let resp = tokio_retry::RetryIf::spawn(
             self.config.get_retry_strategy(),
             || async {
-                match self
-                    .obj_store_request(path, range.clone())
-                    .send()
-                    .await
-                {
+                match self.obj_store_request(path, range.clone()).send().await {
                     Ok(resp) => Ok(resp),
                     Err(err) => {
                         if let SdkError::DispatchFailure(e) = &err
@@ -461,7 +456,7 @@ impl ObjectStore for S3ObjectStore {
         )
         .await?;
 
-        Ok(Box::new(resp.body.into_async_read()))
+        Ok(Box::pin(S3DataStream::new(resp.body)))
     }
 
     /// Permanently deletes the whole object.
@@ -525,6 +520,34 @@ impl ObjectStore for S3ObjectStore {
 
     fn store_media_type(&self) -> &'static str {
         "s3"
+    }
+}
+
+pub struct S3DataStream {
+    inner: ByteStream,
+}
+
+impl S3DataStream {
+    pub fn new(inner: ByteStream) -> Self {
+        Self { inner }
+    }
+}
+
+impl Stream for S3DataStream {
+    type Item = ObjectResult<Bytes>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let ret = ready!(self.inner.poll_next_unpin(cx));
+        let ret = match ret {
+            Some(Ok(data)) => Some(Ok(data)),
+            None => None,
+            Some(Err(e)) => Some(Err(ObjectError::from(e))),
+        };
+        Poll::Ready(ret)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
     }
 }
 

@@ -233,8 +233,7 @@ impl<S: StateStore> LogReader for KvLogStoreReader<S> {
                                             (Included(range_start), Included(range_end)),
                                             u64::MAX,
                                             ReadOptions {
-                                                prefetch_options:
-                                                    PrefetchOptions::default(),
+                                                prefetch_options: PrefetchOptions::default(),
                                                 cache_policy: CachePolicy::Fill(CachePriority::Low),
                                                 table_id,
                                                 ..Default::default()

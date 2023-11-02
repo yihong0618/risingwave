@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::collections::{HashMap, VecDeque};
-use std::io::Cursor;
 use std::ops::Range;
 use std::pin::Pin;
 use std::sync::{Arc, LazyLock};
@@ -26,14 +25,13 @@ use futures::Stream;
 use itertools::Itertools;
 use risingwave_common::range::RangeBoundsExt;
 use thiserror::Error;
-use tokio::io::AsyncRead;
 use tokio::sync::Mutex;
 
 use super::{
     BoxedStreamingUploader, ObjectError, ObjectMetadata, ObjectRangeBounds, ObjectResult,
     ObjectStore, StreamingUploader,
 };
-use crate::object::ObjectMetadataIter;
+use crate::object::{ObjectDataStream, ObjectMetadataIter};
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -145,14 +143,13 @@ impl ObjectStore for InMemObjectStore {
         &self,
         path: &str,
         read_range: Range<usize>,
-    ) -> ObjectResult<Box<dyn AsyncRead + Unpin + Send + Sync>> {
+    ) -> ObjectResult<ObjectDataStream> {
         fail_point!("mem_streaming_read_err", |_| Err(ObjectError::internal(
             "mem streaming read error"
         )));
-        let bytes = self
-            .get_object(path, read_range)
-            .await?;
-        Ok(Box::new(Cursor::new(bytes)))
+        let bytes = self.get_object(path, read_range).await?;
+
+        Ok(Box::pin(InMemDataIterator::new(bytes)))
     }
 
     async fn metadata(&self, path: &str) -> ObjectResult<ObjectMetadata> {
@@ -204,6 +201,24 @@ impl ObjectStore for InMemObjectStore {
 
     fn store_media_type(&self) -> &'static str {
         "mem"
+    }
+}
+
+pub struct InMemDataIterator {
+    data: Option<Bytes>,
+}
+
+impl InMemDataIterator {
+    pub fn new(data: Bytes) -> Self {
+        Self { data: Some(data) }
+    }
+}
+
+impl Stream for InMemDataIterator {
+    type Item = ObjectResult<Bytes>;
+
+    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Poll::Ready(self.data.take().map(|ret| Ok(ret)))
     }
 }
 

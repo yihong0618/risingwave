@@ -18,7 +18,6 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use prometheus::HistogramTimer;
-use tokio::io::{AsyncRead, AsyncReadExt};
 
 pub mod mem;
 pub use mem::*;
@@ -29,6 +28,7 @@ pub use opendal_engine::*;
 pub mod s3;
 use await_tree::InstrumentAwait;
 use futures::stream::BoxStream;
+use futures::StreamExt;
 pub use s3::*;
 
 pub mod error;
@@ -99,7 +99,7 @@ pub trait ObjectStore: Send + Sync {
         &self,
         path: &str,
         read_range: Range<usize>,
-    ) -> ObjectResult<Box<dyn AsyncRead + Unpin + Send + Sync>>;
+    ) -> ObjectResult<ObjectDataStream>;
 
     /// Obtains the object metadata.
     async fn metadata(&self, path: &str) -> ObjectResult<ObjectMetadata>;
@@ -412,9 +412,8 @@ impl MonitoredStreamingUploader {
     }
 }
 
-type BoxedStreamingReader = Box<dyn AsyncRead + Unpin + Send + Sync>;
 pub struct MonitoredStreamingReader {
-    inner: BoxedStreamingReader,
+    inner: ObjectDataStream,
     object_store_metrics: Arc<ObjectStoreMetrics>,
     operation_size: usize,
     media_type: &'static str,
@@ -425,7 +424,7 @@ pub struct MonitoredStreamingReader {
 impl MonitoredStreamingReader {
     pub fn new(
         media_type: &'static str,
-        handle: BoxedStreamingReader,
+        handle: ObjectDataStream,
         object_store_metrics: Arc<ObjectStoreMetrics>,
         streaming_read_timeout: Option<Duration>,
     ) -> Self {
@@ -447,39 +446,42 @@ impl MonitoredStreamingReader {
     // This is a clippy bug, see https://github.com/rust-lang/rust-clippy/issues/11380.
     // TODO: remove `allow` here after the issued is closed.
     #[expect(clippy::needless_pass_by_ref_mut)]
-    pub async fn read_bytes(&mut self, buf: &mut [u8]) -> ObjectResult<usize> {
+    pub async fn read_bytes(&mut self) -> Option<ObjectResult<Bytes>> {
         let operation_type = "streaming_read_read_bytes";
-        let data_len = buf.len();
-        self.object_store_metrics.read_bytes.inc_by(data_len as u64);
-        self.object_store_metrics
-            .operation_size
-            .with_label_values(&[operation_type])
-            .observe(data_len as f64);
         let _timer = self
             .object_store_metrics
             .operation_latency
             .with_label_values(&[self.media_type, operation_type])
             .start_timer();
-        self.operation_size += data_len;
         let future = async {
             self.inner
-                .read_exact(buf)
+                .next()
                 .verbose_instrument_await("object_store_streaming_read_read_bytes")
                 .await
-                .map_err(|err| {
-                    ObjectError::internal(format!("read_bytes failed, error: {:?}", err))
-                })
         };
         let res = match self.streaming_read_timeout.as_ref() {
             None => future.await,
             Some(timeout) => tokio::time::timeout(*timeout, future)
                 .await
                 .unwrap_or_else(|_| {
-                    Err(ObjectError::internal("streaming_read read_bytes timeout"))
+                    Some(Err(ObjectError::internal(
+                        "streaming_read read_bytes timeout",
+                    )))
                 }),
         };
 
-        try_update_failure_metric(&self.object_store_metrics, &res, operation_type);
+        if let Some(ret) = &res {
+            try_update_failure_metric(&self.object_store_metrics, &ret, operation_type);
+        }
+        if let Some(Ok(data)) = &res {
+            let data_len = data.len();
+            self.object_store_metrics.read_bytes.inc_by(data_len as u64);
+            self.object_store_metrics
+                .operation_size
+                .with_label_values(&[operation_type])
+                .observe(data_len as f64);
+            self.operation_size += data_len;
+        }
         res
     }
 }
@@ -890,3 +892,4 @@ pub async fn parse_remote_object_store(
 }
 
 pub type ObjectMetadataIter = BoxStream<'static, ObjectResult<ObjectMetadata>>;
+pub type ObjectDataStream = BoxStream<'static, ObjectResult<Bytes>>;

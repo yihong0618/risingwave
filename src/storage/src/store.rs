@@ -282,7 +282,9 @@ impl PrefetchOptions {
     }
 
     pub fn new_with_exhaust_iter(exhaust_iter: bool) -> Self {
-        Self { preload: exhaust_iter, }
+        Self {
+            preload: exhaust_iter,
+        }
     }
 }
 

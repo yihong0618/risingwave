@@ -267,6 +267,7 @@ impl Sstable {
         let uncompressed_capacity = block_meta.uncompressed_size as usize;
         (range, uncompressed_capacity)
     }
+
     #[inline(always)]
     pub fn hash_for_bloom_filter_u32(dist_key: &[u8], table_id: u32) -> u32 {
         let dist_key_hash = xxh32::xxh32(dist_key, 0);

@@ -101,11 +101,7 @@ impl<S: StateStore> SourceStateTableHandler<S> {
         // all source executor has vnode id zero
         let iter = self
             .state_store
-            .iter_with_vnode(
-                VirtualNode::ZERO,
-                &(start, end),
-                PrefetchOptions::default(),
-            )
+            .iter_with_vnode(VirtualNode::ZERO, &(start, end), PrefetchOptions::default())
             .await?;
 
         let mut set = HashSet::new();

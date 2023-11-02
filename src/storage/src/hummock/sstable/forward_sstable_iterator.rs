@@ -22,10 +22,7 @@ use risingwave_hummock_sdk::key::FullKey;
 use super::super::{HummockResult, HummockValue};
 use crate::hummock::iterator::{Forward, HummockIterator};
 use crate::hummock::sstable::SstableIteratorReadOptions;
-use crate::hummock::{
-    BlockHolder, BlockIterator, SstableStoreRef,
-    TableHolder,
-};
+use crate::hummock::{BlockHolder, BlockIterator, SstableStoreRef, TableHolder};
 use crate::monitor::StoreLocalStatistic;
 
 pub trait SstableIteratorType: HummockIterator + 'static {
@@ -37,7 +34,6 @@ pub trait SstableIteratorType: HummockIterator + 'static {
 }
 
 const MAX_PREFETCH_BLOCK_NUM: usize = 10;
-
 
 /// Iterates on a sstable.
 pub struct SstableIterator {
@@ -79,7 +75,7 @@ impl SstableIterator {
             let next_to_start_idx = start_idx + 1;
             if next_to_start_idx < block_metas.len() {
                 let dest_idx = match bound {
-                    Unbounded => block_metas.len() , // will not overflow
+                    Unbounded => block_metas.len(), // will not overflow
                     Included(dest_key) => {
                         let dest_key = dest_key.as_ref();
                         if FullKey::decode(&block_metas[next_to_start_idx].smallest_key).user_key
@@ -113,9 +109,14 @@ impl SstableIterator {
                     }
                 };
                 if start_idx + 1 < dest_idx {
-                    self.blocks = self.sstable_store.preload_blocks(self.sst.value(),
-                                                                    start_idx,
-                                                                    std::cmp::min(dest_idx, MAX_PREFETCH_BLOCK_NUM)).await?;
+                    self.blocks = self
+                        .sstable_store
+                        .preload_blocks(
+                            self.sst.value(),
+                            start_idx,
+                            std::cmp::min(dest_idx, MAX_PREFETCH_BLOCK_NUM),
+                        )
+                        .await?;
                 }
             }
         }
@@ -149,7 +150,12 @@ impl SstableIterator {
         } else {
             let block = self
                 .sstable_store
-                .get(self.sst.value(), idx, self.options.cache_policy, &mut self.stats)
+                .get(
+                    self.sst.value(),
+                    idx,
+                    self.options.cache_policy,
+                    &mut self.stats,
+                )
                 .await?;
             let mut block_iter = BlockIterator::new(block);
             if let Some(key) = seek_key {

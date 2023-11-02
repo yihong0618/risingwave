@@ -21,13 +21,12 @@ use fail::fail_point;
 use futures::future::BoxFuture;
 use futures::{FutureExt, Stream, StreamExt};
 use opendal::services::Memory;
-use opendal::{Entry, Error, Lister, Metakey, Operator, Writer};
+use opendal::{Entry, Error, Lister, Metakey, Operator, Reader, Writer};
 use risingwave_common::range::RangeBoundsExt;
-use tokio::io::AsyncRead;
 
 use crate::object::{
-    BoxedStreamingUploader, ObjectError, ObjectMetadata, ObjectMetadataIter, ObjectRangeBounds,
-    ObjectResult, ObjectStore, StreamingUploader,
+    BoxedStreamingUploader, ObjectDataStream, ObjectError, ObjectMetadata, ObjectMetadataIter,
+    ObjectRangeBounds, ObjectResult, ObjectStore, StreamingUploader,
 };
 
 /// Opendal object storage.
@@ -108,15 +107,14 @@ impl ObjectStore for OpendalObjectStore {
         &self,
         path: &str,
         range: Range<usize>,
-    ) -> ObjectResult<Box<dyn AsyncRead + Unpin + Send + Sync>> {
+    ) -> ObjectResult<ObjectDataStream> {
         fail_point!("opendal_streaming_read_err", |_| Err(
             ObjectError::internal("opendal streaming read error")
         ));
         let range: Range<u64> = (range.start as u64)..(range.end as u64);
-        let reader =
-            self.op.range_reader(path, range).await?;
+        let reader = self.op.range_reader(path, range).await?;
 
-        Ok(Box::new(reader))
+        Ok(Box::pin(OpenDalDataIter::new(reader)))
     }
 
     async fn metadata(&self, path: &str) -> ObjectResult<ObjectMetadata> {
@@ -292,6 +290,36 @@ impl Stream for OpenDalObjectIter {
         let f = async move { (lister.next().await, lister) };
         self.next_future = Some(Box::pin(f));
         self.poll_next(cx)
+    }
+}
+
+pub struct OpenDalDataIter {
+    inner: Reader,
+}
+
+impl OpenDalDataIter {
+    pub fn new(inner: Reader) -> Self {
+        Self { inner }
+    }
+}
+
+impl Stream for OpenDalDataIter {
+    type Item = ObjectResult<Bytes>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let ret = ready!(self.inner.poll_next_unpin(cx));
+        match ret {
+            Some(Ok(data)) => Poll::Ready(Some(Ok(data))),
+            None => Poll::Ready(None),
+            Some(Err(e)) => Poll::Ready(Some(Err(ObjectError::internal(format!(
+                "OpenDalError: {:?}",
+                e
+            ))))),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
     }
 }
 
