@@ -1110,7 +1110,6 @@ impl BatchBlockStream {
         fail_point!("stream_batch_read_err", |_| Err(
             HummockError::object_io_error(ObjectError::internal("stream read error"))
         ));
-        let offset = block_meta.offset as usize;
         if let Some(block) = self.blocks.pop_front() {
             return Ok(Some(block));
         }

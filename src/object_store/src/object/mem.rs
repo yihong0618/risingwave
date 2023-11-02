@@ -218,7 +218,7 @@ impl Stream for InMemDataIterator {
     type Item = ObjectResult<Bytes>;
 
     fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Poll::Ready(self.data.take().map(|ret| Ok(ret)))
+        Poll::Ready(self.data.take().map(Ok))
     }
 }
 

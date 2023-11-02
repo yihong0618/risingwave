@@ -445,9 +445,6 @@ impl MonitoredStreamingReader {
         }
     }
 
-    // This is a clippy bug, see https://github.com/rust-lang/rust-clippy/issues/11380.
-    // TODO: remove `allow` here after the issued is closed.
-    #[expect(clippy::needless_pass_by_ref_mut)]
     pub async fn read_bytes(&mut self) -> Option<ObjectResult<Bytes>> {
         let operation_type = "streaming_read_read_bytes";
         let _timer = self
@@ -473,7 +470,7 @@ impl MonitoredStreamingReader {
         };
 
         if let Some(ret) = &res {
-            try_update_failure_metric(&self.object_store_metrics, &ret, operation_type);
+            try_update_failure_metric(&self.object_store_metrics, ret, operation_type);
         }
         if let Some(Ok(data)) = &res {
             let data_len = data.len();
