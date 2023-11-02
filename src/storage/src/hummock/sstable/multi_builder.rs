@@ -279,6 +279,9 @@ where
                 if self.split_weight_by_vnode > 1 {
                     self.largest_vnode_in_current_partition =
                         VirtualNode::COUNT / (self.split_weight_by_vnode as usize) - 1;
+                } else {
+                    // default
+                    self.largest_vnode_in_current_partition = VirtualNode::MAX.to_index();
                 }
             }
         }
