@@ -257,13 +257,20 @@ where
         let mut switch_builder = false;
         let mut vnode_changed = false;
         if user_key.table_id.table_id != self.last_table_id {
+            // next table new_vnode_partition_count
             let new_vnode_partition_count =
                 self.table_partition_vnode.get(&user_key.table_id.table_id);
 
+            // next table or last table need to cut sst file
             if new_vnode_partition_count.is_some()
                 || self.table_partition_vnode.contains_key(&self.last_table_id)
             {
-                self.split_weight_by_vnode = *new_vnode_partition_count.unwrap();
+                if new_vnode_partition_count.is_some() {
+                    self.split_weight_by_vnode = *new_vnode_partition_count.unwrap();
+                } else {
+                    self.split_weight_by_vnode = 0;
+                }
+
                 // table_id change
                 self.last_table_id = user_key.table_id.table_id;
                 switch_builder = true;
