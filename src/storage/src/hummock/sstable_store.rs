@@ -552,7 +552,11 @@ impl SstableStore {
             .get(block_index)
             .ok_or_else(HummockError::invalid_block)?;
         let start_pos = block_meta.offset as usize;
-        let end_pos = metas.iter().map(|meta| meta.len as usize).sum::<usize>() + start_pos;
+        let end_pos = metas[block_index..]
+            .iter()
+            .map(|meta| meta.len as usize)
+            .sum::<usize>()
+            + start_pos;
         let range = start_pos..end_pos;
 
         Ok(BlockStream::new(
@@ -1147,7 +1151,7 @@ impl BatchBlockStream {
         )?;
         let holder = self.cache.insert(
             self.object_id,
-            self.block_idx as u64,
+            (self.start_block_index + self.block_idx) as u64,
             Box::new(block),
             CachePriority::Low,
         );
@@ -1165,7 +1169,7 @@ impl BatchBlockStream {
             )?;
             let next_holder = self.cache.insert(
                 self.object_id,
-                self.block_idx as u64,
+                (self.start_block_index + block_idx) as u64,
                 Box::new(block),
                 CachePriority::Low,
             );

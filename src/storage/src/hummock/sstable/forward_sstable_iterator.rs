@@ -120,21 +120,25 @@ impl SstableIterator {
         // do cooperative scheduling.
         tokio::task::consume_budget().await;
 
-        self.block_iter = None;
+        let mut hit_cache = false;
         if idx >= self.sst.value().block_count() {
+            self.block_iter = None;
             return Ok(());
         } else if let Some(preload_stream) = self.preload_stream.as_mut() && preload_stream.next_block_index() <= idx {
             while preload_stream.next_block_index() < idx {
                 preload_stream.next_block().await?;
             }
             match preload_stream.next_block().await? {
-                Some(block) => self.block_iter = Some(BlockIterator::new(block)),
+                Some(block) => {
+                    hit_cache = true;
+                    self.block_iter = Some(BlockIterator::new(block))
+                },
                 None => {
                     self.preload_stream.take();
                 },
             }
         }
-        if self.block_iter.is_none() {
+        if !hit_cache {
             let block = self
                 .sstable_store
                 .get(

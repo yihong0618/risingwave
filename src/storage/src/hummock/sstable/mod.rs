@@ -45,8 +45,6 @@ use risingwave_hummock_sdk::key::{
     FullKey, KeyPayloadType, PointRange, TableKey, UserKey, UserKeyRangeRef,
 };
 use risingwave_hummock_sdk::{HummockEpoch, HummockSstableObjectId};
-#[cfg(test)]
-use risingwave_pb::hummock::{KeyRange, SstableInfo};
 
 mod delete_range_aggregator;
 mod filter;
@@ -294,24 +292,6 @@ impl Sstable {
     #[inline]
     pub fn estimate_size(&self) -> usize {
         8 /* id */ + self.filter_reader.estimate_size() + self.meta.encoded_size()
-    }
-
-    #[cfg(test)]
-    pub fn get_sstable_info(&self) -> SstableInfo {
-        SstableInfo {
-            object_id: self.id,
-            sst_id: self.id,
-            key_range: Some(KeyRange {
-                left: self.meta.smallest_key.clone(),
-                right: self.meta.largest_key.clone(),
-                right_exclusive: false,
-            }),
-            file_size: self.meta.estimated_size as u64,
-            meta_offset: self.meta.meta_offset,
-            total_key_count: self.meta.key_count as u64,
-            uncompressed_file_size: self.meta.estimated_size as u64,
-            ..Default::default()
-        }
     }
 }
 
