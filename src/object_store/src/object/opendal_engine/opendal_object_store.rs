@@ -16,13 +16,11 @@ use std::ops::Range;
 use std::pin::Pin;
 use std::task::{ready, Context, Poll};
 
-
 use bytes::Bytes;
 use fail::fail_point;
-use futures::{stream, StreamExt};
+use futures::{stream, Stream, StreamExt};
 use opendal::services::Memory;
-use opendal::{Entry, Error, Lister, Metakey, Operator, Reader, Writer};
-
+use opendal::{Metakey, Operator, Reader, Writer};
 use risingwave_common::range::RangeBoundsExt;
 
 use crate::object::{
@@ -118,8 +116,7 @@ impl ObjectStore for OpendalObjectStore {
             ObjectError::internal("opendal streaming read error")
         ));
         let range: Range<u64> = (range.start as u64)..(range.end as u64);
-        let reader = self.op.range_reader(path, range).await?;
-
+        let reader = self.op.reader_with(path).range(range).await?;
 
         Ok(Box::pin(OpenDalDataIter::new(reader)))
     }
