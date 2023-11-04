@@ -36,10 +36,6 @@ use crate::scalar::ToJsonb;
 #[aggregate("jsonb_agg(bytea) -> jsonb")]
 #[aggregate("jsonb_agg(jsonb) -> jsonb")]
 fn jsonb_agg(state: &mut JsonbArrayState, input: Option<impl ToJsonb>) -> Result<()> {
-    // FIXME(runji):
-    // None of the input types we currently support depend on `data_type` in `add_to`.
-    // So we just use a dummy type here.
-    // To get the correct type, we need to support `ctx: &Context` argument in `#[aggregate]`.
     let data_type = &DataType::Int32;
 
     input.add_to(data_type, &mut state.0)?;
@@ -68,10 +64,6 @@ fn jsonb_object_agg(
     key: Option<&str>,
     value: Option<impl ToJsonb>,
 ) -> Result<()> {
-    // FIXME(runji):
-    // None of the input types we currently support depend on `data_type` in `add_to`.
-    // So we just use a dummy type here.
-    // To get the correct type, we need to support `ctx: &Context` argument in `#[aggregate]`.
     let data_type = &DataType::Int32;
 
     let key = key.ok_or(ExprError::FieldNameNull)?;
