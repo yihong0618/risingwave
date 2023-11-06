@@ -36,6 +36,8 @@ statement error
 CREATE MATERIALIZED VIEW m3 as SELECT * FROM t;
 
 # Wait for background ddl to finish
+statement ok
+WAIT;
 
 query I
 select count(*) from m1;
