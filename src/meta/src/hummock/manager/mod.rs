@@ -2192,7 +2192,7 @@ impl HummockManager {
                     .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
                 // TEST
-                // split_group_trigger_interval.reset(); 
+                // split_group_trigger_interval.reset();
 
                 let split_group_trigger = IntervalStream::new(split_group_trigger_interval)
                     .map(|_| HummockTimerEvent::GroupSplit);
@@ -2544,9 +2544,9 @@ impl HummockManager {
 
                 {
                     if is_high_write_throughput {
-                        table_vnode_partition_mapping.insert(*table_id, 8_u32);
+                        table_vnode_partition_mapping.insert(*table_id, 16_u32);
                     } else if state_table_size > self.env.opts.cut_table_size_limit {
-                        table_vnode_partition_mapping.insert(*table_id, 4_u32);
+                        table_vnode_partition_mapping.insert(*table_id, 1_u32);
                     } else {
                         table_vnode_partition_mapping.remove(table_id);
                     }

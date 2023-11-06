@@ -86,7 +86,6 @@ where
     F: TableBuilderFactory,
 {
     /// Creates a new [`CapacitySplitTableBuilder`] using given configuration generator.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         builder_factory: F,
         compactor_metrics: Arc<CompactorMetrics>,
@@ -182,6 +181,10 @@ where
         is_new_user_key: bool,
     ) -> HummockResult<()> {
         let (switch_builder, vnode_changed) = self.check_table_and_vnode_change(&full_key.user_key);
+        // println!(
+        //     "check_table_and_vnode_change {} {}",
+        //     switch_builder, vnode_changed
+        // );
 
         // We use this `need_seal_current` flag to store whether we need to call `seal_current` and
         // then call `seal_current` later outside the `if let` instead of calling
@@ -227,6 +230,11 @@ where
             }
         }
 
+        // println!(
+        //     "need_seal_current {} self.current_builder {}",
+        //     need_seal_current,
+        //     self.current_builder.is_some()
+        // );
         if need_seal_current {
             self.seal_current().await?;
         }
@@ -285,6 +293,7 @@ where
                 }
             }
         }
+
         if self.largest_vnode_in_current_partition != VirtualNode::MAX.to_index() {
             let key_vnode = user_key.get_vnode_id();
             if key_vnode != self.last_vnode {
@@ -309,6 +318,12 @@ where
                 debug_assert!(key_vnode <= self.largest_vnode_in_current_partition);
             }
         }
+
+        // println!(
+        //     "self.last_table_id {} self.last_vnode {} self.largest_vnode_in_current_partition {} self.split_weight_by_vnode {}",
+        //     self.last_table_id, self.last_vnode, self.largest_vnode_in_current_partition, self.split_weight_by_vnode
+        // );
+
         (switch_builder, vnode_changed)
     }
 
@@ -835,5 +850,76 @@ mod tests {
         assert_eq!(key_range.left, expected_left);
         assert_eq!(key_range.right, expected_right);
         assert!(key_range.right_exclusive);
+    }
+
+    #[tokio::test]
+    async fn test_check_table_and_vnode_change() {
+        let block_size = 256;
+        let table_capacity = 2 * block_size;
+        let opts = SstableBuilderOptions {
+            capacity: table_capacity,
+            block_capacity: block_size,
+            restart_interval: DEFAULT_RESTART_INTERVAL,
+            bloom_false_positive: 0.1,
+            ..Default::default()
+        };
+
+        let table_partition_vnode = HashMap::from([(1_u32, 4_u32), (2_u32, 4_u32), (3_u32, 4_u32)]);
+
+        let mut builder = CapacitySplitTableBuilder::new(
+            LocalTableBuilderFactory::new(1001, mock_sstable_store(), opts),
+            Arc::new(CompactorMetrics::unused()),
+            None,
+            false,
+            table_partition_vnode,
+        );
+
+        let mut table_key = VirtualNode::from_index(0).to_be_bytes().to_vec();
+        table_key.extend_from_slice("a".as_bytes());
+
+        let (switch_builder, vnode_changed) =
+            builder.check_table_and_vnode_change(&UserKey::for_test(TableId::from(1), &table_key));
+        assert!(switch_builder);
+        assert!(vnode_changed);
+
+        {
+            let mut table_key = VirtualNode::from_index(62).to_be_bytes().to_vec();
+            table_key.extend_from_slice("a".as_bytes());
+            let (switch_builder, vnode_changed) = builder
+                .check_table_and_vnode_change(&UserKey::for_test(TableId::from(1), &table_key));
+            assert!(!switch_builder);
+            assert!(vnode_changed);
+
+            let mut table_key = VirtualNode::from_index(63).to_be_bytes().to_vec();
+            table_key.extend_from_slice("a".as_bytes());
+            let (switch_builder, vnode_changed) = builder
+                .check_table_and_vnode_change(&UserKey::for_test(TableId::from(1), &table_key));
+            assert!(!switch_builder);
+            assert!(vnode_changed);
+
+            let mut table_key = VirtualNode::from_index(64).to_be_bytes().to_vec();
+            table_key.extend_from_slice("a".as_bytes());
+            let (switch_builder, vnode_changed) = builder
+                .check_table_and_vnode_change(&UserKey::for_test(TableId::from(1), &table_key));
+            assert!(switch_builder);
+            assert!(vnode_changed);
+        }
+
+        let (switch_builder, vnode_changed) =
+            builder.check_table_and_vnode_change(&UserKey::for_test(TableId::from(2), &table_key));
+        assert!(switch_builder);
+        assert!(vnode_changed);
+        let (switch_builder, vnode_changed) =
+            builder.check_table_and_vnode_change(&UserKey::for_test(TableId::from(3), &table_key));
+        assert!(switch_builder);
+        assert!(vnode_changed);
+        let (switch_builder, vnode_changed) =
+            builder.check_table_and_vnode_change(&UserKey::for_test(TableId::from(4), &table_key));
+        assert!(switch_builder);
+        assert!(vnode_changed);
+        let (switch_builder, vnode_changed) =
+            builder.check_table_and_vnode_change(&UserKey::for_test(TableId::from(5), &table_key));
+        assert!(!switch_builder);
+        assert!(!vnode_changed);
     }
 }
