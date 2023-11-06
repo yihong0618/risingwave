@@ -38,7 +38,7 @@ use aws_smithy_types::retry::RetryConfig;
 use either::Either;
 use fail::fail_point;
 use futures::future::{try_join_all, BoxFuture, FutureExt};
-use futures::{stream, Stream, StreamExt};
+use futures::{stream, Stream, StreamExt, TryStreamExt};
 use hyper::Body;
 use itertools::Itertools;
 use risingwave_common::config::default::s3_objstore_config;
@@ -458,7 +458,11 @@ impl ObjectStore for S3ObjectStore {
         )
         .await?;
 
-        Ok(Box::pin(S3DataStream::new(resp.body)))
+        Ok(Box::pin(
+            resp.body
+                .into_stream()
+                .map(|item| item.map_err(ObjectError::from)),
+        ))
     }
 
     /// Permanently deletes the whole object.
@@ -522,34 +526,6 @@ impl ObjectStore for S3ObjectStore {
 
     fn store_media_type(&self) -> &'static str {
         "s3"
-    }
-}
-
-pub struct S3DataStream {
-    inner: ByteStream,
-}
-
-impl S3DataStream {
-    pub fn new(inner: ByteStream) -> Self {
-        Self { inner }
-    }
-}
-
-impl Stream for S3DataStream {
-    type Item = ObjectResult<Bytes>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let ret = ready!(self.inner.poll_next_unpin(cx));
-        let ret = match ret {
-            Some(Ok(data)) => Some(Ok(data)),
-            None => None,
-            Some(Err(e)) => Some(Err(ObjectError::from(e))),
-        };
-        Poll::Ready(ret)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
     }
 }
 

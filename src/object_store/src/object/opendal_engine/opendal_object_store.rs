@@ -13,14 +13,12 @@
 // limitations under the License.
 
 use std::ops::Range;
-use std::pin::Pin;
-use std::task::{ready, Context, Poll};
 
 use bytes::Bytes;
 use fail::fail_point;
-use futures::{stream, Stream, StreamExt};
+use futures::{stream, StreamExt, TryStreamExt};
 use opendal::services::Memory;
-use opendal::{Metakey, Operator, Reader, Writer};
+use opendal::{Metakey, Operator, Writer};
 use risingwave_common::range::RangeBoundsExt;
 
 use crate::object::{
@@ -117,8 +115,11 @@ impl ObjectStore for OpendalObjectStore {
         ));
         let range: Range<u64> = (range.start as u64)..(range.end as u64);
         let reader = self.op.reader_with(path).range(range).await?;
+        let stream = reader
+            .into_stream()
+            .map(|item| item.map_err(|e| ObjectError::internal(format!("OpenDalError: {:?}", e))));
 
-        Ok(Box::pin(OpenDalDataIter::new(reader)))
+        Ok(Box::pin(stream))
     }
 
     async fn metadata(&self, path: &str) -> ObjectResult<ObjectMetadata> {
@@ -230,36 +231,6 @@ impl StreamingUploader for OpenDalStreamingUploader {
 
     fn get_memory_usage(&self) -> u64 {
         OPENDAL_BUFFER_SIZE as u64
-    }
-}
-
-pub struct OpenDalDataIter {
-    inner: Reader,
-}
-
-impl OpenDalDataIter {
-    pub fn new(inner: Reader) -> Self {
-        Self { inner }
-    }
-}
-
-impl Stream for OpenDalDataIter {
-    type Item = ObjectResult<Bytes>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let ret = ready!(self.inner.poll_next_unpin(cx));
-        match ret {
-            Some(Ok(data)) => Poll::Ready(Some(Ok(data))),
-            None => Poll::Ready(None),
-            Some(Err(e)) => Poll::Ready(Some(Err(ObjectError::internal(format!(
-                "OpenDalError: {:?}",
-                e
-            ))))),
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.inner.size_hint()
     }
 }
 
