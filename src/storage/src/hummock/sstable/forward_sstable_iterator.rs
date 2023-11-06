@@ -44,6 +44,8 @@ pub struct SstableIterator {
     preload_stream: Option<BatchBlockStream>,
     /// Reference to the sst
     pub sst: TableHolder,
+    preload_end_block_idx: usize,
+    preload_retry_times: usize,
 
     sstable_store: SstableStoreRef,
     stats: StoreLocalStatistic,
@@ -64,6 +66,8 @@ impl SstableIterator {
             sstable_store,
             stats: StoreLocalStatistic::default(),
             options,
+            preload_end_block_idx: 0,
+            preload_retry_times: 0,
         }
     }
 
@@ -72,7 +76,7 @@ impl SstableIterator {
             let block_metas = &self.sst.value().meta.block_metas;
             let next_to_start_idx = start_idx + 1;
             if next_to_start_idx < block_metas.len() {
-                let dest_idx = match bound {
+                let end_idx = match bound {
                     Unbounded => block_metas.len(),
                     Included(dest_key) => {
                         let dest_key = dest_key.as_ref();
@@ -87,11 +91,12 @@ impl SstableIterator {
                         })
                     }
                 };
-                if start_idx + 1 < dest_idx {
+                if start_idx + 1 < end_idx {
                     self.preload_stream = self
                         .sstable_store
-                        .preload_blocks(self.sst.value(), start_idx, dest_idx)
+                        .preload_blocks(self.sst.value(), start_idx, end_idx)
                         .await?;
+                    self.preload_end_block_idx = end_idx;
                 }
             }
         }
@@ -124,18 +129,60 @@ impl SstableIterator {
         if idx >= self.sst.value().block_count() {
             self.block_iter = None;
             return Ok(());
-        } else if let Some(preload_stream) = self.preload_stream.as_mut() && preload_stream.next_block_index() <= idx {
-            while preload_stream.next_block_index() < idx {
-                preload_stream.next_block().await?;
-            }
-            match preload_stream.next_block().await? {
-                Some(block) => {
-                    hit_cache = true;
-                    self.block_iter = Some(BlockIterator::new(block))
-                },
-                None => {
+        } else if self
+            .preload_stream
+            .as_ref()
+            .map(|preload_stream| preload_stream.next_block_index() <= idx)
+            .unwrap_or(false)
+        {
+            while let Some(preload_stream) = self.preload_stream.as_mut() {
+                let mut ret = Ok(());
+                while preload_stream.next_block_index() < idx {
+                    if let Err(e) = preload_stream.next_block().await {
+                        ret = Err(e);
+                        break;
+                    }
+                }
+                if ret.is_ok() {
+                    match preload_stream.next_block().await {
+                        Ok(Some(block)) => {
+                            hit_cache = true;
+                            self.block_iter = Some(BlockIterator::new(block));
+                            break;
+                        }
+                        Ok(None) => {
+                            self.preload_stream.take();
+                            break;
+                        }
+                        Err(e) => {
+                            self.preload_stream.take();
+                            ret = Err(e);
+                        }
+                    }
+                } else {
                     self.preload_stream.take();
-                },
+                }
+                if let Err(e) = ret {
+                    assert!(self.preload_stream.is_none());
+                    if self.preload_retry_times >= self.options.max_preload_retry_times {
+                        break;
+                    }
+                    self.preload_retry_times += 1;
+                    tracing::warn!("recreate stream because the connection to remote storage has closed, reason: {:?}", e);
+                    match self
+                        .sstable_store
+                        .preload_blocks(self.sst.value(), idx, self.preload_end_block_idx)
+                        .await
+                    {
+                        Ok(stream) => {
+                            self.preload_stream = stream;
+                        }
+                        Err(e) => {
+                            tracing::error!("failed to recreate stream meet IO error: {:?}", e);
+                            break;
+                        }
+                    }
+                }
             }
         }
         if !hit_cache {
@@ -418,6 +465,7 @@ mod tests {
             Arc::new(SstableIteratorReadOptions {
                 cache_policy: CachePolicy::Fill(CachePriority::High),
                 must_iterated_end_user_key: Some(Bound::Included(uk)),
+                max_preload_retry_times: 0,
             }),
         );
         let mut cnt = 0;

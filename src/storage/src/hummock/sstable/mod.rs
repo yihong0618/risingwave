@@ -528,6 +528,7 @@ impl SstableMeta {
 pub struct SstableIteratorReadOptions {
     pub cache_policy: CachePolicy,
     pub must_iterated_end_user_key: Option<Bound<UserKey<KeyPayloadType>>>,
+    pub max_preload_retry_times: usize,
 }
 
 impl SstableIteratorReadOptions {
@@ -535,6 +536,7 @@ impl SstableIteratorReadOptions {
         Self {
             cache_policy: read_options.cache_policy,
             must_iterated_end_user_key: None,
+            max_preload_retry_times: 0,
         }
     }
 }

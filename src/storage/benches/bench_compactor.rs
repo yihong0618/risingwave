@@ -227,6 +227,7 @@ fn bench_merge_iterator_compactor(c: &mut Criterion) {
     let read_options = Arc::new(SstableIteratorReadOptions {
         cache_policy: CachePolicy::Fill(CachePriority::High),
         must_iterated_end_user_key: None,
+        max_preload_retry_times: 0,
     });
     c.bench_function("bench_union_merge_iterator", |b| {
         b.to_async(FuturesExecutor).iter(|| {

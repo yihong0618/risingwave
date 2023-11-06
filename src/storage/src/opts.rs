@@ -125,6 +125,7 @@ pub struct StorageOpts {
     pub compactor_max_sst_size: u64,
     /// enable FastCompactorRunner.
     pub enable_fast_compaction: bool,
+    pub max_preload_io_retry_times: usize,
 }
 
 impl Default for StorageOpts {
@@ -230,6 +231,7 @@ impl From<(&RwConfig, &SystemParamsReader, &StorageMemoryConfig)> for StorageOpt
                 .object_store_streaming_upload_timeout_ms,
             object_store_read_timeout_ms: c.storage.object_store_read_timeout_ms,
             object_store_upload_timeout_ms: c.storage.object_store_upload_timeout_ms,
+            max_preload_io_retry_times: c.storage.max_preload_io_retry_times,
             backup_storage_url: p.backup_storage_url().to_string(),
             backup_storage_directory: p.backup_storage_directory().to_string(),
             object_store_recv_buffer_size: c.storage.object_store_recv_buffer_size,
