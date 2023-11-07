@@ -2511,7 +2511,10 @@ impl HummockManager {
         let default_group_id: CompactionGroupId = StaticCompactionGroupId::StateDefault.into();
         let mv_group_id: CompactionGroupId = StaticCompactionGroupId::MaterializedView.into();
         let partition_vnode_count = self.env.opts.partition_vnode_count;
-        let window_size = HISTORY_TABLE_INFO_STATISTIC_TIME / (checkpoint_secs as usize);
+        let default_window_size = HISTORY_TABLE_INFO_STATISTIC_TIME / (checkpoint_secs as usize);
+
+        let creating_window_size =
+            HISTORY_TABLE_INFO_STATISTIC_TIME / 4 / (checkpoint_secs as usize);
 
         let mut group_to_table_vnode_partition = HashMap::default();
 
@@ -2526,6 +2529,12 @@ impl HummockManager {
             }
 
             for (table_id, table_size) in &group.table_statistic {
+                let window_size = if created_tables.contains(table_id) {
+                    default_window_size
+                } else {
+                    creating_window_size
+                };
+
                 let mut is_high_write_throughput = false;
                 let mut is_low_write_throughput = true;
                 if let Some(history) = table_write_throughput.get(table_id) {
