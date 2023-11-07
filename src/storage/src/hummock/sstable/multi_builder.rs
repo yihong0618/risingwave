@@ -197,17 +197,14 @@ where
         let mut need_seal_current = false;
         let mut last_range_tombstone_epoch = HummockEpoch::MAX;
         if let Some(builder) = self.current_builder.as_mut() {
-            if is_new_user_key {
-                if switch_builder {
-                    need_seal_current = true;
-                } else if builder.reach_capacity() {
-                    if self.split_weight_by_vnode == 0 || builder.reach_max_sst_size() {
-                        need_seal_current = true;
-                    } else {
-                        need_seal_current = self.is_target_level_l0_or_lbase && vnode_changed;
-                    }
-                }
+            if is_new_user_key
+                && (switch_builder
+                    || builder.reach_capacity()
+                    || (self.is_target_level_l0_or_lbase && vnode_changed))
+            {
+                need_seal_current = true;
             }
+
             if need_seal_current
                 && let Some(event) = builder.last_range_tombstone()
                 && event.new_epoch != HummockEpoch::MAX
