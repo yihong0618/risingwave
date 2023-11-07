@@ -2538,6 +2538,12 @@ impl HummockManager {
                 let mut is_high_write_throughput = false;
                 let mut is_low_write_throughput = true;
                 if let Some(history) = table_write_throughput.get(table_id) {
+                    tracing::info!(
+                        "DEBUG table_id {} window_size {} history_len {}",
+                        table_id,
+                        window_size,
+                        history.len()
+                    );
                     if history.len() >= window_size {
                         // is_high_write_throughput = history.iter().all(|throughput| {
                         //     *throughput / checkpoint_secs
@@ -2567,14 +2573,16 @@ impl HummockManager {
                             sum / history.len() as u64,
                         );
                     }
+                } else {
+                    tracing::info!("DEBUG table_id {} not found", table_id,);
                 }
                 let state_table_size = *table_size;
 
                 {
                     if is_high_write_throughput {
-                        table_vnode_partition_mapping.insert(*table_id, 16_u32);
+                        table_vnode_partition_mapping.insert(*table_id, 8_u32);
                     } else if state_table_size > self.env.opts.cut_table_size_limit {
-                        table_vnode_partition_mapping.insert(*table_id, 1_u32);
+                        table_vnode_partition_mapping.insert(*table_id, 4_u32);
                     } else {
                         table_vnode_partition_mapping.remove(table_id);
                     }
