@@ -14,7 +14,7 @@
 use std::clone::Clone;
 use std::collections::VecDeque;
 use std::future::Future;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use await_tree::InstrumentAwait;
@@ -132,6 +132,7 @@ pub struct SstableStore {
     meta_file_cache: FileCache<HummockSstableObjectId, Box<Sstable>>,
 
     recent_filter: Option<Arc<RecentFilter<HummockSstableObjectId>>>,
+    pending_streaming_loading: Arc<AtomicUsize>,
 }
 
 impl SstableStore {
@@ -176,6 +177,7 @@ impl SstableStore {
             meta_file_cache,
 
             recent_filter,
+            pending_streaming_loading: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -195,6 +197,7 @@ impl SstableStore {
             meta_cache,
             data_file_cache: FileCache::none(),
             meta_file_cache: FileCache::none(),
+            pending_streaming_loading: Arc::new(AtomicUsize::new(0)),
 
             recent_filter: None,
         }
@@ -283,17 +286,28 @@ impl SstableStore {
             return Ok(None);
         }
         let data_path = self.get_sst_data_path(object_id);
+        let pending_data = self
+            .pending_streaming_loading
+            .fetch_add(end_offset - start_offset, Ordering::SeqCst);
         let reader = self
             .store
             .streaming_read(&data_path, start_offset..end_offset)
             .await?;
         let block_metas = sst.meta.block_metas[start_index..end_index].to_vec();
+        tracing::warn!(
+            "TEST_CI_LOG sst-{} load block from {}, pending streaming size: {}, total cache: {}",
+            object_id,
+            start_index,
+            pending_data,
+            self.block_cache.size()
+        );
         Ok(Some(BatchBlockStream::new(
             reader,
             self.block_cache.clone(),
             object_id,
             start_index,
             block_metas,
+            self.pending_streaming_loading.clone(),
         )))
     }
 
@@ -1071,6 +1085,7 @@ pub struct BatchBlockStream {
     object_id: HummockSstableObjectId,
 
     start_block_index: usize,
+    pending_streaming_loading: Arc<AtomicUsize>,
 }
 
 impl BatchBlockStream {
@@ -1090,6 +1105,7 @@ impl BatchBlockStream {
         start_block_index: usize,
         // Meta data of the SST that is streamed.
         block_metas: Vec<BlockMeta>,
+        pending_streaming_loading: Arc<AtomicUsize>,
     ) -> Self {
         // Avoids panicking if `block_index` is too large.
         Self {
@@ -1102,6 +1118,7 @@ impl BatchBlockStream {
             cache,
             blocks: VecDeque::default(),
             start_block_index,
+            pending_streaming_loading,
         }
     }
 
@@ -1179,6 +1196,11 @@ impl BatchBlockStream {
             buff_offset = end;
             block_idx += 1;
         }
+        tracing::warn!(
+            "TEST_CI_LOG: sst-{} preload block count: {}",
+            self.object_id,
+            self.blocks.len()
+        );
 
         self.buff_offset = buff_offset;
         self.block_idx += 1;
@@ -1187,6 +1209,14 @@ impl BatchBlockStream {
 
     pub fn next_block_index(&self) -> usize {
         self.block_idx + self.start_block_index
+    }
+}
+
+impl Drop for BatchBlockStream {
+    fn drop(&mut self) {
+        let size = self.block_metas.iter().map(|meta| meta.len as usize).sum();
+        self.pending_streaming_loading
+            .fetch_sub(size, Ordering::SeqCst);
     }
 }
 

@@ -46,6 +46,7 @@ pub struct SstableIterator {
     pub sst: TableHolder,
     preload_end_block_idx: usize,
     preload_retry_times: usize,
+    access_block_count: usize,
 
     sstable_store: SstableStoreRef,
     stats: StoreLocalStatistic,
@@ -68,6 +69,7 @@ impl SstableIterator {
             options,
             preload_end_block_idx: 0,
             preload_retry_times: 0,
+            access_block_count: 0,
         }
     }
 
@@ -80,15 +82,19 @@ impl SstableIterator {
                     Unbounded => block_metas.len(),
                     Included(dest_key) => {
                         let dest_key = dest_key.as_ref();
-                        block_metas.partition_point(|block_meta| {
-                            FullKey::decode(&block_meta.smallest_key).user_key <= dest_key
-                        })
+                        block_metas
+                            .partition_point(|block_meta| {
+                                FullKey::decode(&block_meta.smallest_key).user_key <= dest_key
+                            })
+                            .saturating_sub(1)
                     }
                     Excluded(end_key) => {
                         let end_key = end_key.as_ref();
-                        block_metas.partition_point(|block_meta| {
-                            FullKey::decode(&block_meta.smallest_key).user_key < end_key
-                        })
+                        block_metas
+                            .partition_point(|block_meta| {
+                                FullKey::decode(&block_meta.smallest_key).user_key < end_key
+                            })
+                            .saturating_sub(1)
                     }
                 };
                 if start_idx + 1 < end_idx {
@@ -144,6 +150,7 @@ impl SstableIterator {
                     }
                 }
                 if ret.is_ok() {
+                    self.access_block_count += 1;
                     match preload_stream.next_block().await {
                         Ok(Some(block)) => {
                             hit_cache = true;
@@ -288,6 +295,18 @@ impl SstableIteratorType for SstableIterator {
         options: Arc<SstableIteratorReadOptions>,
     ) -> Self {
         SstableIterator::new(sstable, sstable_store, options)
+    }
+}
+
+impl Drop for SstableIterator {
+    fn drop(&mut self) {
+        if self.preload_stream.is_some() {
+            tracing::warn!(
+                "TEST_CI_LOG sst-{}, access block: {}",
+                self.sst.value().id,
+                self.access_block_count
+            );
+        }
     }
 }
 
