@@ -133,6 +133,7 @@ pub struct SstableStore {
 
     recent_filter: Option<Arc<RecentFilter<HummockSstableObjectId>>>,
     pending_streaming_loading: Arc<AtomicUsize>,
+    large_query_cache_capacity: usize,
 }
 
 impl SstableStore {
@@ -155,8 +156,8 @@ impl SstableStore {
         let block_cache_listener = Arc::new(BlockCacheEventListener {
             data_file_cache: data_file_cache.clone(),
         });
+        let large_query_cache_capacity = (100 - high_priority_ratio) * block_cache_capacity;
         let meta_cache_listener = Arc::new(MetaCacheEventListener(meta_file_cache.clone()));
-
         Self {
             path,
             store,
@@ -178,6 +179,7 @@ impl SstableStore {
 
             recent_filter,
             pending_streaming_loading: Arc::new(AtomicUsize::new(0)),
+            large_query_cache_capacity,
         }
     }
 
@@ -198,7 +200,7 @@ impl SstableStore {
             data_file_cache: FileCache::none(),
             meta_file_cache: FileCache::none(),
             pending_streaming_loading: Arc::new(AtomicUsize::new(0)),
-
+            large_query_cache_capacity: block_cache_capacity,
             recent_filter: None,
         }
     }
@@ -282,25 +284,18 @@ impl SstableStore {
             }
             end_offset += sst.meta.block_metas[idx].len as usize;
         }
-        if end_offset == start_offset {
+        let pending_data = self.pending_streaming_loading.load(Ordering::SeqCst);
+        if end_offset == start_offset || pending_data > self.large_query_cache_capacity {
             return Ok(None);
         }
         let data_path = self.get_sst_data_path(object_id);
-        let pending_data = self
-            .pending_streaming_loading
+        self.pending_streaming_loading
             .fetch_add(end_offset - start_offset, Ordering::SeqCst);
         let reader = self
             .store
             .streaming_read(&data_path, start_offset..end_offset)
             .await?;
         let block_metas = sst.meta.block_metas[start_index..end_index].to_vec();
-        tracing::warn!(
-            "TEST_CI_LOG sst-{} load block from {}, pending streaming size: {}, total cache: {}",
-            object_id,
-            start_index,
-            pending_data,
-            self.block_cache.size()
-        );
         Ok(Some(BatchBlockStream::new(
             reader,
             self.block_cache.clone(),
@@ -1196,11 +1191,6 @@ impl BatchBlockStream {
             buff_offset = end;
             block_idx += 1;
         }
-        tracing::warn!(
-            "TEST_CI_LOG: sst-{} preload block count: {}",
-            self.object_id,
-            self.blocks.len()
-        );
 
         self.buff_offset = buff_offset;
         self.block_idx += 1;
