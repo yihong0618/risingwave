@@ -2539,14 +2539,33 @@ impl HummockManager {
                 let mut is_low_write_throughput = true;
                 if let Some(history) = table_write_throughput.get(table_id) {
                     if history.len() >= window_size {
-                        is_high_write_throughput = history.iter().all(|throughput| {
+                        // is_high_write_throughput = history.iter().all(|throughput| {
+                        //     *throughput / checkpoint_secs
+                        //         > self.env.opts.table_write_throughput_threshold
+                        // });
+
+                        let is_high_write_throughput_flag = history.iter().all(|throughput| {
                             *throughput / checkpoint_secs
                                 > self.env.opts.table_write_throughput_threshold
                         });
+
+                        let sum = history.iter().sum::<u64>();
+
+                        is_high_write_throughput = (sum / checkpoint_secs)
+                            > self.env.opts.table_write_throughput_threshold * history.len() as u64;
+
                         is_low_write_throughput = history.iter().any(|throughput| {
                             *throughput / checkpoint_secs
                                 < self.env.opts.min_table_split_write_throughput
                         });
+
+                        tracing::info!(
+                            "DEBUG table_id {} is_high_write_throughput_flag {} history {:?} avg {}",
+                            table_id,
+                            is_high_write_throughput_flag,
+                            history,
+                            sum / history.len() as u64,
+                        );
                     }
                 }
                 let state_table_size = *table_size;
