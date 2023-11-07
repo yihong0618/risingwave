@@ -235,7 +235,7 @@ fn default_total_memory_bytes() -> usize {
 }
 
 fn default_mem_table_spill_threshold() -> usize {
-    (4 << 20) as usize
+    (1 << 20) as usize
 }
 
 fn default_parallelism() -> usize {

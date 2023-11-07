@@ -1096,7 +1096,7 @@ pub mod default {
         }
 
         pub fn mem_table_spill_threshold() -> usize {
-            4 << 20
+            1 << 20
         }
     }
 
