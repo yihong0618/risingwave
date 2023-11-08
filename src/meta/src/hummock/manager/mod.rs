@@ -147,7 +147,7 @@ pub struct HummockManager {
     pub compaction_state: CompactionState,
 
     group_to_table_vnode_partition:
-        parking_lot::RwLock<HashMap<CompactionGroupId, HashMap<TableId, u32>>>,
+        parking_lot::RwLock<HashMap<CompactionGroupId, BTreeMap<TableId, u32>>>,
 }
 
 pub type HummockManagerRef = Arc<HummockManager>;
@@ -824,7 +824,7 @@ impl HummockManager {
             .get(&compaction_group_id)
         {
             Some(table_to_vnode_partition) => table_to_vnode_partition.clone(),
-            None => HashMap::default(),
+            None => BTreeMap::default(),
         };
 
         let mut compaction_guard = write_lock!(self, compaction).await;
@@ -2513,15 +2513,14 @@ impl HummockManager {
         let partition_vnode_count = self.env.opts.partition_vnode_count;
         let default_window_size = HISTORY_TABLE_INFO_STATISTIC_TIME / (checkpoint_secs as usize);
 
-        let creating_window_size =
-            HISTORY_TABLE_INFO_STATISTIC_TIME / 4 / (checkpoint_secs as usize);
+        let creating_window_size = 10;
 
         let mut group_to_table_vnode_partition = HashMap::default();
 
         for group in &group_infos {
             let table_vnode_partition_mapping = group_to_table_vnode_partition
                 .entry(group.group_id)
-                .or_insert(HashMap::default());
+                .or_insert(BTreeMap::default());
 
             if group.table_statistic.len() == 1 {
                 // no need to handle the dedication compaciton group
@@ -2538,40 +2537,16 @@ impl HummockManager {
                 let mut is_high_write_throughput = false;
                 let mut is_low_write_throughput = true;
                 if let Some(history) = table_write_throughput.get(table_id) {
-                    tracing::info!(
-                        "DEBUG table_id {} window_size {} history_len {}",
-                        table_id,
-                        window_size,
-                        history.len()
-                    );
                     if history.len() >= window_size {
-                        // is_high_write_throughput = history.iter().all(|throughput| {
-                        //     *throughput / checkpoint_secs
-                        //         > self.env.opts.table_write_throughput_threshold
-                        // });
-
-                        let is_high_write_throughput_flag = history.iter().all(|throughput| {
+                        is_high_write_throughput = history.iter().all(|throughput| {
                             *throughput / checkpoint_secs
                                 > self.env.opts.table_write_throughput_threshold
                         });
-
-                        let sum = history.iter().sum::<u64>();
-
-                        is_high_write_throughput = (sum / checkpoint_secs)
-                            > self.env.opts.table_write_throughput_threshold * history.len() as u64;
 
                         is_low_write_throughput = history.iter().any(|throughput| {
                             *throughput / checkpoint_secs
                                 < self.env.opts.min_table_split_write_throughput
                         });
-
-                        tracing::info!(
-                            "DEBUG table_id {} is_high_write_throughput_flag {} history {:?} avg {}",
-                            table_id,
-                            is_high_write_throughput_flag,
-                            history,
-                            sum / history.len() as u64,
-                        );
                     }
                 } else {
                     tracing::info!("DEBUG table_id {} not found", table_id,);

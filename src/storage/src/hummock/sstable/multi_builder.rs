@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::Arc;
@@ -74,7 +74,7 @@ where
     last_table_id: u32,
     is_target_level_l0_or_lbase: bool,
     // split_by_table: bool,
-    table_partition_vnode: HashMap<u32, u32>,
+    table_partition_vnode: BTreeMap<u32, u32>,
     split_weight_by_vnode: u32,
     /// When vnode of the coming key is greater than `largest_vnode_in_current_partition`, we will
     /// switch SST.
@@ -92,7 +92,7 @@ where
         compactor_metrics: Arc<CompactorMetrics>,
         task_progress: Option<Arc<TaskProgress>>,
         is_target_level_l0_or_lbase: bool,
-        table_partition_vnode: HashMap<u32, u32>,
+        table_partition_vnode: BTreeMap<u32, u32>,
     ) -> Self {
         Self {
             builder_factory,
@@ -118,7 +118,7 @@ where
             task_progress: None,
             last_table_id: 0,
             is_target_level_l0_or_lbase: false,
-            table_partition_vnode: HashMap::default(),
+            table_partition_vnode: BTreeMap::default(),
             split_weight_by_vnode: 0,
             largest_vnode_in_current_partition: VirtualNode::MAX.to_index(),
             last_vnode: 0,
@@ -624,7 +624,7 @@ mod tests {
             Arc::new(CompactorMetrics::unused()),
             None,
             false,
-            HashMap::default(),
+            BTreeMap::default(),
         );
         let full_key = FullKey::for_test(
             table_id,
@@ -710,7 +710,7 @@ mod tests {
             Arc::new(CompactorMetrics::unused()),
             None,
             false,
-            HashMap::default(),
+            BTreeMap::default(),
         );
         assert_eq!(del_iter.earliest_epoch(), MAX_EPOCH);
         while del_iter.is_valid() {
@@ -746,7 +746,7 @@ mod tests {
             Arc::new(CompactorMetrics::unused()),
             None,
             false,
-            HashMap::default(),
+            BTreeMap::default(),
         );
         builder
             .add_monotonic_delete(MonotonicDeleteEvent {
@@ -854,7 +854,8 @@ mod tests {
             ..Default::default()
         };
 
-        let table_partition_vnode = HashMap::from([(1_u32, 4_u32), (2_u32, 4_u32), (3_u32, 4_u32)]);
+        let table_partition_vnode =
+            BTreeMap::from([(1_u32, 4_u32), (2_u32, 4_u32), (3_u32, 4_u32)]);
 
         let mut builder = CapacitySplitTableBuilder::new(
             LocalTableBuilderFactory::new(1001, mock_sstable_store(), opts),
