@@ -2513,7 +2513,7 @@ impl HummockManager {
         let partition_vnode_count = self.env.opts.partition_vnode_count;
         let default_window_size = HISTORY_TABLE_INFO_STATISTIC_TIME / (checkpoint_secs as usize);
 
-        let creating_window_size = 10;
+        let creating_window_size = 15;
 
         let mut group_to_table_vnode_partition = HashMap::default();
 
@@ -2555,9 +2555,9 @@ impl HummockManager {
 
                 {
                     if is_high_write_throughput {
-                        table_vnode_partition_mapping.insert(*table_id, 8_u32);
+                        table_vnode_partition_mapping.insert(*table_id, 16_u32);
                     } else if state_table_size > self.env.opts.cut_table_size_limit {
-                        table_vnode_partition_mapping.insert(*table_id, 4_u32);
+                        table_vnode_partition_mapping.insert(*table_id, 1_u32);
                     } else {
                         table_vnode_partition_mapping.remove(table_id);
                     }

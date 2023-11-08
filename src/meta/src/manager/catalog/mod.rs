@@ -2675,6 +2675,7 @@ impl CatalogManager {
             .database
             .tables
             .values()
+            .filter(|table| table.stream_job_status() != PbStreamJobStatus::Creating)
             .map(|table| table.id)
             .collect()
     }
