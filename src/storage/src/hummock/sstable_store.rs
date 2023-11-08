@@ -575,7 +575,6 @@ impl SstableStore {
                 .map_err(HummockError::object_io_error)?,
             block_index,
             metas,
-            start_pos,
         ))
     }
 
@@ -932,10 +931,50 @@ impl SstableWriterFactory for StreamingSstableWriterFactory {
     }
 }
 
-/// An iterator that reads the blocks of an SST step by step from a given stream of bytes.
-pub struct BlockStream {
+pub struct BlockStreamReader {
     /// The stream that provides raw data.
     byte_stream: MonitoredStreamingReader,
+}
+
+impl BlockStreamReader {
+    fn new(byte_stream: MonitoredStreamingReader) -> Self {
+        Self { byte_stream }
+    }
+
+    async fn next_block(
+        &mut self,
+        buf: Bytes,
+        offset: usize,
+        read_size: usize,
+    ) -> HummockResult<(Bytes, Bytes)> {
+        let mut read_buf = BytesMut::with_capacity(read_size);
+        let start_pos = if offset < buf.len() {
+            read_buf.extend_from_slice(&buf[offset..]);
+            buf.len() - offset
+        } else {
+            0
+        };
+        let mut rest = read_size - start_pos;
+        while rest > 0 {
+            let next_packet = self
+                .byte_stream
+                .read_bytes()
+                .await
+                .unwrap_or_else(|| Err(ObjectError::internal("read unexpected EOF")))?;
+            let read_len = std::cmp::min(next_packet.len(), rest);
+            read_buf.extend_from_slice(&next_packet[..read_len]);
+            rest -= read_len;
+            if rest == 0 {
+                return Ok((read_buf.freeze(), next_packet.slice(read_len..)));
+            }
+        }
+        Ok((read_buf.freeze(), Bytes::default()))
+    }
+}
+
+/// An iterator that reads the blocks of an SST step by step from a given stream of bytes.
+pub struct BlockStream {
+    reader: BlockStreamReader,
 
     /// The index of the next block. Note that `block_idx` is relative to the start index of the
     /// stream (and is compatible with `block_size_vec`); it is not relative to the corresponding
@@ -950,9 +989,7 @@ pub struct BlockStream {
     /// about block 0 and block 1.
     block_metas: Vec<BlockMeta>,
 
-    buff: Bytes,
-
-    file_pos: usize,
+    buf: Bytes,
 
     buff_offset: usize,
 }
@@ -972,17 +1009,15 @@ impl BlockStream {
 
         // Meta data of the SST that is streamed.
         metas: &[BlockMeta],
-        start_offset: usize,
     ) -> Self {
         // Avoids panicking if `block_index` is too large.
         let block_index = std::cmp::min(block_index, metas.len());
 
         Self {
-            byte_stream,
+            reader: BlockStreamReader::new(byte_stream),
             block_idx: 0,
             block_metas: metas[block_index..].to_vec(),
-            buff: Bytes::default(),
-            file_pos: start_offset,
+            buf: Bytes::default(),
             buff_offset: 0,
         }
     }
@@ -998,40 +1033,17 @@ impl BlockStream {
         fail_point!("stream_read_err", |_| Err(HummockError::object_io_error(
             ObjectError::internal("stream read error")
         )));
-        let offset = block_meta.offset as usize;
-        let end = offset + block_meta.len as usize;
-        let data = if end > self.file_pos + self.buff.len() {
-            let mut read_buf = BytesMut::with_capacity(block_meta.len as usize);
-            let start_pos = if self.buff_offset < self.buff.len() {
-                assert!(offset < self.file_pos + self.buff.len());
-                read_buf.extend_from_slice(&self.buff[self.buff_offset..]);
-                self.buff.len() - self.buff_offset
-            } else {
-                0
-            };
-            let mut rest = block_meta.len as usize - start_pos;
+        let end = self.buff_offset + block_meta.len as usize;
+        let data = if end > self.buf.len() {
+            let (current_block, buf) = self
+                .reader
+                .next_block(self.buf.clone(), self.buff_offset, block_meta.len as usize)
+                .await?;
             self.buff_offset = 0;
-            self.file_pos += self.buff.len();
-            while rest > 0 {
-                let next_packet = self
-                    .byte_stream
-                    .read_bytes()
-                    .await
-                    .unwrap_or_else(|| Err(ObjectError::internal("read unexpected EOF")))?;
-                let read_len = std::cmp::min(next_packet.len(), rest);
-                read_buf.extend_from_slice(&next_packet[..read_len]);
-                rest -= read_len;
-                if rest == 0 {
-                    self.buff_offset = read_len;
-                    self.buff = next_packet;
-                    break;
-                }
-                self.file_pos += next_packet.len();
-            }
-            read_buf.freeze()
+            self.buf = buf;
+            current_block
         } else {
-            let end = self.buff_offset + block_meta.len as usize;
-            let data = self.buff.slice(self.buff_offset..end);
+            let data = self.buf.slice(self.buff_offset..end);
             self.buff_offset = end;
             data
         };
@@ -1051,22 +1063,14 @@ impl BlockStream {
     }
 }
 
-/// An iterator that reads the blocks of an SST step by step from a given stream of bytes.
+/// An iterator that reads the blocks of an SST step by step from a given stream of bytes optimize for batch query.
+/// Because all data in batch query shall be put into block-cache, we can not assign a reference of Bytes for each block.
+/// We must copy them into new memory.
 pub struct BatchBlockStream {
-    /// The stream that provides raw data.
-    byte_stream: MonitoredStreamingReader,
+    reader: BlockStreamReader,
 
-    /// The index of the next block. Note that `block_idx` is relative to the start index of the
-    /// stream (and is compatible with `block_size_vec`); it is not relative to the corresponding
-    /// SST. That is, if streaming starts at block 2 of a given SST `T`, then `block_idx = 0`
-    /// refers to the third block of `T`.
     block_idx: usize,
 
-    /// The sizes of each block which the stream reads. The first number states the compressed size
-    /// in the stream. The second number is the block's uncompressed size.  Note that the list does
-    /// not contain the size of blocks which precede the first streamed block. That is, if
-    /// streaming starts at block 2 of a given SST, then the list does not contain information
-    /// about block 0 and block 1.
     block_metas: Vec<BlockMeta>,
 
     buf: Bytes,
@@ -1080,31 +1084,21 @@ pub struct BatchBlockStream {
     object_id: HummockSstableObjectId,
 
     start_block_index: usize,
+    /// To avoid high frequently query cost too much memory.
     pending_streaming_loading: Arc<AtomicUsize>,
 }
 
 impl BatchBlockStream {
-    /// Constructs a new `BlockStream` object that reads from the given `byte_stream` and interprets
-    /// the data as blocks of the SST described in `sst_meta`, starting at block `block_index`.
-    ///
-    /// If `block_index >= sst_meta.block_metas.len()`, then `BlockStream` will not read any data
-    /// from `byte_stream`.
     fn new(
-        // The stream that provides raw data.
         byte_stream: MonitoredStreamingReader,
-
         cache: BlockCache,
-
         object_id: HummockSstableObjectId,
-        // Index of the SST's block where the stream starts.
         start_block_index: usize,
-        // Meta data of the SST that is streamed.
         block_metas: Vec<BlockMeta>,
         pending_streaming_loading: Arc<AtomicUsize>,
     ) -> Self {
-        // Avoids panicking if `block_index` is too large.
         Self {
-            byte_stream,
+            reader: BlockStreamReader::new(byte_stream),
             block_idx: 0,
             block_metas,
             buf: Bytes::default(),
@@ -1132,35 +1126,14 @@ impl BatchBlockStream {
             self.block_idx += 1;
             return Ok(Some(block));
         }
-        let mut read_buf = BytesMut::with_capacity(block_meta.len as usize);
-        let start_pos = if self.buff_offset < self.buf.len() {
-            read_buf.extend_from_slice(&self.buf[self.buff_offset..]);
-            self.buf.len() - self.buff_offset
-        } else {
-            0
-        };
-        let mut rest = block_meta.len as usize - start_pos;
+        let (block, buf) = self
+            .reader
+            .next_block(self.buf.clone(), self.buff_offset, block_meta.len as usize)
+            .await?;
+        self.buf = buf;
         self.buff_offset = 0;
-        while rest > 0 {
-            let next_packet = match self.byte_stream.read_bytes().await {
-                Some(Ok(data)) => data,
-                Some(Err(e)) => return Err(e.into()),
-                None => {
-                    panic!("read eof: {}, {}", start_pos, rest);
-                }
-            };
-
-            let read_len = std::cmp::min(next_packet.len(), rest);
-            read_buf.extend_from_slice(&next_packet[..read_len]);
-            rest -= read_len;
-            if rest == 0 {
-                self.buff_offset = read_len;
-                self.buf = next_packet;
-                break;
-            }
-        }
         let block = Block::decode(
-            read_buf.freeze(),
+            block,
             self.block_metas[self.block_idx].uncompressed_size as usize,
         )?;
         let holder = self.cache.insert(
