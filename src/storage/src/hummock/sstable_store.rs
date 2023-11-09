@@ -267,25 +267,16 @@ impl SstableStore {
         mut end_index: usize,
     ) -> HummockResult<Option<BatchBlockStream>> {
         let object_id = sst.id;
-        while start_index < end_index
-            && self.block_cache.exists_block(object_id, start_index as u64)
-        {
-            start_index += 1;
-        }
         if start_index >= end_index {
             return Ok(None);
         }
         let start_offset = sst.meta.block_metas[start_index].offset as usize;
         let mut end_offset = start_offset;
         for idx in start_index..end_index {
-            if self.block_cache.exists_block(object_id, idx as u64) {
-                end_index = idx;
-                break;
-            }
             end_offset += sst.meta.block_metas[idx].len as usize;
         }
         let pending_data = self.pending_streaming_loading.load(Ordering::SeqCst);
-        if end_offset == start_offset || pending_data > self.large_query_cache_capacity {
+        if end_offset == start_offset {
             return Ok(None);
         }
         let data_path = self.get_sst_data_path(object_id);
