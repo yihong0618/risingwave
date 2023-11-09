@@ -2540,8 +2540,12 @@ impl HummockManager {
                 let mut is_low_write_throughput = true;
                 if let Some(history) = table_write_throughput.get(table_id) {
                     println!(
-                        "group {} table_id {} table_size {} window_size {}",
-                        group.group_id, table_id, table_size, window_size
+                        "group {} table_id {} table_size {} window_size {} history_len {}",
+                        group.group_id,
+                        table_id,
+                        table_size,
+                        window_size,
+                        history.len()
                     );
 
                     if history.len() >= window_size {
@@ -2550,10 +2554,15 @@ impl HummockManager {
                                 > self.env.opts.table_write_throughput_threshold
                         });
 
-                        is_low_write_throughput = history.iter().any(|throughput| {
-                            *throughput / checkpoint_secs
-                                < self.env.opts.min_table_split_write_throughput
-                        });
+                        let sum = history.iter().sum::<u64>();
+
+                        // is_low_write_throughput = history.iter().any(|throughput| {
+                        //     *throughput / checkpoint_secs
+                        //         < self.env.opts.min_table_split_write_throughput
+                        // });
+
+                        is_low_write_throughput = sum
+                            < self.env.opts.min_table_split_write_throughput * history.len() as u64;
                     }
                 } else {
                     tracing::info!("DEBUG table_id {} not found", table_id,);
