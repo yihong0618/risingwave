@@ -556,13 +556,13 @@ impl S3ObjectStore {
                 http.set_nodelay(*nodelay);
             }
 
-            if let Some(recv_buffer_size) = config.recv_buffer_size.as_ref() {
-                http.set_recv_buffer_size(Some(*recv_buffer_size));
-            }
+            // if let Some(recv_buffer_size) = config.recv_buffer_size.as_ref() {
+            //     http.set_recv_buffer_size(Some(*recv_buffer_size));
+            // }
 
-            if let Some(send_buffer_size) = config.send_buffer_size.as_ref() {
-                http.set_send_buffer_size(Some(*send_buffer_size));
-            }
+            // if let Some(send_buffer_size) = config.send_buffer_size.as_ref() {
+            //     http.set_send_buffer_size(Some(*send_buffer_size));
+            // }
 
             http.enforce_http(false);
             hyper_tls::HttpsConnector::from((http, tls.into()))
