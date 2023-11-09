@@ -2516,9 +2516,6 @@ impl HummockManager {
         let creating_window_size = 15;
 
         let mut group_to_table_vnode_partition = HashMap::default();
-
-        println!("created_tables {:?}", created_tables);
-
         for group in &group_infos {
             let table_vnode_partition_mapping = group_to_table_vnode_partition
                 .entry(group.group_id)
@@ -2539,14 +2536,14 @@ impl HummockManager {
                 let mut is_high_write_throughput = false;
                 let mut is_low_write_throughput = true;
                 if let Some(history) = table_write_throughput.get(table_id) {
-                    println!(
-                        "group {} table_id {} table_size {} window_size {} history_len {}",
-                        group.group_id,
-                        table_id,
-                        table_size,
-                        window_size,
-                        history.len()
-                    );
+                    // println!(
+                    //     "group {} table_id {} table_size {} window_size {} history_len {}",
+                    //     group.group_id,
+                    //     table_id,
+                    //     table_size,
+                    //     window_size,
+                    //     history.len()
+                    // );
 
                     if history.len() >= window_size {
                         is_high_write_throughput = history.iter().all(|throughput| {
@@ -2571,7 +2568,7 @@ impl HummockManager {
 
                 {
                     if !is_low_write_throughput {
-                        table_vnode_partition_mapping.insert(*table_id, 16_u32);
+                        table_vnode_partition_mapping.insert(*table_id, 4_u32);
                     } else if state_table_size > self.env.opts.cut_table_size_limit {
                         table_vnode_partition_mapping.insert(*table_id, 1_u32);
                     } else {

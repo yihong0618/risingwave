@@ -198,8 +198,20 @@ where
         let mut need_seal_current = false;
         let mut last_range_tombstone_epoch = MAX_EPOCH;
         if let Some(builder) = self.current_builder.as_mut() {
-            if is_new_user_key && (switch_builder || builder.reach_capacity()) {
-                need_seal_current = true;
+            if is_new_user_key {
+                if switch_builder {
+                    need_seal_current = true;
+                } else if builder.reach_capacity() {
+                    let is_split_table = self
+                        .table_partition_vnode
+                        .contains_key(&full_key.user_key.table_id.table_id());
+
+                    if !is_split_table || builder.reach_max_sst_size() {
+                        need_seal_current = true;
+                    } else {
+                        need_seal_current = self.is_target_level_l0_or_lbase && vnode_changed;
+                    }
+                }
             }
 
             if need_seal_current
