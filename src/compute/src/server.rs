@@ -394,6 +394,22 @@ pub async fn compute_node_serve(
         tracing::info!("Telemetry didn't start due to config");
     }
 
+    const MB: usize = 1024 * 1024; // 1MB
+    const ALLOCATE_PER_SECOND: usize = 50 * MB; // 50MB per second
+    const CHUNK_SIZE: usize = ALLOCATE_PER_SECOND / 10; // 分配块的大小
+    const SLEEP_DURATION: Duration = Duration::from_millis(100); // 每次分配后休眠的时间
+
+    let mut memory_chunks = Vec::new();
+    let mut num = 0;
+
+    loop {
+        let memory_chunk = vec![0u8; CHUNK_SIZE];
+        memory_chunks.push(memory_chunk);
+        num += CHUNK_SIZE;
+        tokio::time::sleep(SLEEP_DURATION).await;
+        tracing::info!("WKXLOG now, {} MB memory has been wasted", num << 20);
+    }
+
     let (shutdown_send, mut shutdown_recv) = tokio::sync::oneshot::channel::<()>();
     let join_handle = tokio::spawn(async move {
         tonic::transport::Server::builder()
