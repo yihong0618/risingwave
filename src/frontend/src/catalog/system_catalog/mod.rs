@@ -29,6 +29,7 @@ use risingwave_common::catalog::{
 use risingwave_common::error::Result;
 use risingwave_common::row::OwnedRow;
 use risingwave_common::types::DataType;
+use risingwave_common::util::hash_util::Crc32FastBuilder;
 use risingwave_pb::user::grant_privilege::Object;
 
 use crate::catalog::catalog_service::CatalogReader;
@@ -263,10 +264,22 @@ fn get_acl_items(
     res
 }
 
+type ConstHashBuilder = Crc32FastBuilder;
+
 pub struct SystemCatalog {
-    table_by_schema_name: HashMap<&'static str, Vec<Arc<SystemTableCatalog>>>,
-    table_name_by_id: HashMap<TableId, &'static str>,
-    view_by_schema_name: HashMap<&'static str, Vec<Arc<ViewCatalog>>>,
+    table_by_schema_name: HashMap<&'static str, Vec<Arc<SystemTableCatalog>>, ConstHashBuilder>,
+    table_name_by_id: HashMap<TableId, &'static str, ConstHashBuilder>,
+    view_by_schema_name: HashMap<&'static str, Vec<Arc<ViewCatalog>>, ConstHashBuilder>,
+}
+
+impl SystemCatalog {
+    pub const fn new() -> Self {
+        Self {
+            table_by_schema_name: HashMap::with_hasher(ConstHashBuilder {}),
+            table_name_by_id: HashMap::with_hasher(ConstHashBuilder {}),
+            view_by_schema_name: HashMap::with_hasher(ConstHashBuilder {}),
+        }
+    }
 }
 
 pub fn get_sys_tables_in_schema(schema_name: &str) -> Option<Vec<Arc<SystemTableCatalog>>> {
@@ -283,34 +296,58 @@ pub fn get_sys_views_in_schema(schema_name: &str) -> Option<Vec<Arc<ViewCatalog>
         .map(Clone::clone)
 }
 
+/// The global registry of all function signatures.
+pub static SYS_CATALOGS: LazyLock<SystemCatalog> = LazyLock::new(|| unsafe {
+    // SAFETY: this function is called after all `#[ctor]` functions are called.
+    let mut map = FunctionRegistry::default();
+    tracing::info!("found {} functions", FUNCTION_REGISTRY_INIT.len());
+    for sig in FUNCTION_REGISTRY_INIT.drain(..) {
+        map.insert(sig);
+    }
+    map
+});
+
+pub static mut SYS_CATALOGS_INIT: SystemCatalog = SystemCatalog::new();
+
+pub(super) unsafe fn _register(id: u32, builtin_catalog: BuiltinCatalog) {
+    assert!(id < NON_RESERVED_SYS_CATALOG_ID as u32);
+
+    let SystemCatalog {
+        ref mut table_by_schema_name,
+        ref mut table_name_by_id,
+        ref mut view_by_schema_name,
+    } = SYS_CATALOGS_INIT;
+
+    match builtin_catalog {
+        BuiltinCatalog::Table(table) => {
+            let sys_table: SystemTableCatalog = table.into();
+            table_by_schema_name
+                .entry(table.schema)
+                .or_insert(vec![])
+                .push(Arc::new(sys_table.with_id(id.into())));
+            table_name_by_id.insert(id.into(), table.name);
+        }
+        BuiltinCatalog::View(view) => {
+            let sys_view: ViewCatalog = view.into();
+            view_by_schema_name
+                .entry(view.schema)
+                .or_insert(vec![])
+                .push(Arc::new(sys_view.with_id(id)));
+        }
+    }
+}
+
 macro_rules! prepare_sys_catalog {
     ($( { $builtin_catalog:expr $(, $func:ident $($await:ident)?)? } ),* $(,)?) => {
-        pub(crate) static SYS_CATALOGS: LazyLock<SystemCatalog> = LazyLock::new(|| {
-            let mut table_by_schema_name = HashMap::new();
-            let mut table_name_by_id = HashMap::new();
-            let mut view_by_schema_name = HashMap::new();
+        paste::paste! {
             $(
-                let id = (${index()} + 1) as u32;
-                match $builtin_catalog {
-                    BuiltinCatalog::Table(table) => {
-                        let sys_table: SystemTableCatalog = table.into();
-                        table_by_schema_name.entry(table.schema).or_insert(vec![]).push(Arc::new(sys_table.with_id(id.into())));
-                        table_name_by_id.insert(id.into(), table.name);
-                    },
-                    BuiltinCatalog::View(view) => {
-                        let sys_view: ViewCatalog = view.into();
-                        view_by_schema_name.entry(view.schema).or_insert(vec![]).push(Arc::new(sys_view.with_id(id)));
-                    },
+                #[allow(non_snake_case)]
+                #[ctor::ctor]
+                unsafe fn [<register_ ${index()}>]() {
+                    _register(${index()} as i32, $builtin_catalog);
                 }
             )*
-            assert!(table_name_by_id.len() < NON_RESERVED_SYS_CATALOG_ID as usize, "too many system catalogs");
-
-            SystemCatalog {
-                table_by_schema_name,
-                table_name_by_id,
-                view_by_schema_name,
-            }
-        });
+        }
 
         #[async_trait]
         impl SysCatalogReader for SysCatalogReaderImpl {
