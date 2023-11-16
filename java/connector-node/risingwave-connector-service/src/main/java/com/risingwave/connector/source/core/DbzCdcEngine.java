@@ -37,6 +37,7 @@ public class DbzCdcEngine implements CdcEngine {
                 new DbzCdcEventConsumer(
                         id, dbzHeartbeatPrefix, new ArrayBlockingQueue<>(DEFAULT_QUEUE_CAPACITY));
 
+        config.setProperty("database.server.name", "rw_dbz_engine");
         // Builds a debezium engine but not start it
         this.id = id;
         this.consumer = consumer;
