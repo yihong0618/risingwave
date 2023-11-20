@@ -5594,6 +5594,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "opentelemetry-appender-tracing"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a4085c9f24638ac01620b57e4f031bc683cd697db03a8398f22a98a3fd94605"
+dependencies = [
+ "once_cell",
+ "opentelemetry_api",
+ "opentelemetry_sdk",
+ "tracing",
+ "tracing-core",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "opentelemetry-otlp"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8278,8 +8292,10 @@ dependencies = [
  "hostname",
  "madsim-tokio",
  "opentelemetry",
+ "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
  "opentelemetry-semantic-conventions",
+ "opentelemetry_sdk",
  "parking_lot 0.12.1",
  "pprof",
  "risingwave_common",

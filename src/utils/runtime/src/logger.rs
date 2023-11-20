@@ -311,6 +311,62 @@ pub fn init_risingwave_logger(settings: LoggerSettings) {
         });
     };
 
+    // otel logging layer
+    #[cfg(not(madsim))]
+    if let Ok(endpoint) = std::env::var("RW_LOGGING_ENDPOINT") {
+        use opentelemetry::{sdk, KeyValue};
+        use opentelemetry_otlp::WithExportConfig;
+        use opentelemetry_semantic_conventions::resource;
+
+        println!("logging enabled, exported to `{endpoint}`");
+
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .thread_name("risingwave-otel-logging")
+            .worker_threads(2)
+            .build()
+            .unwrap();
+        let runtime = Box::leak(Box::new(runtime));
+        // Installing the exporter requires a tokio runtime.
+        let _entered = runtime.enter();
+
+        let tonic_exporter = opentelemetry_otlp::new_exporter()
+            .tonic()
+            .with_endpoint(endpoint);
+        let log_exporter = opentelemetry_otlp::LogExporterBuilder::Tonic(tonic_exporter)
+            .build_log_exporter()
+            .unwrap();
+        let id = format!(
+            "{}-{}",
+            hostname::get()
+                .ok()
+                .and_then(|o| o.into_string().ok())
+                .unwrap_or_default(),
+            std::process::id()
+        );
+        let provider = opentelemetry_sdk::logs::LoggerProvider::builder()
+            .with_config(opentelemetry_sdk::logs::Config::default().with_resource(
+                sdk::Resource::new([
+                    KeyValue::new(
+                        resource::SERVICE_NAME,
+                        // TODO(bugen): better service name
+                        // https://github.com/jaegertracing/jaeger-ui/issues/336
+                        format!("{}-{}", settings.name, id),
+                    ),
+                    KeyValue::new(resource::SERVICE_INSTANCE_ID, id),
+                    KeyValue::new(resource::SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
+                    KeyValue::new(resource::PROCESS_PID, std::process::id().to_string()),
+                ]),
+            ))
+            .with_batch_exporter(log_exporter, opentelemetry::runtime::Tokio)
+            .build();
+        let layer =
+            opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge::new(&provider)
+                .with_filter(default_filter.clone());
+        layers.push(layer.boxed());
+        let _ = Box::leak(Box::new(provider));
+    }
+
     // Tracing layer
     #[cfg(not(madsim))]
     if let Ok(endpoint) = std::env::var("RW_TRACING_ENDPOINT") {
@@ -377,5 +433,6 @@ pub fn init_risingwave_logger(settings: LoggerSettings) {
         layers.push(Box::new(MetricsLayer::new().with_filter(filter)));
     }
     tracing_subscriber::registry().with(layers).init();
+
     // TODO: add file-appender tracing subscriber in the future
 }
