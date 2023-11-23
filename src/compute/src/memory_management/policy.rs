@@ -92,6 +92,27 @@ impl std::fmt::Debug for JemallocAndJvmMemoryControl {
     }
 }
 
+// TODO: refactor and reuse process_linux.rs
+fn system_resident_memory_bytes() -> Option<usize> {
+    use risingwave_common::monitor::PAGESIZE;
+
+    let p = match procfs::process::Process::myself() {
+        Ok(p) => p,
+        Err(..) => {
+            // we can't construct a Process object, so there's no stats to gather
+            return None;
+        }
+    };
+    let stat = match p.stat() {
+        Ok(stat) => stat,
+        Err(..) => {
+            // we can't get the stat, so there's no stats to gather
+            return None;
+        }
+    };
+    Some(stat.rss as usize * *PAGESIZE as usize)
+}
+
 impl MemoryControl for JemallocAndJvmMemoryControl {
     fn apply(
         &self,
@@ -108,13 +129,16 @@ impl MemoryControl for JemallocAndJvmMemoryControl {
 
         let (jvm_allocated_bytes, jvm_active_bytes) = load_jvm_memory_stats();
 
+        // FIXME(eric): don't unwrap
+        let system_resident_memory_bytes = system_resident_memory_bytes().unwrap();
+
         // Streaming memory control
         //
         // We calculate the watermark of the LRU cache, which provides hints for streaming executors
         // on cache eviction. Here we do the calculation based on jemalloc statistics.
 
         let (lru_watermark_step, lru_watermark_time_ms, lru_physical_now) = calculate_lru_watermark(
-            jemalloc_allocated_bytes + jvm_allocated_bytes,
+            system_resident_memory_bytes,
             self.threshold_stable,
             self.threshold_graceful,
             self.threshold_aggressive,
@@ -129,6 +153,7 @@ impl MemoryControl for JemallocAndJvmMemoryControl {
             jemalloc_active_bytes,
             jvm_allocated_bytes,
             jvm_active_bytes,
+            system_resident_memory_bytes,
             lru_watermark_step,
             lru_watermark_time_ms,
             lru_physical_now_ms: lru_physical_now,
@@ -146,8 +171,7 @@ fn calculate_lru_watermark(
 ) -> (u64, u64, u64) {
     let mut watermark_time_ms = prev_memory_stats.lru_watermark_time_ms;
     let last_step = prev_memory_stats.lru_watermark_step;
-    let last_used_memory_bytes =
-        prev_memory_stats.jemalloc_allocated_bytes + prev_memory_stats.jvm_allocated_bytes;
+    let last_used_memory_bytes = prev_memory_stats.system_resident_memory_bytes;
 
     // The watermark calculation works in the following way:
     //

@@ -59,6 +59,10 @@ tracing = "0.1"
 [target.'cfg(not(madsim))'.dependencies]
 workspace-hack = { path = "../workspace-hack" }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+procfs = { version = "0.16", default-features = false }
+libc = "0.2"
+
 [dev-dependencies]
 futures-async-stream = { workspace = true }
 rand = "0.8"

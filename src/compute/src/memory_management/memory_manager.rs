@@ -81,6 +81,7 @@ impl GlobalMemoryManager {
             jemalloc_active_bytes: 0,
             jvm_allocated_bytes: 0,
             jvm_active_bytes: 0,
+            system_resident_memory_bytes: 0,
             lru_watermark_step: 0,
             lru_watermark_time_ms: Epoch::physical_now(),
             lru_physical_now_ms: Epoch::physical_now(),

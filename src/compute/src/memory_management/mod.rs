@@ -53,6 +53,9 @@ pub struct MemoryControlStats {
     pub jemalloc_active_bytes: usize,
     pub jvm_allocated_bytes: usize,
     pub jvm_active_bytes: usize,
+
+    pub system_resident_memory_bytes: usize,
+
     pub lru_watermark_step: u64,
     pub lru_watermark_time_ms: u64,
     pub lru_physical_now_ms: u64,

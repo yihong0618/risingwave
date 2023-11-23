@@ -28,7 +28,7 @@ use crate::monitor::my_stats::MyHistogram;
 use crate::monitor::process_linux::monitor_process;
 
 #[cfg(target_os = "linux")]
-static PAGESIZE: std::sync::LazyLock<i64> =
+pub static PAGESIZE: std::sync::LazyLock<i64> =
     std::sync::LazyLock::new(|| unsafe { libc::sysconf(libc::_SC_PAGESIZE) });
 
 #[cfg(target_os = "linux")]
