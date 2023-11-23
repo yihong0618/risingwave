@@ -186,8 +186,8 @@ impl Collector for ProcessCollector {
 
     fn collect(&self) -> Vec<proto::MetricFamily> {
         // fake number
-        self.vsize.set(100 * 1000);
-        self.rss.set(100 * 1000);
+        self.vsize.set(0);
+        self.rss.set(0);
 
         // cpu
         let cpu_total_mfs = {
