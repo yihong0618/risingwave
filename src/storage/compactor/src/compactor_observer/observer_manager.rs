@@ -55,7 +55,7 @@ impl ObserverState for CompactorObserverNode {
 
                             self.version = resp.version;
                         }
-                        _ => panic!("error type notification"),
+                        _ => panic!("error type notification, response: {:?}", resp),
                     };
                 }
             }
@@ -64,7 +64,7 @@ impl ObserverState for CompactorObserverNode {
                 self.system_params_manager.try_set_params(p);
             }
             _ => {
-                panic!("error type notification");
+                panic!("error type notification, response: {:?}", resp);
             }
         }
     }
