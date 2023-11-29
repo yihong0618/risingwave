@@ -38,6 +38,41 @@ services:
       interval: 1s
       timeout: 5s
       retries: 5
+  compactor-1:
+    <<: *image
+    command:
+      - compactor-node
+      - "--listen-addr"
+      - "0.0.0.0:6660"
+      - "--advertise-addr"
+      - "compactor-0:6660"
+      - "--prometheus-listener-addr"
+      - "0.0.0.0:1260"
+      - "--meta-address"
+      - "http://meta-node-0:5690"
+      - "--config-path"
+      - /risingwave.toml
+    expose:
+      - "6660"
+      - "1260"
+    ports: []
+    depends_on:
+      - meta-node-0
+      # - minio-0
+    volumes:
+      - "./risingwave.toml:/risingwave.toml"
+    environment:
+      RUST_BACKTRACE: "1"
+      # If ENABLE_TELEMETRY is not set, telemetry will start by default
+      ENABLE_TELEMETRY: ${ENABLE_TELEMETRY:-true}
+    container_name: compactor-1
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - bash -c 'printf \"GET / HTTP/1.1\n\n\" > /dev/tcp/127.0.0.1/6660; exit $$?;'
+      interval: 1s
+      timeout: 5s
+      retries: 5
   compute-node-0:
     <<: *image
     command:
