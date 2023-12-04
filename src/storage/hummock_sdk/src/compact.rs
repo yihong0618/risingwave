@@ -47,6 +47,13 @@ pub fn compact_task_to_string(compact_task: &CompactTask) -> String {
         compact_task.existing_table_ids,
     )
     .unwrap();
+    writeln!(
+        s,
+        "Compaction task table_vnode_partition: {:?} ",
+        compact_task.table_vnode_partition,
+    )
+    .unwrap();
+
     s.push_str("Compaction Sstables structure: \n");
     for level_entry in &compact_task.input_ssts {
         let tables: Vec<String> = level_entry
