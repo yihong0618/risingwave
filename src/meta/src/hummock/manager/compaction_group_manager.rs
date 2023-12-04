@@ -44,7 +44,7 @@ use crate::hummock::error::{Error, Result};
 use crate::hummock::manager::{drop_sst, read_lock, HummockManager};
 use crate::hummock::metrics_utils::remove_compaction_group_in_sst_stat;
 use crate::hummock::model::CompactionGroup;
-use crate::manager::{IdCategory, MetaSrvEnv, TableId};
+use crate::manager::{IdCategory, MetaSrvEnv};
 use crate::model::{
     BTreeMapEntryTransaction, BTreeMapTransaction, MetadataModel, TableFragments, ValTransaction,
 };
@@ -403,7 +403,6 @@ impl HummockManager {
         {
             self.try_update_write_limits(compaction_group_ids).await;
         }
-
         Ok(result)
     }
 
@@ -441,30 +440,23 @@ impl HummockManager {
         parent_group_id: CompactionGroupId,
         table_ids: &[StateTableId],
     ) -> Result<CompactionGroupId> {
-        let result = self
-            .move_state_table_to_compaction_group(parent_group_id, table_ids, None, 0)
-            .await?;
-        self.group_to_table_vnode_partition
-            .write()
-            .insert(result.0, result.1);
-
-        Ok(result.0)
+        self.move_state_table_to_compaction_group(parent_group_id, table_ids, None, false, 0)
+            .await
     }
 
     /// move some table to another compaction-group. Create a new compaction group if it does not
     /// exist.
-    /// TODO: Move table_to_partition in result to compaction group
     #[named]
     pub async fn move_state_table_to_compaction_group(
         &self,
         parent_group_id: CompactionGroupId,
         table_ids: &[StateTableId],
         target_group_id: Option<CompactionGroupId>,
-        partition_vnode_count: u32,
-    ) -> Result<(CompactionGroupId, BTreeMap<TableId, u32>)> {
-        let mut table_to_partition = BTreeMap::default();
+        allow_split_by_table: bool,
+        weight_split_by_vnode: u32,
+    ) -> Result<CompactionGroupId> {
         if table_ids.is_empty() {
-            return Ok((parent_group_id, table_to_partition));
+            return Ok(parent_group_id);
         }
         let table_ids = table_ids.iter().cloned().unique().collect_vec();
         let mut compaction_guard = write_lock!(self, compaction).await;
@@ -569,7 +561,8 @@ impl HummockManager {
                     .read()
                     .await
                     .default_compaction_config();
-                config.split_weight_by_vnode = partition_vnode_count;
+                config.split_by_state_table = allow_split_by_table;
+                config.split_weight_by_vnode = weight_split_by_vnode;
 
                 new_version_delta.group_deltas.insert(
                     new_compaction_group_id,
@@ -622,11 +615,6 @@ impl HummockManager {
             insert.apply_to_txn(&mut trx).await?;
             self.env.meta_store().txn(trx).await?;
             insert.commit();
-
-            // Currently, only splitting out a single table_id is supported.
-            for table_id in table_ids {
-                table_to_partition.insert(table_id, partition_vnode_count);
-            }
         } else {
             self.env.meta_store().txn(trx).await?;
         }
@@ -700,7 +688,7 @@ impl HummockManager {
             .with_label_values(&[&parent_group_id.to_string()])
             .inc();
 
-        Ok((target_compaction_group_id, table_to_partition))
+        Ok(target_compaction_group_id)
     }
 
     #[named]

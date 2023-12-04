@@ -3143,7 +3143,6 @@ impl CatalogManager {
             .database
             .tables
             .values()
-            .filter(|table| table.get_stream_job_status() != Ok(StreamJobStatus::Creating))
             .map(|table| table.id)
             .collect()
     }
