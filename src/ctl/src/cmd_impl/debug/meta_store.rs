@@ -16,6 +16,8 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use etcd_client::ConnectOptions;
+use itertools::Itertools;
+use prost::Message;
 use risingwave_meta::model::{MetadataModel, TableFragments, Worker};
 use risingwave_meta::storage::meta_store::MetaStore;
 use risingwave_meta::storage::{EtcdMetaStore, WrappedEtcdClient};
@@ -28,9 +30,10 @@ use crate::{DebugCommon, DebugCommonKind, DebugCommonOutputFormat};
 
 const KIND_KEY: &str = "kind";
 const ITEM_KEY: &str = "item";
+const ENCODED_KEY_KEY: &str = "encoded_key";
 
 macro_rules! yaml_arm {
-    ($kind:tt, $item:expr) => {{
+    ($kind:tt, $key:expr, $item:expr) => {{
         let mut mapping = serde_yaml::Mapping::new();
         mapping.insert(
             Value::String(KIND_KEY.to_string()),
@@ -40,18 +43,27 @@ macro_rules! yaml_arm {
             Value::String(ITEM_KEY.to_string()),
             serde_yaml::to_value($item).unwrap(),
         );
+        mapping.insert(
+            Value::String(ENCODED_KEY_KEY.to_string()),
+            Value::String($key.iter().map(|byte| format!("\\x{:02x}", byte)).join("")),
+        );
         serde_yaml::Value::Mapping(mapping)
     }};
 }
 
 macro_rules! json_arm {
-    ($kind:tt, $item:expr) => {{
+    ($kind:tt, $key:expr, $item:expr) => {{
         let mut mapping = serde_json::Map::new();
         mapping.insert(
             KIND_KEY.to_string(),
             serde_json::Value::String($kind.to_string()),
         );
-        mapping.insert(ITEM_KEY.to_string(), serde_json::to_value($item).unwrap());
+        mapping.insert(ITEM_KEY.to_string(), serde_json::to_value(&$item).unwrap());
+        mapping.insert(
+            ENCODED_KEY_KEY.to_string(),
+            serde_json::to_value($key.iter().map(|byte| format!("\\x{:02x}", byte)).join(""))
+                .unwrap(),
+        );
         serde_json::Value::Object(mapping)
     }};
 }
@@ -200,23 +212,61 @@ pub async fn dump(common: DebugCommon) -> anyhow::Result<()> {
             let mut seq = serde_yaml::Sequence::new();
             for item in items {
                 seq.push(match item {
-                    Item::Worker(worker) => yaml_arm!("worker", worker.to_protobuf()),
-                    Item::User(user) => yaml_arm!("user", user.to_protobuf()),
-                    Item::Table(table) => yaml_arm!("table", table.to_protobuf()),
+                    Item::Worker(worker) => {
+                        yaml_arm!(
+                            "worker",
+                            worker.key()?.encode_to_vec(),
+                            worker.to_protobuf()
+                        )
+                    }
+                    Item::User(user) => {
+                        yaml_arm!("user", user.key()?.encode_to_vec(), user.to_protobuf())
+                    }
+                    Item::Table(table) => {
+                        yaml_arm!("table", table.key()?.encode_to_vec(), table.to_protobuf())
+                    }
                     Item::MetaMember(member) => {
-                        yaml_arm!("meta_member", member)
+                        yaml_arm!("meta_member", &member.id.as_bytes().to_vec(), &member)
                     }
                     Item::SourceCatalog(catalog) => {
-                        yaml_arm!("source_catalog", catalog)
+                        yaml_arm!("source_catalog", &catalog.key()?.encode_to_vec(), &catalog)
                     }
-                    Item::SinkCatalog(catalog) => yaml_arm!("sink_catalog", catalog),
-                    Item::IndexCatalog(catalog) => yaml_arm!("index_catalog", catalog),
-                    Item::FunctionCatalog(catalog) => yaml_arm!("function_catalog", catalog),
-                    Item::ViewCatalog(catalog) => yaml_arm!("view_catalog", catalog),
-                    Item::ConnectionCatalog(catalog) => yaml_arm!("connection_catalog", catalog),
-                    Item::DatabaseCatalog(catalog) => yaml_arm!("database_catalog", catalog),
-                    Item::SchemaCatalog(catalog) => yaml_arm!("schema_catalog", catalog),
-                    Item::TableCatalog(catalog) => yaml_arm!("table_catalog", catalog),
+                    Item::SinkCatalog(catalog) => {
+                        yaml_arm!("sink_catalog", &catalog.key()?.encode_to_vec(), &catalog)
+                    }
+                    Item::IndexCatalog(catalog) => {
+                        yaml_arm!("index_catalog", &catalog.key()?.encode_to_vec(), &catalog)
+                    }
+                    Item::FunctionCatalog(catalog) => {
+                        yaml_arm!(
+                            "function_catalog",
+                            &catalog.key()?.encode_to_vec(),
+                            &catalog
+                        )
+                    }
+                    Item::ViewCatalog(catalog) => {
+                        yaml_arm!("view_catalog", &catalog.key()?.encode_to_vec(), &catalog)
+                    }
+                    Item::ConnectionCatalog(catalog) => {
+                        yaml_arm!(
+                            "connection_catalog",
+                            &catalog.key()?.encode_to_vec(),
+                            &catalog
+                        )
+                    }
+                    Item::DatabaseCatalog(catalog) => {
+                        yaml_arm!(
+                            "database_catalog",
+                            &catalog.key()?.encode_to_vec(),
+                            &catalog
+                        )
+                    }
+                    Item::SchemaCatalog(catalog) => {
+                        yaml_arm!("schema_catalog", &catalog.key()?.encode_to_vec(), &catalog)
+                    }
+                    Item::TableCatalog(catalog) => {
+                        yaml_arm!("table_catalog", &catalog.key()?.encode_to_vec(), &catalog)
+                    }
                 });
             }
             serde_yaml::to_writer(writer, &seq).unwrap();
@@ -225,21 +275,61 @@ pub async fn dump(common: DebugCommon) -> anyhow::Result<()> {
             let mut seq = vec![];
             for item in items {
                 seq.push(match item {
-                    Item::Worker(worker) => json_arm!("worker", worker.to_protobuf()),
-                    Item::User(user) => json_arm!("user", user.to_protobuf()),
-                    Item::Table(table) => json_arm!("table", table.to_protobuf()),
-                    Item::MetaMember(member) => {
-                        json_arm!("meta_member", member)
+                    Item::Worker(worker) => {
+                        json_arm!(
+                            "worker",
+                            worker.key()?.encode_to_vec(),
+                            worker.to_protobuf()
+                        )
                     }
-                    Item::SourceCatalog(catalog) => json_arm!("source_catalog", catalog),
-                    Item::SinkCatalog(catalog) => json_arm!("sink_catalog", catalog),
-                    Item::IndexCatalog(catalog) => json_arm!("index_catalog", catalog),
-                    Item::FunctionCatalog(catalog) => json_arm!("function_catalog", catalog),
-                    Item::ViewCatalog(catalog) => json_arm!("view_catalog", catalog),
-                    Item::ConnectionCatalog(catalog) => json_arm!("connection_catalog", catalog),
-                    Item::DatabaseCatalog(catalog) => json_arm!("database_catalog", catalog),
-                    Item::SchemaCatalog(catalog) => json_arm!("schema_catalog", catalog),
-                    Item::TableCatalog(catalog) => json_arm!("table_catalog", catalog),
+                    Item::User(user) => {
+                        json_arm!("user", user.key()?.encode_to_vec(), user.to_protobuf())
+                    }
+                    Item::Table(table) => {
+                        json_arm!("table", table.key()?.encode_to_vec(), table.to_protobuf())
+                    }
+                    Item::MetaMember(member) => {
+                        json_arm!("meta_member", &member.id.as_bytes().to_vec(), &member)
+                    }
+                    Item::SourceCatalog(catalog) => {
+                        json_arm!("source_catalog", &catalog.key()?.encode_to_vec(), &catalog)
+                    }
+                    Item::SinkCatalog(catalog) => {
+                        json_arm!("sink_catalog", &catalog.key()?.encode_to_vec(), &catalog)
+                    }
+                    Item::IndexCatalog(catalog) => {
+                        json_arm!("index_catalog", &catalog.key()?.encode_to_vec(), &catalog)
+                    }
+                    Item::FunctionCatalog(catalog) => {
+                        json_arm!(
+                            "function_catalog",
+                            &catalog.key()?.encode_to_vec(),
+                            &catalog
+                        )
+                    }
+                    Item::ViewCatalog(catalog) => {
+                        json_arm!("view_catalog", &catalog.key()?.encode_to_vec(), &catalog)
+                    }
+                    Item::ConnectionCatalog(catalog) => {
+                        json_arm!(
+                            "connection_catalog",
+                            &catalog.key()?.encode_to_vec(),
+                            &catalog
+                        )
+                    }
+                    Item::DatabaseCatalog(catalog) => {
+                        json_arm!(
+                            "database_catalog",
+                            &catalog.key()?.encode_to_vec(),
+                            &catalog
+                        )
+                    }
+                    Item::SchemaCatalog(catalog) => {
+                        json_arm!("schema_catalog", &catalog.key()?.encode_to_vec(), &catalog)
+                    }
+                    Item::TableCatalog(catalog) => {
+                        json_arm!("table_catalog", &catalog.key()?.encode_to_vec(), &catalog)
+                    }
                 });
             }
             serde_json::to_writer_pretty(writer, &seq).unwrap();
