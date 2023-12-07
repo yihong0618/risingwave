@@ -120,8 +120,6 @@ impl DynamicLevelSelectorCore {
                 Box::new(MinOverlappingPicker::new(
                     picker_info.select_level,
                     picker_info.target_level,
-                    self.config.max_bytes_for_level_base,
-                    self.config.split_by_state_table,
                     overlap_strategy,
                 ))
             }

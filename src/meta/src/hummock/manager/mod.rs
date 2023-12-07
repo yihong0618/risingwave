@@ -953,13 +953,9 @@ impl HummockManager {
             )
             .await?;
             tracing::debug!(
-                "TrivialReclaim for compaction group {}: remove {} sstables, cost time: {:?}",
-                compaction_group_id,
-                compact_task
-                    .input_ssts
-                    .iter()
-                    .map(|level| level.table_infos.len())
-                    .sum::<usize>(),
+                "TrivialReclaim for task: {}, type: {:?} cost time: {:?}",
+                compact_task.task_id,
+                compact_task.task_type(),
                 start_time.elapsed()
             );
         } else if is_trivial_move && can_trivial_move {
@@ -977,11 +973,9 @@ impl HummockManager {
             .await?;
 
             tracing::debug!(
-                "TrivialMove for compaction group {}: pick up {} sstables in level {} to compact to target_level {}  cost time: {:?}",
-                compaction_group_id,
-                compact_task.input_ssts[0].table_infos.len(),
-                compact_task.input_ssts[0].level_idx,
-                compact_task.target_level,
+                "TrivialMove for task-{} type: {:?}  cost time: {:?}",
+                compact_task.task_id,
+                compact_task.task_type(),
                 start_time.elapsed()
             );
         } else {
@@ -1372,6 +1366,13 @@ impl HummockManager {
                     compact_task_assignment
                 )?;
             }
+
+            tracing::debug!(
+                "Reported compaction task. {}, success: {:?}. cost time: {:?}",
+                compact_task_to_string(&compact_task),
+                is_success,
+                start_time.elapsed(),
+            );
         }
 
         let task_status = compact_task.task_status();
@@ -1397,12 +1398,6 @@ impl HummockManager {
                 task_status_label,
             ])
             .inc();
-
-        tracing::trace!(
-            "Reported compaction task. {}. cost time: {:?}",
-            compact_task_to_string(&compact_task),
-            start_time.elapsed(),
-        );
 
         trigger_sst_stat(
             &self.metrics,

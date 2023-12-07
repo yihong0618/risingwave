@@ -27,8 +27,6 @@ use crate::hummock::level_handler::LevelHandler;
 pub struct MinOverlappingPicker {
     level: usize,
     target_level: usize,
-    max_select_bytes: u64,
-    split_by_table: bool,
     overlap_strategy: Arc<dyn OverlapStrategy>,
 }
 
@@ -36,15 +34,11 @@ impl MinOverlappingPicker {
     pub fn new(
         level: usize,
         target_level: usize,
-        max_select_bytes: u64,
-        split_by_table: bool,
         overlap_strategy: Arc<dyn OverlapStrategy>,
     ) -> MinOverlappingPicker {
         MinOverlappingPicker {
             level,
             target_level,
-            max_select_bytes,
-            split_by_table,
             overlap_strategy,
         }
     }
@@ -56,54 +50,41 @@ impl MinOverlappingPicker {
         level_handlers: &[LevelHandler],
     ) -> (Vec<SstableInfo>, Vec<SstableInfo>) {
         let mut scores = vec![];
-        for left in 0..select_tables.len() {
-            if level_handlers[self.level].is_pending_compact(&select_tables[left].sst_id) {
+        for (idx, sst) in select_tables.iter().enumerate() {
+            if level_handlers[self.level].is_pending_compact(&sst.sst_id) {
                 continue;
             }
             let mut overlap_info = self.overlap_strategy.create_overlap_info();
-            let mut select_file_size = 0;
-            for (right, table) in select_tables.iter().enumerate().skip(left) {
-                if level_handlers[self.level].is_pending_compact(&table.sst_id) {
-                    break;
-                }
-                if self.split_by_table && table.table_ids != select_tables[left].table_ids {
-                    break;
-                }
-                if select_file_size > self.max_select_bytes {
-                    break;
-                }
-                select_file_size += table.file_size;
-                overlap_info.update(table);
-                let overlap_files_range = overlap_info.check_multiple_overlap(target_tables);
-                let mut total_file_size = 0;
-                let mut pending_compact = false;
-                if !overlap_files_range.is_empty() {
-                    for other in &target_tables[overlap_files_range] {
-                        if level_handlers[self.target_level].is_pending_compact(&other.sst_id) {
-                            pending_compact = true;
-                            break;
-                        }
-                        total_file_size += other.file_size;
+            let select_file_size = sst.file_size;
+            overlap_info.update(sst);
+            let overlap_files_range = overlap_info.check_multiple_overlap(target_tables);
+            let mut total_file_size = 0;
+            let mut pending_compact = false;
+            if !overlap_files_range.is_empty() {
+                for other in &target_tables[overlap_files_range] {
+                    if level_handlers[self.target_level].is_pending_compact(&other.sst_id) {
+                        pending_compact = true;
+                        break;
                     }
+                    total_file_size += other.file_size;
                 }
-                if pending_compact {
-                    break;
-                }
-                scores.push((total_file_size * 100 / select_file_size, (left, right)));
+            }
+            if pending_compact {
+                continue;
+            }
+            scores.push((total_file_size * 100 / select_file_size, idx));
+            if total_file_size == 0 {
+                break;
             }
         }
         if scores.is_empty() {
             return (vec![], vec![]);
         }
-        let (_, (left, right)) = scores
+        let (_, idx) = scores
             .iter()
-            .min_by(|(score1, x), (score2, y)| {
-                score1
-                    .cmp(score2)
-                    .then_with(|| (x.1 - x.0).cmp(&(y.1 - y.0)))
-            })
+            .min_by(|(score1, _), (score2, _)| score1.cmp(score2))
             .unwrap();
-        let select_input_ssts = select_tables[*left..(right + 1)].to_vec();
+        let select_input_ssts = vec![select_tables[*idx].clone()];
         let target_input_ssts = self
             .overlap_strategy
             .check_base_level_overlap(&select_input_ssts, target_tables);
@@ -405,13 +386,7 @@ pub mod tests {
 
     #[test]
     fn test_compact_l1() {
-        let mut picker = MinOverlappingPicker::new(
-            1,
-            2,
-            10000,
-            false,
-            Arc::new(RangeOverlapStrategy::default()),
-        );
+        let mut picker = MinOverlappingPicker::new(1, 2, Arc::new(RangeOverlapStrategy::default()));
         let levels = vec![
             Level {
                 level_idx: 1,
@@ -487,13 +462,7 @@ pub mod tests {
 
     #[test]
     fn test_expand_l1_files() {
-        let mut picker = MinOverlappingPicker::new(
-            1,
-            2,
-            10000,
-            false,
-            Arc::new(RangeOverlapStrategy::default()),
-        );
+        let mut picker = MinOverlappingPicker::new(1, 2, Arc::new(RangeOverlapStrategy::default()));
         let levels = vec![
             Level {
                 level_idx: 1,
@@ -831,9 +800,7 @@ pub mod tests {
             LevelHandler::new(2),
             LevelHandler::new(3),
         ];
-        // no limit
-        let picker =
-            MinOverlappingPicker::new(2, 3, 1000, false, Arc::new(RangeOverlapStrategy::default()));
+        let picker = MinOverlappingPicker::new(2, 3, Arc::new(RangeOverlapStrategy::default()));
         let (select_files, target_files) = picker.pick_tables(
             &levels[1].table_infos,
             &levels[2].table_infos,
