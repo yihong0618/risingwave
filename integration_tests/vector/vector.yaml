@@ -1,13 +1,17 @@
 sources:
-  demo:
+  demo_logs:
     type: "demo_logs"
     format: "json"
     interval: 0.1
     lines:
       - "line1"
 
+  host_metrics:
+    type: "host_metrics"
+    scrape_interval_secs: 10
+
 sinks:
-  risingwave:
+  rw_event:
     type: "risingwave"
     host: "frontend-node-0"
     port: 4566
@@ -17,4 +21,16 @@ sinks:
     encoding:
       codec: "json"
     inputs:
-      - "demo"
+      - "demo_logs"
+
+  rw_host_metrics:
+    type: "risingwave"
+    host: "risingwave-standalone"
+    port: 4566
+    database: "dev"
+    user: "root"
+    table: "host_metrics"
+    encoding:
+      codec: "json"
+    inputs:
+      - "host_metrics"
