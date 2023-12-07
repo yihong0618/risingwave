@@ -17,6 +17,7 @@ members = [
   "src/expr/macro",
   "src/frontend",
   "src/frontend/planner_test",
+  "src/frontend/src/catalog/system_catalog/macro",
   "src/java_binding",
   "src/jni_core",
   "src/meta",
