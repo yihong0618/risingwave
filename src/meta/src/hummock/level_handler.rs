@@ -55,6 +55,10 @@ impl LevelHandler {
         self.compacting_files.contains_key(sst_id)
     }
 
+    pub fn has_pending_task(&self) -> bool {
+        !self.compacting_files.is_empty()
+    }
+
     pub fn pending_task_id_by_sst(
         &self,
         sst_id: &HummockSstableId,

@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use risingwave_pb::hummock::hummock_version::Levels;
-use risingwave_pb::hummock::InputLevel;
+use risingwave_pb::hummock::{InputLevel, LevelType};
 
 use crate::hummock::compaction::overlap_strategy::OverlapStrategy;
 use crate::hummock::compaction::picker::CompactionInput;
@@ -25,6 +25,7 @@ pub struct TombstoneReclaimCompactionPicker {
     overlap_strategy: Arc<dyn OverlapStrategy>,
     delete_ratio: u64,
     range_delete_ratio: u64,
+    base_level_size: u64,
 }
 
 #[derive(Default)]
@@ -37,11 +38,13 @@ impl TombstoneReclaimCompactionPicker {
         overlap_strategy: Arc<dyn OverlapStrategy>,
         delete_ratio: u64,
         range_delete_ratio: u64,
+        base_level_size: u64,
     ) -> Self {
         Self {
             overlap_strategy,
             delete_ratio,
             range_delete_ratio,
+            base_level_size,
         }
     }
 
@@ -53,7 +56,55 @@ impl TombstoneReclaimCompactionPicker {
     ) -> Option<CompactionInput> {
         assert!(!levels.levels.is_empty());
         if state.last_level == 0 {
+            let mut select_input_ssts = vec![];
+            let mut total_key_count = 0;
+            let mut stale_key_count = 0;
+            let mut total_file_size = 0;
+            for sub_level in &levels.l0.as_ref().unwrap().sub_levels {
+                if sub_level.level_type() != LevelType::Nonoverlapping
+                    || level_handlers[0].is_level_pending_compact(sub_level)
+                    || total_file_size > self.base_level_size
+                {
+                    break;
+                }
+                sub_level.table_infos.iter().for_each(|sst| {
+                    total_key_count += sst.total_key_count;
+                    stale_key_count += sst.stale_key_count;
+                    total_file_size += sst.file_size;
+                });
+                select_input_ssts.push(InputLevel {
+                    level_idx: 0,
+                    level_type: sub_level.level_type,
+                    table_infos: sub_level.table_infos.clone(),
+                });
+            }
+            let mut base_level_idx = 0;
+            while levels.levels[base_level_idx].table_infos.is_empty()
+                && base_level_idx + 1 < levels.levels.len()
+            {
+                base_level_idx += 1;
+            }
+
             state.last_level = 1;
+            if !level_handlers[base_level_idx].has_pending_task()
+                && total_file_size * 3 > levels.levels[base_level_idx].total_file_size
+                && stale_key_count * 100 > total_key_count * self.delete_ratio
+            {
+                select_input_ssts.reverse();
+                select_input_ssts.push(InputLevel {
+                    level_idx: levels.levels[base_level_idx].level_idx,
+                    level_type: levels.levels[base_level_idx].level_type,
+                    table_infos: levels.levels[base_level_idx].table_infos.clone(),
+                });
+
+                return Some(CompactionInput {
+                    select_input_size: total_file_size,
+                    target_input_size: levels.levels[base_level_idx].total_file_size,
+                    target_level: levels.levels[base_level_idx].level_idx as usize,
+                    input_levels: select_input_ssts,
+                    ..Default::default()
+                });
+            }
         }
 
         while state.last_level <= levels.levels.len() {
@@ -167,7 +218,7 @@ pub mod tests {
         let config = Arc::new(CompactionConfigBuilder::new().build());
 
         let strategy = create_overlap_strategy(config.compaction_mode());
-        let picker = TombstoneReclaimCompactionPicker::new(strategy.clone(), 40, 20);
+        let picker = TombstoneReclaimCompactionPicker::new(strategy.clone(), 40, 20, 10000);
         let ret = picker.pick_compaction(&levels, &levels_handler, &mut state);
         assert!(ret.is_none());
         let mut sst = generate_table(3, 1, 201, 300, 1);
@@ -185,7 +236,7 @@ pub mod tests {
         sst.range_tombstone_count = 30;
         sst.total_key_count = 100;
         levels.levels[0].table_infos.push(sst);
-        let picker = TombstoneReclaimCompactionPicker::new(strategy, 50, 10);
+        let picker = TombstoneReclaimCompactionPicker::new(strategy, 50, 10, 100000);
         let mut state = TombstoneReclaimPickerState::default();
         let ret = picker
             .pick_compaction(&levels, &levels_handler, &mut state)

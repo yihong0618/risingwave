@@ -55,6 +55,7 @@ impl CompactionSelector for TombstoneCompactionSelector {
             create_overlap_strategy(group.compaction_config.compaction_mode()),
             group.compaction_config.tombstone_reclaim_ratio as u64,
             group.compaction_config.tombstone_reclaim_ratio as u64 / 2,
+            group.compaction_config.max_bytes_for_level_base,
         );
         let state = self.state.entry(group.group_id).or_default();
         let compaction_input = picker.pick_compaction(levels, level_handlers, state)?;
