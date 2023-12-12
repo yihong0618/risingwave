@@ -50,9 +50,8 @@ fn gen(tokens: TokenStream) -> Result<TokenStream> {
     };
 
     let fields_rs = r#struct.fields;
-    let fields_rw: Vec<TokenStream> = fields_rs
-        .into_iter()
-        .map(|field_rs| {
+    let (to_datum_ref_exprs, field_rw_exprs): (Vec<_>, Vec<_>) =
+        itertools::multiunzip(fields_rs.into_iter().map(|field_rs| {
             let Field {
                 // We can support #[field(ignore)] or other useful attributes here.
                 attrs: _attrs,
@@ -60,19 +59,82 @@ fn gen(tokens: TokenStream) -> Result<TokenStream> {
                 ty,
                 ..
             } = field_rs;
+
+            let to_datum_ref_expr = quote! {
+                <#ty as ::risingwave_common::types::ToDatumRef>::to_datum_ref(&self.#name)
+            };
+
             let name = name.map_or("".to_string(), |name| name.to_string());
-            quote! {
+
+            let field_rw_expr = quote! {
                 (#name, <#ty as ::risingwave_common::types::WithDataType>::default_data_type())
+            };
+
+            (to_datum_ref_expr, field_rw_expr)
+        }));
+
+    let count = field_rw_exprs.len();
+
+    let row_iter_fn = quote! {
+        fn iter(&self) -> impl ::std::iter::Iterator<Item = ::risingwave_common::types::DatumRef<'_>> {
+            [#(#to_datum_ref_exprs),*]
+        }
+    };
+
+    let datum_at_branches: Vec<_> = to_datum_ref_exprs
+        .into_iter()
+        .enumerate()
+        .map(|(index, expr)| {
+            quote! {
+                #index => #expr,
             }
         })
         .collect();
 
-    Ok(quote! {
-        impl ::risingwave_common::types::Fields for #ident {
-            fn fields() -> Vec<(&'static str, ::risingwave_common::types::DataType)> {
-                vec![#(#fields_rw),*]
+    let datum_at_fn = quote! {
+        fn datum_at(&self, index: ::std::primitive::usize) -> ::risingwave_common::types::DatumRef<'_> {
+            match index {
+                #(#datum_at_branches)*
+                _ => panic!("index out of bounds"),
             }
         }
+    };
+
+    let datum_at_unchecked_fn = quote! {
+        unsafe fn datum_at_unchecked(&self, index: ::std::primitive::usize) -> ::risingwave_common::types::DatumRef<'_> {
+            match index {
+                #(#datum_at_branches)*
+                _ => std::hint::unreachable_unchecked(),
+            }
+        }
+    };
+
+    let len_fn = quote! {
+        fn len() -> ::std::primitive::usize {
+            #count
+        }
+    };
+
+    let impl_row_block = quote! {
+        impl ::risingwave_common::row::Row for #ident {
+            #datum_at_fn
+            #datum_at_unchecked_fn
+            #len_fn
+            #row_iter_fn
+        }
+    };
+
+    let impl_fields_block = quote! {
+        impl ::risingwave_common::types::Fields for #ident {
+            fn fields() -> ::std::vec::Vec<(&'static ::std::primitive::str, ::risingwave_common::types::DataType)> {
+                ::std::vec![#(#field_rw_exprs),*].into_iter()
+            }
+        }
+    };
+
+    Ok(quote! {
+        #impl_row_block
+        #impl_fields_block
     })
 }
 

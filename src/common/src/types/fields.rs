@@ -31,13 +31,13 @@ mod tests {
     #[test]
     #[allow(dead_code)]
     fn test_macro() {
-        #[derive(Fields)]
+        #[derive(Debug, PartialEq, Eq, Fields)]
         struct Sub {
             v12: Timestamptz,
             v13: Bytes,
         }
 
-        #[derive(Fields)]
+        #[derive(Debug, PartialEq, Eq, Fields)]
         struct Data {
             v1: i16,
             v2: std::primitive::i32,

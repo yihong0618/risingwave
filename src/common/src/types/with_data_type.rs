@@ -18,9 +18,12 @@ use std::sync::Arc;
 use bytes::Bytes;
 
 use super::{
-    DataType, Date, Decimal, Fields, Int256, Interval, JsonbRef, JsonbVal, Serial, StructType,
-    Time, Timestamp, Timestamptz, F32, F64,
+    DataType, Date, DatumRef, Decimal, Fields, Int256, Interval, JsonbRef, JsonbVal, Scalar,
+    Serial, StructRef, StructType, StructValue, Time, Timestamp, Timestamptz, F32, F64,
 };
+use crate::row::Row;
+
+pub trait TypedDatum = WithDataType + NativeTypeToDatumRef;
 
 /// A trait for all physical types that can be associated with a [`DataType`].
 ///
@@ -138,5 +141,30 @@ where
 {
     fn default_data_type() -> DataType {
         DataType::Struct(StructType::new(T::fields()))
+    }
+}
+
+pub trait NativeTypeToDatumRef {
+    fn to_datum_ref(&self) -> DatumRef<'_>;
+}
+
+impl<T> NativeTypeToDatumRef for Option<T>
+where
+    T: NativeTypeToDatumRef,
+{
+    fn to_datum_ref(&self) -> DatumRef<'_> {
+        match self {
+            Some(v) => v.to_datum_ref(),
+            None => DatumRef::None,
+        }
+    }
+}
+
+impl<T> NativeTypeToDatumRef for T
+where
+    T: Row,
+{
+    fn to_datum_ref(&self) -> DatumRef<'_> {
+        StructRef::ValueRef(StructValue::new(self.to_owned_row().into_inner()))
     }
 }

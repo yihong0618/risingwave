@@ -11,6 +11,7 @@ repository = { workspace = true }
 proc-macro = true
 
 [dependencies]
+itertools = "0.12"
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full", "extra-traits"] }
