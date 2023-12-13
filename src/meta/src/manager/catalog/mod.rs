@@ -121,6 +121,7 @@ use risingwave_pb::meta::cancel_creating_jobs_request::CreatingJobInfo;
 use risingwave_pb::meta::relation::RelationInfo;
 use risingwave_pb::meta::table_fragments::State;
 use risingwave_pb::meta::{Relation, RelationGroup};
+use risingwave_sqlparser::test_utils::table;
 pub(crate) use {commit_meta, commit_meta_with_trx};
 
 use crate::manager::catalog::utils::{
@@ -1462,6 +1463,19 @@ impl CatalogManager {
             }
         }
 
+        let mut sink_target_table_update = None;
+        if let RelationIdEnum::Sink(sink_id) = relation {
+            let sink = sinks.get(&sink_id).unwrap();
+            if let Some(target_table_id) = sink.target_table {
+                let mut target_table = tables.get_mut(target_table_id).unwrap();
+                target_table
+                    .incoming_sinks
+                    .retain(|incoming_sink_id| *incoming_sink_id != sink_id);
+
+                sink_target_table_update = Some(target_table.clone());
+            }
+        }
+
         let internal_tables = all_internal_table_ids
             .iter()
             .map(|internal_table_id| {
@@ -1543,7 +1557,7 @@ impl CatalogManager {
             }
         }
 
-        let version = self
+        let mut version = self
             .notify_frontend(
                 Operation::Delete,
                 Info::RelationGroup(RelationGroup {
@@ -1571,6 +1585,19 @@ impl CatalogManager {
                 }),
             )
             .await;
+
+        if let Some(table) = sink_target_table_update {
+            version = self
+                .notify_frontend(
+                    Operation::Update,
+                    Info::RelationGroup(RelationGroup {
+                        relations: vec![Relation {
+                            relation_info: RelationInfo::Table(table).into(),
+                        }],
+                    }),
+                )
+                .await;
+        }
 
         let catalog_deleted_ids: Vec<StreamingJobId> = all_table_ids
             .into_iter()
@@ -2793,9 +2820,20 @@ impl CatalogManager {
             table.stream_job_status = PbStreamJobStatus::Created.into();
             tables.insert(table.id, table.clone());
         }
+
+        let mut table_update = None;
+        if let Some(target_table_id) = sink.target_table {
+            let mut table = tables.get(&target_table_id).unwrap().clone();
+            table.incoming_sinks.push(sink.id);
+            tables.insert(table.id, table.clone());
+            table_update = Some(table);
+        }
+
         commit_meta!(self, sinks, tables)?;
 
-        let version = self
+        println!("table update {:?}", table_update);
+
+        let mut version = self
             .notify_frontend(
                 Operation::Add,
                 Info::RelationGroup(RelationGroup {
@@ -2810,6 +2848,19 @@ impl CatalogManager {
                 }),
             )
             .await;
+
+        if let Some(table) = table_update {
+            version = self
+                .notify_frontend(
+                    Operation::Update,
+                    Info::RelationGroup(RelationGroup {
+                        relations: vec![Relation {
+                            relation_info: RelationInfo::Table(table).into(),
+                        }],
+                    }),
+                )
+                .await;
+        }
 
         Ok(version)
     }

@@ -1236,6 +1236,8 @@ impl DdlController {
                     .finish_create_sink_procedure(internal_tables, sink)
                     .await?;
 
+                println!("ttt target table {:#?}", target_table);
+
                 if let Some((table, source)) = target_table {
                     let streaming_job =
                         StreamingJob::Table(source, table, TableJobType::Unspecified);
@@ -1497,13 +1499,7 @@ impl DdlController {
         };
 
         self.catalog_manager
-            .finish_replace_table_procedure(
-                source,
-                table,
-                table_col_index_mapping,
-                creating_sink_id,
-                dropping_sink_id,
-            )
+            .finish_replace_table_procedure(source, table, table_col_index_mapping, None, None)
             .await
     }
 
