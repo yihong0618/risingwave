@@ -22,7 +22,7 @@ use futures_async_stream::try_stream;
 use itertools::Itertools;
 use risingwave_common::catalog::{Schema, OFFSET_COLUMN_NAME};
 use risingwave_common::row::{OwnedRow, Row};
-use risingwave_common::types::DatumRef;
+use risingwave_common::types::{DatumRef, ScalarRefImpl};
 use serde_derive::{Deserialize, Serialize};
 use tokio_postgres::types::PgLsn;
 use tokio_postgres::NoTls;
@@ -207,12 +207,15 @@ impl PostgresExternalTableReader {
         let client = self.client.lock().await;
         client.execute("set time zone '+00:00'", &[]).await?;
 
-        let params: Vec<DatumRef<'_>> = match start_pk_row {
-            Some(ref pk_row) => pk_row.iter().collect_vec(),
+        let params: Vec<ScalarRefImpl<'_>> = match start_pk_row {
+            Some(ref pk_row) => pk_row.iter().map(|d| d.unwrap()).collect_vec(),
             None => Vec::new(),
         };
+        let params = params
+            .iter()
+            .map(|s| risingwave_common::types::datum_to_dyn_to_sql(s).unwrap());
 
-        let stream = client.query_raw(&sql, &params).await?;
+        let stream = client.query_raw(&sql, params).await?;
         let row_stream = stream.map(|row| {
             let row = row?;
             postgres_row_to_owned_row(row, &self.rw_schema)

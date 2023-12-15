@@ -15,47 +15,36 @@
 use std::error::Error;
 
 use bytes::BytesMut;
-use postgres_types::{to_sql_checked, IsNull, ToSql, Type};
+use postgres_types::{BorrowToSql, ToSql};
 
-use crate::types::ScalarRefImpl;
+use crate::types::{DatumRef, ScalarRefImpl};
 
-impl ToSql for ScalarRefImpl<'_> {
-    to_sql_checked!();
-
-    fn to_sql(&self, ty: &Type, out: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>>
-    where
-        Self: Sized,
-    {
-        match self {
-            ScalarRefImpl::Int16(v) => v.to_sql(ty, out),
-            ScalarRefImpl::Int32(v) => v.to_sql(ty, out),
-            ScalarRefImpl::Int64(v) => v.to_sql(ty, out),
-            ScalarRefImpl::Serial(v) => v.to_sql(ty, out),
-            ScalarRefImpl::Float32(v) => v.to_sql(ty, out),
-            ScalarRefImpl::Float64(v) => v.to_sql(ty, out),
-            ScalarRefImpl::Utf8(v) => v.to_sql(ty, out),
-            ScalarRefImpl::Bool(v) => v.to_sql(ty, out),
-            ScalarRefImpl::Decimal(v) => v.to_sql(ty, out),
-            ScalarRefImpl::Interval(v) => v.to_sql(ty, out),
-            ScalarRefImpl::Date(v) => v.to_sql(ty, out),
-            ScalarRefImpl::Timestamp(v) => v.to_sql(ty, out),
-            ScalarRefImpl::Timestamptz(v) => v.to_sql(ty, out),
-            ScalarRefImpl::Time(v) => v.to_sql(ty, out),
-            ScalarRefImpl::Bytea(v) => v.to_sql(ty, out),
+pub fn datum_to_dyn_to_sql<'a>(
+    scalar: &'a ScalarRefImpl<'_>,
+) -> Result<&'a dyn ToSql, Box<dyn Error + Sync + Send>> {
+    let ret: &dyn ToSql = match scalar {
+            ScalarRefImpl::Int16(v) => v as &dyn ToSql,
+            ScalarRefImpl::Int32(v) => v,
+            ScalarRefImpl::Int64(v) => v,
+            ScalarRefImpl::Serial(v) => v,
+            ScalarRefImpl::Float32(v) => v,
+            ScalarRefImpl::Float64(v) => v,
+            ScalarRefImpl::Utf8(v) => v,
+            ScalarRefImpl::Bool(v) => v,
+            ScalarRefImpl::Decimal(v) => v,
+            ScalarRefImpl::Interval(v) => v,
+            ScalarRefImpl::Date(v) => v,
+            ScalarRefImpl::Timestamp(v) => v,
+            ScalarRefImpl::Timestamptz(v) => v,
+            ScalarRefImpl::Time(v) => v,
+            ScalarRefImpl::Bytea(v) => v,
             ScalarRefImpl::Jsonb(_) // jsonbb::Value doesn't implement ToSql yet
             | ScalarRefImpl::Int256(_)
             | ScalarRefImpl::Struct(_)
             | ScalarRefImpl::List(_) => {
-                bail_not_implemented!("the postgres encoding for {ty} is unsupported")
+                panic!()
+                // bail_not_implemented!("the postgres encoding for {ty} is unsupported")
             }
-        }
-    }
-
-    // return true to accept all types
-    fn accepts(_ty: &Type) -> bool
-    where
-        Self: Sized,
-    {
-        true
-    }
+        };
+    Ok(ret)
 }

@@ -71,6 +71,7 @@ mod with_data_type;
 
 pub use fields::Fields;
 pub use risingwave_fields_derive::Fields;
+pub use to_sql::datum_to_dyn_to_sql;
 
 pub use self::datetime::{Date, Time, Timestamp};
 pub use self::decimal::{Decimal, PowError as DecimalPowError};
