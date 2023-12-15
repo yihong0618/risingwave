@@ -336,6 +336,21 @@ impl Distill for StreamHashJoin {
         if verbose {
             let data = IndicesDisplay::from_join(&self.core, &concat_schema);
             vec.push(("output", data));
+
+            let stream_key = self.stream_key();
+            match stream_key {
+                None => vec.push(("stream_key", Pretty::Text("None".into()))),
+                Some(stream_key) => {
+
+                    let fields = self.schema().fields();
+                    let stream_key = stream_key.iter()
+                        .map(|&k| fields[k].name.clone())
+                        .map(Pretty::from)
+                        .collect_vec();
+
+                    vec.push(("stream_key", Pretty::Array(stream_key)));
+                }
+            }
         }
 
         childless_record(name, vec)
