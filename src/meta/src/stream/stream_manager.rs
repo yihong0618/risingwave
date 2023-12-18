@@ -18,6 +18,7 @@ use std::sync::Arc;
 use futures::future::{self, join_all, try_join_all, BoxFuture};
 use futures::stream::FuturesUnordered;
 use futures::{StreamExt, TryStreamExt};
+use futures_async_stream::for_await;
 use itertools::Itertools;
 use risingwave_common::catalog::TableId;
 use risingwave_pb::catalog::{CreateType, Table};
@@ -397,7 +398,15 @@ impl GlobalStreamManager {
         // The first stage does 2 things: broadcast actor info, and send local actor ids to
         // different WorkerNodes. Such that each WorkerNode knows the overall actor
         // allocation, but not actually builds it. We initialize all channels in this stage.
-        building_worker_actors.iter().map(|(worker_id, actors)| async {
+
+        let res = building_worker_actors.iter().map(|(worker_id, actors)| {
+            let actors = actors.clone();
+            let stream_actors = actors
+                .iter()
+                .map(|actor_id| actor_map[actor_id].clone())
+                .collect::<Vec<_>>();
+        let actor_infos_to_broadcast = &actor_infos_to_broadcast;
+            async move {
             let worker_node = building_locations.worker_locations.get(worker_id).unwrap();
             let client = self.env.stream_client_pool().get(worker_node).await?;
 
@@ -406,11 +415,6 @@ impl GlobalStreamManager {
                     info: actor_infos_to_broadcast.clone(),
                 })
                 .await?;
-
-            let stream_actors = actors
-                .iter()
-                .map(|actor_id| actor_map[actor_id].clone())
-                .collect::<Vec<_>>();
 
             let request_id = Uuid::new_v4().to_string();
             tracing::debug!(request_id = request_id.as_str(), actors = ?actors, "update actors");
@@ -421,10 +425,14 @@ impl GlobalStreamManager {
                 })
                 .await?;
 
-            Ok(())
-        }).collect::<FuturesUnordered<_>>().try_for_each(|r| {
-            future::ready(OK(()))
-        }).await?;
+            Ok::<_, MetaError>(())
+            }
+        }).collect::<FuturesUnordered<_>>();
+
+        #[for_await]
+        for r in res {
+            r?;
+        }
 
         // In the second stage, each [`WorkerNode`] builds local actors and connect them with
         // channels.
