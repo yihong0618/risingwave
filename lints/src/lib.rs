@@ -24,6 +24,7 @@ extern crate rustc_lint;
 extern crate rustc_middle;
 extern crate rustc_session;
 extern crate rustc_span;
+extern crate rustc_type_ir;
 
 mod await_in_loop;
 mod format_error;

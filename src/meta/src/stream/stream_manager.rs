@@ -15,7 +15,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use futures::future::{join_all, try_join_all, BoxFuture};
+use futures::future::{self, join_all, try_join_all, BoxFuture};
+use futures::stream::FuturesUnordered;
+use futures::{StreamExt, TryStreamExt};
 use itertools::Itertools;
 use risingwave_common::catalog::TableId;
 use risingwave_pb::catalog::{CreateType, Table};
@@ -395,7 +397,7 @@ impl GlobalStreamManager {
         // The first stage does 2 things: broadcast actor info, and send local actor ids to
         // different WorkerNodes. Such that each WorkerNode knows the overall actor
         // allocation, but not actually builds it. We initialize all channels in this stage.
-        for (worker_id, actors) in &building_worker_actors {
+        building_worker_actors.iter().map(|(worker_id, actors)| async {
             let worker_node = building_locations.worker_locations.get(worker_id).unwrap();
             let client = self.env.stream_client_pool().get(worker_node).await?;
 
@@ -418,7 +420,11 @@ impl GlobalStreamManager {
                     actors: stream_actors.clone(),
                 })
                 .await?;
-        }
+
+            Ok(())
+        }).collect::<FuturesUnordered<_>>().try_for_each(|r| {
+            future::ready(OK(()))
+        }).await?;
 
         // In the second stage, each [`WorkerNode`] builds local actors and connect them with
         // channels.
