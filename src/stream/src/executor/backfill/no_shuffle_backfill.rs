@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use either::Either;
 use futures::stream::select_with_strategy;
-use futures::{pin_mut, stream, StreamExt};
+use futures::{future, pin_mut, stream, StreamExt};
 use futures_async_stream::try_stream;
 use risingwave_common::array::{Op, StreamChunk};
 use risingwave_common::catalog::Schema;
@@ -572,12 +572,14 @@ where
         let expected_state = Self::deserialize_backfill_state(row, pk_len);
 
         // All vnode partitions should have same state (no scale-in supported).
-        for vnode in vnodes {
+        future::try_join_all(vnodes.map(|vnode| {
             let key: &[Datum] = &[Some(vnode.into())];
-            let row = state_table.get_row(key).await?;
+            state_table.get_row(key)
+        }))?
+        .map(|row| {
             let state = Self::deserialize_backfill_state(row, pk_len);
             assert_eq!(state.is_finished, expected_state.is_finished);
-        }
+        });
         Ok(expected_state)
     }
 
