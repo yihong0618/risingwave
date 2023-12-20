@@ -242,7 +242,6 @@ macro_rules! start_measure_real_process_timer {
 }
 pub(crate) use start_measure_real_process_timer;
 
-use super::compaction::CompactionSelector;
 use crate::hummock::manager::compaction_group_manager::CompactionGroupManager;
 use crate::hummock::manager::worker::HummockManagerEventSender;
 
@@ -826,6 +825,8 @@ impl HummockManager {
             Some(table_to_vnode_partition) => table_to_vnode_partition.clone(),
             None => BTreeMap::default(),
         };
+        let mut trivial_task_vec = Vec::default();
+        let mut normal_task = None;
 
         let mut compaction_guard = write_lock!(self, compaction).await;
         let compaction = compaction_guard.deref_mut();
@@ -1168,8 +1169,6 @@ impl HummockManager {
         compaction_guard: &mut RwLockWriteGuard<'_, Compaction>,
         table_stats_change: Option<PbTableStatsMap>,
     ) -> Result<bool> {
-        let compaction_group_id = compact_task.compaction_group_id;
-        let task_id = compact_task.task_id;
         let deterministic_mode = self.env.opts.compaction_deterministic_test;
         let compaction = compaction_guard.deref_mut();
         let start_time = Instant::now();
@@ -1190,6 +1189,8 @@ impl HummockManager {
                 }
             }
         };
+
+        let compaction_group_id = compact_task.compaction_group_id;
 
         {
             // apply result
@@ -2425,7 +2426,7 @@ impl HummockManager {
                                         let task_id = task.task_id;
                                         if let Err(e) = hummock_manager
                                             .cancel_compact_task(
-                                                task,
+                                                task.task_id,
                                                 TaskStatus::HeartbeatCanceled,
                                             )
                                             .await
@@ -3406,10 +3407,9 @@ fn tracing_compact_task(
     let compact_task_statistics = statistics_compact_task(compact_task);
     let compaction_group_id = compact_task.compaction_group_id;
 
-    let level_type_label = format!(
-        "L{}->L{}",
-        compact_task.input_ssts[0].level_idx,
-        compact_task.input_ssts.last().unwrap().level_idx,
+    let level_type_label = build_compact_task_level_type_metrics_label(
+        compact_task.input_ssts[0].level_idx as usize,
+        compact_task.input_ssts.last().unwrap().level_idx as usize,
     );
 
     let level_count = compact_task.input_ssts.len();

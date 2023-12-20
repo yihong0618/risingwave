@@ -608,6 +608,11 @@ pub(crate) mod tests {
         unregister_table_ids_from_compaction_group(&hummock_manager_ref, &[existing_table_id])
             .await;
 
+        let manual_compcation_option = ManualCompactionOption {
+            level: 0,
+            ..Default::default()
+        };
+
         // 2. get compact task and there should be none
         let compact_task = hummock_manager_ref
             .manual_get_compact_task(

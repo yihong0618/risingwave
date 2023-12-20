@@ -22,7 +22,7 @@ ahash = { version = "0.8" }
 allocator-api2 = { version = "0.2", default-features = false, features = ["alloc", "nightly"] }
 anyhow = { version = "1", features = ["backtrace"] }
 async-std = { version = "1", features = ["attributes", "tokio1"] }
-aws-credential-types = { version = "1", default-features = false, features = ["hardcoded-credentials", "test-util"] }
+aws-credential-types = { version = "1", default-features = false, features = ["hardcoded-credentials"] }
 aws-runtime = { version = "1", default-features = false, features = ["event-stream", "sigv4a"] }
 aws-sdk-s3 = { version = "1" }
 aws-sigv4 = { version = "1", features = ["http0-compat", "sign-eventstream", "sigv4a"] }
@@ -33,7 +33,7 @@ bit-vec = { version = "0.6" }
 bitflags = { version = "2", default-features = false, features = ["serde", "std"] }
 byteorder = { version = "1" }
 bytes = { version = "1", features = ["serde"] }
-chrono = { version = "0.4", features = ["alloc", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["cargo", "derive", "env"] }
 clap_builder = { version = "4", default-features = false, features = ["cargo", "color", "env", "help", "std", "suggestions", "usage"] }
 combine = { version = "4", features = ["tokio"] }
@@ -123,7 +123,7 @@ smallvec = { version = "1", default-features = false, features = ["serde", "unio
 sqlx = { version = "0.7", default-features = false, features = ["bigdecimal", "chrono", "json", "mysql", "postgres", "runtime-tokio-native-tls", "rust_decimal", "sqlite", "time", "uuid"] }
 sqlx-core = { version = "0.7", features = ["_rt-tokio", "_tls-native-tls", "bigdecimal", "chrono", "json", "migrate", "offline", "rust_decimal", "time", "uuid"] }
 sqlx-mysql = { version = "0.7", default-features = false, features = ["bigdecimal", "chrono", "json", "rust_decimal", "time", "uuid"] }
-sqlx-postgres = { version = "0.7", default-features = false, features = ["bigdecimal", "chrono", "json", "time", "uuid"] }
+sqlx-postgres = { version = "0.7", default-features = false, features = ["bigdecimal", "chrono", "json", "rust_decimal", "time", "uuid"] }
 sqlx-sqlite = { version = "0.7", default-features = false, features = ["chrono", "json", "time", "uuid"] }
 strum = { version = "0.25", features = ["derive"] }
 subtle = { version = "2" }

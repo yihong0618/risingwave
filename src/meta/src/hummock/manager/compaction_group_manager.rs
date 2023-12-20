@@ -683,7 +683,7 @@ impl HummockManager {
                 .await
                 .unwrap_or(false)
             {
-                warn!("failed to cancel task-{}", task_id);
+                warn!("failed to cancel task-{}", task.task_id);
             }
         }
         // Don't trigger compactions if we enable deterministic compaction
