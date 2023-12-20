@@ -18,7 +18,6 @@ use std::ops::{Mul, Sub};
 use risingwave_pb::plan_common::JoinType;
 
 use super::{DefaultBehavior, DefaultValue, PlanVisitor};
-use crate::catalog::system_catalog::pg_catalog::PG_NAMESPACE_TABLE_NAME;
 use crate::optimizer::plan_node::generic::TopNLimit;
 use crate::optimizer::plan_node::{
     self, PlanNode, PlanTreeNode, PlanTreeNodeBinary, PlanTreeNodeUnary,
@@ -36,26 +35,15 @@ impl CardinalityVisitor {
         input_card: Cardinality,
         eq_set: HashSet<usize>,
     ) -> Cardinality {
-        let mut unique_keys: Vec<HashSet<_>> = vec![input.logical_pk().iter().copied().collect()];
-
-        // We don't have UNIQUE key now. So we hack here to support some complex queries on
-        // system tables.
-        // TODO(card): remove this after we have UNIQUE key.
-        if let Some(scan) = input.as_logical_scan()
-            && scan.is_sys_table()
-            && scan.table_name() == PG_NAMESPACE_TABLE_NAME
-        {
-            if let Some(nspname) = scan
-                .output_col_idx()
-                .iter()
-                .find(|i| scan.table_desc().columns[**i].name == "nspname") {
-                unique_keys.push([*nspname].into_iter().collect());
-            }
-        }
+        // TODO: there could be more unique keys than the stream key after we support it.
+        let unique_keys: Vec<HashSet<_>> = input
+            .stream_key()
+            .into_iter()
+            .map(|s| s.iter().copied().collect())
+            .collect();
 
         if unique_keys
             .iter()
-            .filter(|unique_key| !unique_key.is_empty())
             .any(|unique_key| eq_set.is_superset(unique_key))
         {
             input_card.min(0..=1)
@@ -65,8 +53,10 @@ impl CardinalityVisitor {
     }
 }
 
-impl PlanVisitor<Cardinality> for CardinalityVisitor {
-    type DefaultBehavior = impl DefaultBehavior<Cardinality>;
+impl PlanVisitor for CardinalityVisitor {
+    type Result = Cardinality;
+
+    type DefaultBehavior = impl DefaultBehavior<Self::Result>;
 
     fn default_behavior() -> Self::DefaultBehavior {
         // returns unknown cardinality for default behavior, which is always correct
@@ -89,6 +79,10 @@ impl PlanVisitor<Cardinality> for CardinalityVisitor {
 
     fn visit_logical_limit(&mut self, plan: &plan_node::LogicalLimit) -> Cardinality {
         self.visit(plan.input()).min(plan.limit() as usize)
+    }
+
+    fn visit_logical_max_one_row(&mut self, plan: &plan_node::LogicalMaxOneRow) -> Cardinality {
+        self.visit(plan.input()).min(1)
     }
 
     fn visit_logical_project(&mut self, plan: &plan_node::LogicalProject) -> Cardinality {

@@ -16,8 +16,10 @@ use std::fmt::Debug;
 
 use risingwave_common::catalog::{
     ColumnDesc, ColumnId, KAFKA_TIMESTAMP_COLUMN_NAME, OFFSET_COLUMN_NAME, ROWID_PREFIX,
+    TABLE_NAME_COLUMN_NAME,
 };
 use risingwave_common::types::DataType;
+use risingwave_pb::plan_common::{AdditionalColumnType, ColumnDescVersion};
 
 /// `SourceColumnDesc` is used to describe a column in the Source and is used as the column
 /// counterpart in `StreamScan`
@@ -31,6 +33,11 @@ pub struct SourceColumnDesc {
 
     // `is_pk` is used to indicate whether the column is part of the primary key columns.
     pub is_pk: bool,
+
+    // `additional_column_type` and `column_type` are orthogonal
+    // `additional_column_type` is used to indicate the column is from which part of the message
+    // `column_type` is used to indicate the type of the column, only used in cdc scenario
+    pub additional_column_type: AdditionalColumnType,
 }
 
 /// `SourceColumnType` is used to indicate the type of a column emitted by the Source.
@@ -51,7 +58,8 @@ pub enum SourceColumnType {
 
 impl SourceColumnType {
     pub fn from_name(name: &str) -> Self {
-        if name.starts_with(KAFKA_TIMESTAMP_COLUMN_NAME) {
+        if name.starts_with(KAFKA_TIMESTAMP_COLUMN_NAME) || name.starts_with(TABLE_NAME_COLUMN_NAME)
+        {
             Self::Meta
         } else if name == (ROWID_PREFIX) {
             Self::RowId
@@ -79,6 +87,7 @@ impl SourceColumnDesc {
             fields: vec![],
             column_type: SourceColumnType::Normal,
             is_pk: false,
+            additional_column_type: AdditionalColumnType::Normal,
         }
     }
 
@@ -110,6 +119,7 @@ impl From<&ColumnDesc> for SourceColumnDesc {
             fields: c.field_descs.clone(),
             column_type,
             is_pk: false,
+            additional_column_type: c.additional_column_type,
         }
     }
 }
@@ -123,6 +133,9 @@ impl From<&SourceColumnDesc> for ColumnDesc {
             field_descs: s.fields.clone(),
             type_name: "".to_string(),
             generated_or_default_column: None,
+            description: None,
+            additional_column_type: s.additional_column_type,
+            version: ColumnDescVersion::Pr13707,
         }
     }
 }

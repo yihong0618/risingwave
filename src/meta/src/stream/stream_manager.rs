@@ -16,9 +16,11 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use futures::future::{join_all, try_join_all, BoxFuture};
+use futures::stream::FuturesUnordered;
+use futures_async_stream::for_await;
 use itertools::Itertools;
 use risingwave_common::catalog::TableId;
-use risingwave_pb::catalog::Table;
+use risingwave_pb::catalog::{CreateType, Table};
 use risingwave_pb::stream_plan::update_mutation::MergeUpdate;
 use risingwave_pb::stream_plan::Dispatcher;
 use risingwave_pb::stream_service::{
@@ -29,10 +31,12 @@ use tokio::sync::{oneshot, Mutex, RwLock};
 use tracing::Instrument;
 use uuid::Uuid;
 
-use super::Locations;
-use crate::barrier::{BarrierScheduler, Command};
+use super::{Locations, ScaleController, ScaleControllerRef};
+use crate::barrier::{BarrierScheduler, Command, ReplaceTablePlan};
 use crate::hummock::HummockManagerRef;
-use crate::manager::{ClusterManagerRef, FragmentManagerRef, MetaSrvEnv};
+use crate::manager::{
+    CatalogManagerRef, ClusterManagerRef, DdlType, FragmentManagerRef, MetaSrvEnv, StreamingJob,
+};
 use crate::model::{ActorId, TableFragments};
 use crate::stream::SourceManagerRef;
 use crate::{MetaError, MetaResult};
@@ -67,6 +71,13 @@ pub struct CreateStreamingJobContext {
     pub definition: String,
 
     pub mv_table_id: Option<u32>,
+
+    pub create_type: CreateType,
+
+    pub ddl_type: DdlType,
+
+    /// Context provided for potential replace table, typically used when sinking into a table.
+    pub replace_table_job_info: Option<(StreamingJob, ReplaceTableContext, TableFragments)>,
 }
 
 impl CreateStreamingJobContext {
@@ -112,22 +123,36 @@ impl CreatingStreamingJobInfo {
         jobs.remove(&job_id);
     }
 
-    async fn cancel_jobs(&self, job_ids: Vec<TableId>) -> HashMap<TableId, oneshot::Receiver<()>> {
+    async fn cancel_jobs(
+        &self,
+        job_ids: Vec<TableId>,
+    ) -> (HashMap<TableId, oneshot::Receiver<()>>, Vec<TableId>) {
         let mut jobs = self.streaming_jobs.lock().await;
         let mut receivers = HashMap::new();
+        let mut recovered_job_ids = vec![];
         for job_id in job_ids {
             if let Some(job) = jobs.get_mut(&job_id)
                 && let Some(shutdown_tx) = job.shutdown_tx.take()
             {
                 let (tx, rx) = oneshot::channel();
-                if shutdown_tx.send(CreatingState::Canceling{finish_tx: tx}).await.is_ok() {
+                if shutdown_tx
+                    .send(CreatingState::Canceling { finish_tx: tx })
+                    .await
+                    .is_ok()
+                {
                     receivers.insert(job_id, rx);
                 } else {
-                    tracing::warn!("failed to send canceling state");
+                    tracing::warn!(id=?job_id, "failed to send canceling state");
                 }
+            } else {
+                // If these job ids do not exist in streaming_jobs,
+                // we can infer they either:
+                // 1. are entirely non-existent,
+                // 2. OR they are recovered streaming jobs, and managed by BarrierManager.
+                recovered_job_ids.push(job_id);
             }
         }
-        receivers
+        (receivers, recovered_job_ids)
     }
 }
 
@@ -159,26 +184,31 @@ pub struct ReplaceTableContext {
 
 /// `GlobalStreamManager` manages all the streams in the system.
 pub struct GlobalStreamManager {
-    pub(crate) env: MetaSrvEnv,
+    pub env: MetaSrvEnv,
 
     /// Manages definition and status of fragments and actors
     pub(super) fragment_manager: FragmentManagerRef,
 
     /// Broadcasts and collect barriers
-    pub(crate) barrier_scheduler: BarrierScheduler,
+    pub barrier_scheduler: BarrierScheduler,
 
     /// Maintains information of the cluster
-    pub(crate) cluster_manager: ClusterManagerRef,
+    pub cluster_manager: ClusterManagerRef,
 
     /// Maintains streaming sources from external system like kafka
-    pub(crate) source_manager: SourceManagerRef,
+    pub source_manager: SourceManagerRef,
+
+    /// Catalog manager for cleaning up state from deleted stream jobs
+    pub catalog_manager: CatalogManagerRef,
 
     /// Creating streaming job info.
     creating_job_info: CreatingStreamingJobInfoRef,
 
     hummock_manager: HummockManagerRef,
 
-    pub(crate) reschedule_lock: RwLock<()>,
+    pub reschedule_lock: RwLock<()>,
+
+    pub(crate) scale_controller: ScaleControllerRef,
 }
 
 impl GlobalStreamManager {
@@ -189,7 +219,14 @@ impl GlobalStreamManager {
         cluster_manager: ClusterManagerRef,
         source_manager: SourceManagerRef,
         hummock_manager: HummockManagerRef,
+        catalog_manager: CatalogManagerRef,
     ) -> MetaResult<Self> {
+        let scale_controller = Arc::new(ScaleController::new(
+            fragment_manager.clone(),
+            cluster_manager.clone(),
+            source_manager.clone(),
+            env.clone(),
+        ));
         Ok(Self {
             env,
             fragment_manager,
@@ -199,6 +236,8 @@ impl GlobalStreamManager {
             hummock_manager,
             creating_job_info: Arc::new(CreatingStreamingJobInfo::default()),
             reschedule_lock: RwLock::new(()),
+            scale_controller,
+            catalog_manager,
         })
     }
 
@@ -255,9 +294,12 @@ impl GlobalStreamManager {
             while let Some(state) = receiver.recv().await {
                 match state {
                     CreatingState::Failed { reason } => {
+                        tracing::debug!(id=?table_id, "stream job failed");
+                        self.creating_job_info.delete_job(table_id).await;
                         return Err(reason);
                     }
                     CreatingState::Canceling { finish_tx } => {
+                        tracing::debug!(id=?table_id, "cancelling streaming job");
                         if let Ok(table_fragments) = self
                             .fragment_manager
                             .select_table_fragments_by_table_id(&table_id)
@@ -315,10 +357,14 @@ impl GlobalStreamManager {
                             let _ = finish_tx.send(()).inspect_err(|_| {
                                 tracing::warn!("failed to notify cancelled: {table_id}")
                             });
-                            return Err(MetaError::cancelled("create".into()));
+                            self.creating_job_info.delete_job(table_id).await;
+                            return Err(MetaError::cancelled("create"));
                         }
                     }
-                    CreatingState::Created => return Ok(()),
+                    CreatingState::Created => {
+                        self.creating_job_info.delete_job(table_id).await;
+                        return Ok(());
+                    }
                 }
             }
         };
@@ -327,6 +373,7 @@ impl GlobalStreamManager {
         res
     }
 
+    /// First broadcasts the actor info to `WorkerNodes`, and then let them build actors and channels.
     async fn build_actors(
         &self,
         table_fragments: &TableFragments,
@@ -350,45 +397,65 @@ impl GlobalStreamManager {
         // The first stage does 2 things: broadcast actor info, and send local actor ids to
         // different WorkerNodes. Such that each WorkerNode knows the overall actor
         // allocation, but not actually builds it. We initialize all channels in this stage.
-        for (worker_id, actors) in &building_worker_actors {
-            let worker_node = building_locations.worker_locations.get(worker_id).unwrap();
-            let client = self.env.stream_client_pool().get(worker_node).await?;
-
-            client
-                .broadcast_actor_info_table(BroadcastActorInfoTableRequest {
-                    info: actor_infos_to_broadcast.clone(),
-                })
-                .await?;
-
+        let res = building_worker_actors.iter().map(|(worker_id, actors)| {
             let stream_actors = actors
                 .iter()
                 .map(|actor_id| actor_map[actor_id].clone())
                 .collect::<Vec<_>>();
+            let worker_node = building_locations.worker_locations.get(worker_id).unwrap();
+            let actor_infos_to_broadcast = &actor_infos_to_broadcast;
+            async move {
+                let client = self.env.stream_client_pool().get(worker_node).await?;
 
-            let request_id = Uuid::new_v4().to_string();
-            tracing::debug!(request_id = request_id.as_str(), actors = ?actors, "update actors");
-            client
-                .update_actors(UpdateActorsRequest {
-                    request_id,
-                    actors: stream_actors.clone(),
-                })
-                .await?;
+                client
+                    .broadcast_actor_info_table(BroadcastActorInfoTableRequest {
+                        info: actor_infos_to_broadcast.clone(),
+                    })
+                    .await?;
+
+                let request_id = Uuid::new_v4().to_string();
+                tracing::debug!(request_id = request_id.as_str(), actors = ?actors, "update actors");
+                client
+                    .update_actors(UpdateActorsRequest {
+                        request_id,
+                        actors: stream_actors.clone(),
+                    })
+                    .await?;
+
+                Ok::<_, MetaError>(())
+            }
+        }).collect::<FuturesUnordered<_>>();
+
+        #[for_await]
+        for r in res {
+            r?;
         }
 
         // In the second stage, each [`WorkerNode`] builds local actors and connect them with
         // channels.
-        for (worker_id, actors) in building_worker_actors {
-            let worker_node = building_locations.worker_locations.get(&worker_id).unwrap();
-            let client = self.env.stream_client_pool().get(worker_node).await?;
+        let res = building_worker_actors
+            .iter()
+            .map(|(worker_id, actors)| async move {
+                let worker_node = building_locations.worker_locations.get(worker_id).unwrap();
 
-            let request_id = Uuid::new_v4().to_string();
-            tracing::debug!(request_id = request_id.as_str(), actors = ?actors, "build actors");
-            client
-                .build_actors(BuildActorsRequest {
-                    request_id,
-                    actor_id: actors,
-                })
-                .await?;
+                let client = self.env.stream_client_pool().get(worker_node).await?;
+
+                let request_id = Uuid::new_v4().to_string();
+                tracing::debug!(request_id = request_id.as_str(), actors = ?actors, "build actors");
+                client
+                    .build_actors(BuildActorsRequest {
+                        request_id,
+                        actor_id: actors.clone(),
+                    })
+                    .await?;
+
+                Ok::<_, MetaError>(())
+            })
+            .collect::<FuturesUnordered<_>>();
+
+        #[for_await]
+        for r in res {
+            r?;
         }
 
         Ok(())
@@ -407,9 +474,14 @@ impl GlobalStreamManager {
             definition,
             mv_table_id,
             internal_tables,
-            ..
+            create_type,
+            ddl_type,
+            replace_table_job_info,
         }: CreateStreamingJobContext,
     ) -> MetaResult<()> {
+        let mut replace_table_command = None;
+        let mut replace_table_id = None;
+
         // Register to compaction group beforehand.
         let hummock_manager_ref = self.hummock_manager.clone();
         let registered_table_ids = hummock_manager_ref
@@ -424,13 +496,46 @@ impl GlobalStreamManager {
             table_fragments.internal_table_ids().len() + mv_table_id.map_or(0, |_| 1)
         );
         revert_funcs.push(Box::pin(async move {
-            if let Err(e) = hummock_manager_ref.unregister_table_ids(&registered_table_ids).await {
-                tracing::warn!("Failed to unregister compaction group for {:#?}. They will be cleaned up on node restart. {:#?}", registered_table_ids, e);
+            if create_type == CreateType::Foreground {
+                hummock_manager_ref
+                    .unregister_table_ids_fail_fast(&registered_table_ids)
+                    .await;
             }
         }));
 
         self.build_actors(&table_fragments, &building_locations, &existing_locations)
             .await?;
+
+        if let Some((_, context, table_fragments)) = replace_table_job_info {
+            self.build_actors(
+                &table_fragments,
+                &context.building_locations,
+                &context.existing_locations,
+            )
+            .await?;
+
+            // Add table fragments to meta store with state: `State::Initial`.
+            self.fragment_manager
+                .start_create_table_fragments(table_fragments.clone())
+                .await?;
+
+            let dummy_table_id = table_fragments.table_id();
+
+            let init_split_assignment = self
+                .source_manager
+                .pre_allocate_splits(&dummy_table_id)
+                .await?;
+
+            replace_table_command = Some(ReplaceTablePlan {
+                old_table_fragments: context.old_table_fragments,
+                new_table_fragments: table_fragments,
+                merge_updates: context.merge_updates,
+                dispatchers: context.dispatchers,
+                init_split_assignment,
+            });
+
+            replace_table_id = Some(dummy_table_id);
+        }
 
         // Add table fragments to meta store with state: `State::Initial`.
         self.fragment_manager
@@ -441,20 +546,27 @@ impl GlobalStreamManager {
 
         let init_split_assignment = self.source_manager.pre_allocate_splits(&table_id).await?;
 
-        if let Err(err) = self
-            .barrier_scheduler
-            .run_command(Command::CreateStreamingJob {
-                table_fragments,
-                upstream_mview_actors,
-                dispatchers,
-                init_split_assignment,
-                definition: definition.to_string(),
-            })
-            .await
-        {
-            self.fragment_manager
-                .drop_table_fragments_vec(&HashSet::from_iter(std::iter::once(table_id)))
-                .await?;
+        let command = Command::CreateStreamingJob {
+            table_fragments,
+            upstream_mview_actors,
+            dispatchers,
+            init_split_assignment,
+            definition: definition.to_string(),
+            ddl_type,
+            replace_table: replace_table_command,
+        };
+
+        if let Err(err) = self.barrier_scheduler.run_command(command).await {
+            if create_type == CreateType::Foreground {
+                let mut table_ids = HashSet::from_iter(std::iter::once(table_id));
+                if let Some(dummy_table_id) = replace_table_id {
+                    table_ids.insert(dummy_table_id);
+                }
+                self.fragment_manager
+                    .drop_table_fragments_vec(&table_ids)
+                    .await?;
+            }
+
             return Err(err);
         }
 
@@ -490,13 +602,13 @@ impl GlobalStreamManager {
 
         if let Err(err) = self
             .barrier_scheduler
-            .run_config_change_command_with_pause(Command::ReplaceTable {
+            .run_config_change_command_with_pause(Command::ReplaceTable(ReplaceTablePlan {
                 old_table_fragments,
                 new_table_fragments: table_fragments,
                 merge_updates,
                 dispatchers,
                 init_split_assignment,
-            })
+            }))
             .await
         {
             self.fragment_manager
@@ -537,29 +649,26 @@ impl GlobalStreamManager {
             .await?;
 
         // Unregister from compaction group afterwards.
-        if let Err(e) = self
-            .hummock_manager
+        self.hummock_manager
             .unregister_table_fragments_vec(&table_fragments_vec)
-            .await
-        {
-            tracing::warn!(
-                    "Failed to unregister compaction group for {:#?}. They will be cleaned up on node restart. {:#?}",
-                    table_fragments_vec,
-                    e
-                );
-        }
+            .await;
 
         Ok(())
     }
 
     /// Cancel streaming jobs and return the canceled table ids.
+    /// 1. Send cancel message to stream jobs (via `cancel_jobs`).
+    /// 2. Send cancel message to recovered stream jobs (via `barrier_scheduler`).
+    ///
+    /// Cleanup of their state will be cleaned up after the `CancelStreamJob` command succeeds,
+    /// by the barrier manager for both of them.
     pub async fn cancel_streaming_jobs(&self, table_ids: Vec<TableId>) -> Vec<TableId> {
         if table_ids.is_empty() {
             return vec![];
         }
 
         let _reschedule_job_lock = self.reschedule_lock.read().await;
-        let receivers = self.creating_job_info.cancel_jobs(table_ids).await;
+        let (receivers, recovered_job_ids) = self.creating_job_info.cancel_jobs(table_ids).await;
 
         let futures = receivers.into_iter().map(|(id, receiver)| async move {
             if receiver.await.is_ok() {
@@ -570,7 +679,44 @@ impl GlobalStreamManager {
                 None
             }
         });
-        join_all(futures).await.into_iter().flatten().collect_vec()
+        let mut cancelled_ids = join_all(futures).await.into_iter().flatten().collect_vec();
+
+        // NOTE(kwannoel): For recovered stream jobs, we can directly cancel them by running the barrier command,
+        // since Barrier manager manages the recovered stream jobs.
+        let futures = recovered_job_ids.into_iter().map(|id| async move {
+            tracing::debug!(?id, "cancelling recovered streaming job");
+            let result: MetaResult<()> = try {
+                let fragment = self
+                    .fragment_manager
+                    .select_table_fragments_by_table_id(&id)
+                    .await?;
+                if fragment.is_created() {
+                    Err(MetaError::invalid_parameter(format!(
+                        "streaming job {} is already created",
+                        id
+                    )))?;
+                }
+                self.catalog_manager.cancel_create_table_procedure(id.into(), fragment.internal_table_ids()).await?;
+
+                self.barrier_scheduler
+                    .run_command(Command::CancelStreamingJob(fragment))
+                    .await?;
+            };
+            match result {
+                Ok(_) => {
+                    tracing::info!(?id, "cancelled recovered streaming job");
+                    Some(id)
+                }
+                Err(_) => {
+                    tracing::error!(?id, "failed to cancel recovered streaming job, does it correspond to any jobs in `SHOW JOBS`?");
+                    None
+                }
+            }
+        });
+        let cancelled_recovered_ids = join_all(futures).await.into_iter().flatten().collect_vec();
+
+        cancelled_ids.extend(cancelled_recovered_ids);
+        cancelled_ids
     }
 }
 
@@ -766,6 +912,7 @@ mod tests {
                         is_serving: true,
                         is_unschedulable: false,
                     },
+                    Default::default(),
                 )
                 .await?;
             cluster_manager.activate_worker_node(host).await?;
@@ -806,7 +953,7 @@ mod tests {
                 .await?,
             );
 
-            let (sink_manager, _) = SinkCoordinatorManager::start_worker(None);
+            let (sink_manager, _) = SinkCoordinatorManager::start_worker();
 
             let barrier_manager = Arc::new(GlobalBarrierManager::new(
                 scheduled_barriers,
@@ -827,6 +974,7 @@ mod tests {
                 cluster_manager.clone(),
                 source_manager.clone(),
                 hummock_manager,
+                catalog_manager.clone(),
             )?;
 
             let (join_handle_2, shutdown_tx_2) = GlobalBarrierManager::start(barrier_manager);
@@ -896,7 +1044,7 @@ mod tests {
             };
 
             self.catalog_manager
-                .start_create_table_procedure(&table)
+                .start_create_table_procedure(&table, vec![])
                 .await?;
             self.global_stream_manager
                 .create_streaming_job(table_fragments, ctx)

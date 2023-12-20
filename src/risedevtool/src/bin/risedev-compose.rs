@@ -203,7 +203,7 @@ fn main() -> Result<()> {
             ServiceConfig::ZooKeeper(_) => {
                 return Err(anyhow!("not supported, please use redpanda instead"))
             }
-            ServiceConfig::OpenDal(_) => continue,
+            ServiceConfig::Opendal(_) => continue,
             ServiceConfig::AwsS3(_) => continue,
             ServiceConfig::RedPanda(c) => {
                 if opts.deploy {
@@ -222,7 +222,6 @@ fn main() -> Result<()> {
                 (c.address.clone(), c.compose(&compose_config)?)
             }
             ServiceConfig::Redis(_) => return Err(anyhow!("not supported")),
-            ServiceConfig::ConnectorNode(_) => return Err(anyhow!("not supported")),
         };
         compose.container_name = service.id().to_string();
         if opts.deploy {

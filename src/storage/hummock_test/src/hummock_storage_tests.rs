@@ -156,7 +156,7 @@ async fn test_storage_basic() {
     assert_eq!(value, None);
 
     let epoch2 = epoch1 + 1;
-    hummock_storage.seal_current_epoch(epoch2);
+    hummock_storage.seal_current_epoch(epoch2, SealCurrentEpochOptions::for_test());
     hummock_storage
         .ingest_batch(
             batch2,
@@ -189,7 +189,7 @@ async fn test_storage_basic() {
 
     // Write the third batch.
     let epoch3 = epoch2 + 1;
-    hummock_storage.seal_current_epoch(epoch3);
+    hummock_storage.seal_current_epoch(epoch3, SealCurrentEpochOptions::for_test());
     hummock_storage
         .ingest_batch(
             batch3,
@@ -502,7 +502,7 @@ async fn test_state_store_sync() {
         .unwrap();
 
     let epoch2 = epoch1 + 1;
-    hummock_storage.seal_current_epoch(epoch2);
+    hummock_storage.seal_current_epoch(epoch2, SealCurrentEpochOptions::for_test());
 
     // ingest more 8B then will trigger a sync behind the scene
     let mut batch3 = vec![(
@@ -734,7 +734,7 @@ async fn test_delete_get() {
         .await
         .unwrap();
     let epoch2 = initial_epoch + 2;
-    hummock_storage.seal_current_epoch(epoch2);
+    hummock_storage.seal_current_epoch(epoch2, SealCurrentEpochOptions::for_test());
     let batch2 = vec![(
         gen_key_from_str(VirtualNode::ZERO, "bb"),
         StorageValue::new_delete(),
@@ -814,7 +814,7 @@ async fn test_multiple_epoch_sync() {
         .unwrap();
 
     let epoch2 = initial_epoch + 2;
-    hummock_storage.seal_current_epoch(epoch2);
+    hummock_storage.seal_current_epoch(epoch2, SealCurrentEpochOptions::for_test());
     let batch2 = vec![(
         gen_key_from_str(VirtualNode::ZERO, "bb"),
         StorageValue::new_delete(),
@@ -832,7 +832,7 @@ async fn test_multiple_epoch_sync() {
         .unwrap();
 
     let epoch3 = initial_epoch + 3;
-    hummock_storage.seal_current_epoch(epoch3);
+    hummock_storage.seal_current_epoch(epoch3, SealCurrentEpochOptions::for_test());
     let batch3 = vec![
         (
             gen_key_from_str(VirtualNode::ZERO, "bb"),
@@ -965,7 +965,7 @@ async fn test_iter_with_min_epoch() {
         .unwrap();
 
     let epoch2 = (32 * 1000) << 16;
-    hummock_storage.seal_current_epoch(epoch2);
+    hummock_storage.seal_current_epoch(epoch2, SealCurrentEpochOptions::for_test());
     // epoch 2 write
     let batch_epoch2: Vec<(TableKey<Bytes>, StorageValue)> = (20..30)
         .map(|index| (gen_key(index), StorageValue::new_put(gen_val(index))))
@@ -993,7 +993,7 @@ async fn test_iter_with_min_epoch() {
                     epoch1,
                     ReadOptions {
                         table_id: TEST_TABLE_ID,
-                        prefetch_options: PrefetchOptions::new_for_exhaust_iter(),
+                        prefetch_options: PrefetchOptions::default(),
                         cache_policy: CachePolicy::Fill(CachePriority::High),
                         ..Default::default()
                     },
@@ -1015,7 +1015,7 @@ async fn test_iter_with_min_epoch() {
                     epoch2,
                     ReadOptions {
                         table_id: TEST_TABLE_ID,
-                        prefetch_options: PrefetchOptions::new_for_exhaust_iter(),
+                        prefetch_options: PrefetchOptions::default(),
                         cache_policy: CachePolicy::Fill(CachePriority::High),
                         ..Default::default()
                     },
@@ -1036,7 +1036,7 @@ async fn test_iter_with_min_epoch() {
                     ReadOptions {
                         table_id: TEST_TABLE_ID,
                         retention_seconds: Some(0),
-                        prefetch_options: PrefetchOptions::new_for_exhaust_iter(),
+                        prefetch_options: PrefetchOptions::default(),
                         cache_policy: CachePolicy::Fill(CachePriority::High),
                         ..Default::default()
                     },
@@ -1076,7 +1076,7 @@ async fn test_iter_with_min_epoch() {
                     epoch1,
                     ReadOptions {
                         table_id: TEST_TABLE_ID,
-                        prefetch_options: PrefetchOptions::new_for_exhaust_iter(),
+                        prefetch_options: PrefetchOptions::default(),
                         cache_policy: CachePolicy::Fill(CachePriority::High),
                         ..Default::default()
                     },
@@ -1098,7 +1098,7 @@ async fn test_iter_with_min_epoch() {
                     epoch2,
                     ReadOptions {
                         table_id: TEST_TABLE_ID,
-                        prefetch_options: PrefetchOptions::new_for_exhaust_iter(),
+                        prefetch_options: PrefetchOptions::default(),
                         cache_policy: CachePolicy::Fill(CachePriority::High),
                         ..Default::default()
                     },
@@ -1121,7 +1121,7 @@ async fn test_iter_with_min_epoch() {
                     ReadOptions {
                         table_id: TEST_TABLE_ID,
                         retention_seconds: Some(0),
-                        prefetch_options: PrefetchOptions::new_for_exhaust_iter(),
+                        prefetch_options: PrefetchOptions::default(),
                         cache_policy: CachePolicy::Fill(CachePriority::High),
                         ..Default::default()
                     },
@@ -1186,7 +1186,7 @@ async fn test_hummock_version_reader() {
             .await
             .unwrap();
 
-        hummock_storage.seal_current_epoch(epoch2);
+        hummock_storage.seal_current_epoch(epoch2, SealCurrentEpochOptions::for_test());
         hummock_storage
             .ingest_batch(
                 batch_epoch2,
@@ -1199,7 +1199,7 @@ async fn test_hummock_version_reader() {
             .await
             .unwrap();
 
-        hummock_storage.seal_current_epoch(epoch3);
+        hummock_storage.seal_current_epoch(epoch3, SealCurrentEpochOptions::for_test());
         hummock_storage
             .ingest_batch(
                 batch_epoch3,
@@ -1215,11 +1215,11 @@ async fn test_hummock_version_reader() {
         {
             // test before sync
             {
-                let read_snapshot = read_filter_for_local(
+                let (_, read_snapshot) = read_filter_for_local(
                     epoch1,
                     TEST_TABLE_ID,
-                    &(Unbounded, Unbounded),
-                    hummock_storage.read_version(),
+                    (Unbounded, Unbounded),
+                    &hummock_storage.read_version(),
                 )
                 .unwrap();
 
@@ -1229,7 +1229,7 @@ async fn test_hummock_version_reader() {
                         epoch1,
                         ReadOptions {
                             table_id: TEST_TABLE_ID,
-                            prefetch_options: PrefetchOptions::new_for_exhaust_iter(),
+                            prefetch_options: PrefetchOptions::default(),
                             cache_policy: CachePolicy::Fill(CachePriority::High),
                             ..Default::default()
                         },
@@ -1243,11 +1243,11 @@ async fn test_hummock_version_reader() {
             }
 
             {
-                let read_snapshot = read_filter_for_local(
+                let (_, read_snapshot) = read_filter_for_local(
                     epoch2,
                     TEST_TABLE_ID,
-                    &(Unbounded, Unbounded),
-                    hummock_storage.read_version(),
+                    (Unbounded, Unbounded),
+                    &hummock_storage.read_version(),
                 )
                 .unwrap();
 
@@ -1257,7 +1257,7 @@ async fn test_hummock_version_reader() {
                         epoch2,
                         ReadOptions {
                             table_id: TEST_TABLE_ID,
-                            prefetch_options: PrefetchOptions::new_for_exhaust_iter(),
+                            prefetch_options: PrefetchOptions::default(),
                             cache_policy: CachePolicy::Fill(CachePriority::High),
                             ..Default::default()
                         },
@@ -1271,11 +1271,11 @@ async fn test_hummock_version_reader() {
             }
 
             {
-                let read_snapshot = read_filter_for_local(
+                let (_, read_snapshot) = read_filter_for_local(
                     epoch2,
                     TEST_TABLE_ID,
-                    &(Unbounded, Unbounded),
-                    hummock_storage.read_version(),
+                    (Unbounded, Unbounded),
+                    &hummock_storage.read_version(),
                 )
                 .unwrap();
 
@@ -1286,7 +1286,7 @@ async fn test_hummock_version_reader() {
                         ReadOptions {
                             table_id: TEST_TABLE_ID,
                             retention_seconds: Some(0),
-                            prefetch_options: PrefetchOptions::new_for_exhaust_iter(),
+                            prefetch_options: PrefetchOptions::default(),
                             cache_policy: CachePolicy::Fill(CachePriority::High),
                             ..Default::default()
                         },
@@ -1333,21 +1333,17 @@ async fn test_hummock_version_reader() {
                 Arc::new(RwLock::new(hummock_storage.read_version().read().clone()));
 
             {
-                let read_snapshot = {
-                    let (imms, ssts) = read_filter_for_batch(
-                        epoch1,
-                        TEST_TABLE_ID,
-                        &(Unbounded, Unbounded),
-                        vec![
-                            basic_read_version.clone(),
-                            read_version_2.clone(),
-                            read_version_3.clone(),
-                        ],
-                    )
-                    .unwrap();
-
-                    (imms, ssts, test_env.storage.get_pinned_version())
-                };
+                let (_, read_snapshot) = read_filter_for_batch(
+                    epoch1,
+                    TEST_TABLE_ID,
+                    (Unbounded, Unbounded),
+                    vec![
+                        basic_read_version.clone(),
+                        read_version_2.clone(),
+                        read_version_3.clone(),
+                    ],
+                )
+                .unwrap();
 
                 let iter = hummock_version_reader
                     .iter(
@@ -1355,7 +1351,7 @@ async fn test_hummock_version_reader() {
                         epoch1,
                         ReadOptions {
                             table_id: TEST_TABLE_ID,
-                            prefetch_options: PrefetchOptions::new_for_exhaust_iter(),
+                            prefetch_options: PrefetchOptions::default(),
                             cache_policy: CachePolicy::Fill(CachePriority::High),
                             ..Default::default()
                         },
@@ -1369,21 +1365,17 @@ async fn test_hummock_version_reader() {
             }
 
             {
-                let read_snapshot = {
-                    let (imms, ssts) = read_filter_for_batch(
-                        epoch2,
-                        TEST_TABLE_ID,
-                        &(Unbounded, Unbounded),
-                        vec![
-                            basic_read_version.clone(),
-                            read_version_2.clone(),
-                            read_version_3.clone(),
-                        ],
-                    )
-                    .unwrap();
-
-                    (imms, ssts, test_env.storage.get_pinned_version())
-                };
+                let (_, read_snapshot) = read_filter_for_batch(
+                    epoch2,
+                    TEST_TABLE_ID,
+                    (Unbounded, Unbounded),
+                    vec![
+                        basic_read_version.clone(),
+                        read_version_2.clone(),
+                        read_version_3.clone(),
+                    ],
+                )
+                .unwrap();
 
                 assert_eq!(
                     read_version_3.read().committed().max_committed_epoch(),
@@ -1396,7 +1388,7 @@ async fn test_hummock_version_reader() {
                         epoch2,
                         ReadOptions {
                             table_id: TEST_TABLE_ID,
-                            prefetch_options: PrefetchOptions::new_for_exhaust_iter(),
+                            prefetch_options: PrefetchOptions::default(),
                             cache_policy: CachePolicy::Fill(CachePriority::High),
                             ..Default::default()
                         },
@@ -1410,21 +1402,17 @@ async fn test_hummock_version_reader() {
             }
 
             {
-                let read_snapshot = {
-                    let (imms, ssts) = read_filter_for_batch(
-                        epoch2,
-                        TEST_TABLE_ID,
-                        &(Unbounded, Unbounded),
-                        vec![
-                            basic_read_version.clone(),
-                            read_version_2.clone(),
-                            read_version_3.clone(),
-                        ],
-                    )
-                    .unwrap();
-
-                    (imms, ssts, test_env.storage.get_pinned_version())
-                };
+                let (_, read_snapshot) = read_filter_for_batch(
+                    epoch2,
+                    TEST_TABLE_ID,
+                    (Unbounded, Unbounded),
+                    vec![
+                        basic_read_version.clone(),
+                        read_version_2.clone(),
+                        read_version_3.clone(),
+                    ],
+                )
+                .unwrap();
 
                 let iter = hummock_version_reader
                     .iter(
@@ -1433,7 +1421,7 @@ async fn test_hummock_version_reader() {
                         ReadOptions {
                             table_id: TEST_TABLE_ID,
                             retention_seconds: Some(0),
-                            prefetch_options: PrefetchOptions::new_for_exhaust_iter(),
+                            prefetch_options: PrefetchOptions::default(),
                             cache_policy: CachePolicy::Fill(CachePriority::High),
                             ..Default::default()
                         },
@@ -1447,21 +1435,17 @@ async fn test_hummock_version_reader() {
             }
 
             {
-                let read_snapshot = {
-                    let (imms, ssts) = read_filter_for_batch(
-                        epoch3,
-                        TEST_TABLE_ID,
-                        &(Unbounded, Unbounded),
-                        vec![
-                            basic_read_version.clone(),
-                            read_version_2.clone(),
-                            read_version_3.clone(),
-                        ],
-                    )
-                    .unwrap();
-
-                    (imms, ssts, test_env.storage.get_pinned_version())
-                };
+                let (_, read_snapshot) = read_filter_for_batch(
+                    epoch2,
+                    TEST_TABLE_ID,
+                    (Unbounded, Unbounded),
+                    vec![
+                        basic_read_version.clone(),
+                        read_version_2.clone(),
+                        read_version_3.clone(),
+                    ],
+                )
+                .unwrap();
 
                 let iter = hummock_version_reader
                     .iter(
@@ -1469,7 +1453,7 @@ async fn test_hummock_version_reader() {
                         epoch3,
                         ReadOptions {
                             table_id: TEST_TABLE_ID,
-                            prefetch_options: PrefetchOptions::new_for_exhaust_iter(),
+                            prefetch_options: PrefetchOptions::default(),
                             cache_policy: CachePolicy::Fill(CachePriority::High),
                             ..Default::default()
                         },
@@ -1489,21 +1473,17 @@ async fn test_hummock_version_reader() {
                 let key_range = (Included(start_key), Excluded(end_key));
 
                 {
-                    let read_snapshot = {
-                        let (imms, ssts) = read_filter_for_batch(
-                            epoch2,
-                            TEST_TABLE_ID,
-                            &(Unbounded, Unbounded),
-                            vec![
-                                basic_read_version.clone(),
-                                read_version_2.clone(),
-                                read_version_3.clone(),
-                            ],
-                        )
-                        .unwrap();
-
-                        (imms, ssts, test_env.storage.get_pinned_version())
-                    };
+                    let (_, read_snapshot) = read_filter_for_batch(
+                        epoch2,
+                        TEST_TABLE_ID,
+                        (Unbounded, Unbounded),
+                        vec![
+                            basic_read_version.clone(),
+                            read_version_2.clone(),
+                            read_version_3.clone(),
+                        ],
+                    )
+                    .unwrap();
 
                     let iter = hummock_version_reader
                         .iter(
@@ -1511,7 +1491,7 @@ async fn test_hummock_version_reader() {
                             epoch2,
                             ReadOptions {
                                 table_id: TEST_TABLE_ID,
-                                prefetch_options: PrefetchOptions::new_for_exhaust_iter(),
+                                prefetch_options: PrefetchOptions::default(),
                                 cache_policy: CachePolicy::Fill(CachePriority::High),
                                 ..Default::default()
                             },
@@ -1525,21 +1505,17 @@ async fn test_hummock_version_reader() {
                 }
 
                 {
-                    let read_snapshot = {
-                        let (imms, ssts) = read_filter_for_batch(
-                            epoch3,
-                            TEST_TABLE_ID,
-                            &(Unbounded, Unbounded),
-                            vec![
-                                basic_read_version.clone(),
-                                read_version_2.clone(),
-                                read_version_3.clone(),
-                            ],
-                        )
-                        .unwrap();
-
-                        (imms, ssts, test_env.storage.get_pinned_version())
-                    };
+                    let (_, read_snapshot) = read_filter_for_batch(
+                        epoch2,
+                        TEST_TABLE_ID,
+                        (Unbounded, Unbounded),
+                        vec![
+                            basic_read_version.clone(),
+                            read_version_2.clone(),
+                            read_version_3.clone(),
+                        ],
+                    )
+                    .unwrap();
 
                     let iter = hummock_version_reader
                         .iter(
@@ -1547,7 +1523,7 @@ async fn test_hummock_version_reader() {
                             epoch3,
                             ReadOptions {
                                 table_id: TEST_TABLE_ID,
-                                prefetch_options: PrefetchOptions::new_for_exhaust_iter(),
+                                prefetch_options: PrefetchOptions::default(),
                                 cache_policy: CachePolicy::Fill(CachePriority::High),
                                 ..Default::default()
                             },
@@ -1601,7 +1577,7 @@ async fn test_get_with_min_epoch() {
         .unwrap();
 
     let epoch2 = (32 * 1000) << 16;
-    hummock_storage.seal_current_epoch(epoch2);
+    hummock_storage.seal_current_epoch(epoch2, SealCurrentEpochOptions::for_test());
     // epoch 2 write
     let batch_epoch2: Vec<(TableKey<Bytes>, StorageValue)> = (20..30)
         .map(|index| (gen_key(index), StorageValue::new_put(gen_val(index))))

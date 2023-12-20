@@ -17,21 +17,24 @@ use std::sync::Arc;
 use bytes::Bytes;
 use futures::TryStreamExt;
 use risingwave_common::catalog::ColumnDesc;
+use risingwave_common::config::ObjectStoreConfig;
 use risingwave_common::hash::VirtualNode;
 use risingwave_common::row::OwnedRow;
 use risingwave_common::util::select_all;
 use risingwave_common::util::value_encoding::column_aware_row_encoding::ColumnAwareSerde;
 use risingwave_common::util::value_encoding::{BasicSerde, EitherSerde, ValueRowDeserializer};
-use risingwave_hummock_sdk::key::{map_table_key_range, prefixed_range, TableKeyRange};
+use risingwave_hummock_sdk::key::{prefixed_range_with_vnode, TableKeyRange};
+use risingwave_object_store::object::build_remote_object_store;
 use risingwave_object_store::object::object_metrics::ObjectStoreMetrics;
-use risingwave_object_store::object::parse_remote_object_store;
 use risingwave_pb::java_binding::key_range::Bound;
 use risingwave_pb::java_binding::{KeyRange, ReadPlan};
-use risingwave_storage::error::{StorageError, StorageResult};
+use risingwave_storage::error::StorageResult;
 use risingwave_storage::hummock::local_version::pinned_version::PinnedVersion;
 use risingwave_storage::hummock::store::version::HummockVersionReader;
 use risingwave_storage::hummock::store::HummockStorageIterator;
-use risingwave_storage::hummock::{CachePolicy, FileCache, SstableStore};
+use risingwave_storage::hummock::{
+    get_committed_read_version_tuple, CachePolicy, FileCache, SstableStore,
+};
 use risingwave_storage::monitor::HummockStateStoreMetrics;
 use risingwave_storage::row_serde::value_serde::ValueRowSerdeNew;
 use risingwave_storage::store::{ReadOptions, StateStoreReadIterStream, StreamTypeOfIter};
@@ -48,32 +51,17 @@ fn select_all_vnode_stream(
 pub struct HummockJavaBindingIterator {
     row_serde: EitherSerde,
     stream: SelectAllIterStream,
-    pub class_cache: Arc<crate::JavaClassMethodCache>,
-}
-
-pub struct KeyedRow {
-    key: Bytes,
-    row: OwnedRow,
-}
-
-impl KeyedRow {
-    pub fn key(&self) -> &[u8] {
-        self.key.as_ref()
-    }
-
-    pub fn row(&self) -> &OwnedRow {
-        &self.row
-    }
 }
 
 impl HummockJavaBindingIterator {
     pub async fn new(read_plan: ReadPlan) -> StorageResult<Self> {
         // Note(bugen): should we forward the implementation to the `StorageTable`?
         let object_store = Arc::new(
-            parse_remote_object_store(
+            build_remote_object_store(
                 &read_plan.object_store_url,
                 Arc::new(ObjectStoreMetrics::unused()),
                 "Hummock",
+                ObjectStoreConfig::default(),
             )
             .await,
         );
@@ -83,30 +71,41 @@ impl HummockJavaBindingIterator {
             1 << 10,
             1 << 10,
             0,
+            1 << 10,
             FileCache::none(),
             FileCache::none(),
+            None,
         ));
-        let reader =
-            HummockVersionReader::new(sstable_store, Arc::new(HummockStateStoreMetrics::unused()));
+        let reader = HummockVersionReader::new(
+            sstable_store,
+            Arc::new(HummockStateStoreMetrics::unused()),
+            0,
+        );
 
         let mut streams = Vec::with_capacity(read_plan.vnode_ids.len());
         let key_range = read_plan.key_range.unwrap();
         let pin_version = PinnedVersion::new(read_plan.version.unwrap(), unbounded_channel().0);
+        let table_id = read_plan.table_id.into();
 
         for vnode in read_plan.vnode_ids {
+            let vnode = VirtualNode::from_index(vnode as usize);
+            let key_range = table_key_range_from_prost(vnode, key_range.clone());
+            let (key_range, read_version_tuple) = get_committed_read_version_tuple(
+                pin_version.clone(),
+                table_id,
+                key_range,
+                read_plan.epoch,
+            );
             let stream = reader
                 .iter(
-                    table_key_range_from_prost(
-                        VirtualNode::from_index(vnode as usize),
-                        key_range.clone(),
-                    ),
+                    key_range,
                     read_plan.epoch,
                     ReadOptions {
-                        table_id: read_plan.table_id.into(),
+                        table_id,
                         cache_policy: CachePolicy::NotFill,
                         ..Default::default()
                     },
-                    (vec![], vec![], pin_version.clone()),
+                    read_version_tuple,
                 )
                 .await?;
             streams.push(stream);
@@ -136,24 +135,16 @@ impl HummockJavaBindingIterator {
             .into()
         };
 
-        Ok(Self {
-            row_serde,
-            stream,
-            class_cache: Default::default(),
-        })
+        Ok(Self { row_serde, stream })
     }
 
-    pub async fn next(&mut self) -> StorageResult<Option<KeyedRow>> {
+    pub async fn next(&mut self) -> StorageResult<Option<(Bytes, OwnedRow)>> {
         let item = self.stream.try_next().await?;
         Ok(match item {
-            Some((key, value)) => Some(KeyedRow {
-                key: key.user_key.table_key.0,
-                row: OwnedRow::new(
-                    self.row_serde
-                        .deserialize(&value)
-                        .map_err(StorageError::DeserializeRow)?,
-                ),
-            }),
+            Some((key, value)) => Some((
+                key.user_key.table_key.0,
+                OwnedRow::new(self.row_serde.deserialize(&value)?),
+            )),
             None => None,
         })
     }
@@ -171,7 +162,5 @@ fn table_key_range_from_prost(vnode: VirtualNode, r: KeyRange) -> TableKeyRange 
     let left = map_bound(left_bound, r.left);
     let right = map_bound(right_bound, r.right);
 
-    let vnode_slice = vnode.to_be_bytes();
-
-    map_table_key_range(prefixed_range((left, right), &vnode_slice[..]))
+    prefixed_range_with_vnode((left, right), vnode)
 }

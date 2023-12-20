@@ -22,6 +22,7 @@ use self::avro::AvroAccess;
 use self::bytes::BytesAccess;
 use self::json::JsonAccess;
 use self::protobuf::ProtobufAccess;
+use crate::source::SourceColumnDesc;
 
 pub mod avro;
 pub mod bytes;
@@ -32,7 +33,7 @@ pub mod protobuf;
 pub mod upsert;
 pub mod util;
 
-pub type AccessResult = std::result::Result<Datum, AccessError>;
+pub type AccessResult<T = Datum> = std::result::Result<T, AccessError>;
 
 /// Access a certain field in an object according to the path
 pub trait Access {
@@ -69,7 +70,7 @@ pub trait ChangeEvent {
     /// Access the operation type.
     fn op(&self) -> std::result::Result<ChangeEventOperation, AccessError>;
     /// Access the field after the operation.
-    fn access_field(&self, name: &str, type_expected: &DataType) -> AccessResult;
+    fn access_field(&self, desc: &SourceColumnDesc) -> AccessResult;
 }
 
 impl<A> ChangeEvent for (ChangeEventOperation, A)
@@ -80,21 +81,27 @@ where
         Ok(self.0)
     }
 
-    fn access_field(&self, name: &str, type_expected: &DataType) -> AccessResult {
-        self.1.access(&[name], Some(type_expected))
+    fn access_field(&self, desc: &SourceColumnDesc) -> AccessResult {
+        self.1.access(&[desc.name.as_str()], Some(&desc.data_type))
     }
 }
 
 #[derive(Error, Debug)]
 pub enum AccessError {
-    #[error("Undefined {name} at {path}")]
+    #[error("Undefined field `{name}` at `{path}`")]
     Undefined { name: String, path: String },
-    #[error("TypeError {expected} expected, got {got} {value}")]
+    #[error("Expected type `{expected}` but got `{got}` for `{value}`")]
     TypeError {
         expected: String,
         got: String,
         value: String,
     },
+    #[error("Unsupported data type `{ty}`")]
+    UnsupportedType { ty: String },
     #[error(transparent)]
-    Other(#[from] anyhow::Error),
+    Other(
+        #[from]
+        #[backtrace]
+        anyhow::Error,
+    ),
 }

@@ -27,17 +27,17 @@ use hyper::client::connect::Connection;
 use hyper::client::HttpConnector;
 use hyper::service::Service;
 use pin_project_lite::pin_project;
-use prometheus::core::{
-    AtomicI64, AtomicU64, GenericCounter, GenericCounterVec, GenericGauge, GenericGaugeVec,
-};
 use prometheus::{
-    register_int_counter_vec_with_registry, register_int_gauge_vec_with_registry, Registry,
+    register_int_counter_vec_with_registry, register_int_gauge_vec_with_registry, IntCounter,
+    IntCounterVec, IntGauge, IntGaugeVec, Registry,
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tonic::transport::{Channel, Endpoint};
 use tracing::{info, warn};
 
+use crate::metrics::LabelGuardedIntCounterVec;
 use crate::monitor::GLOBAL_METRICS_REGISTRY;
+use crate::register_guarded_int_counter_vec_with_registry;
 
 pub trait MonitorAsyncReadWrite {
     fn on_read(&mut self, _size: usize) {}
@@ -226,7 +226,7 @@ where
     }
 
     fn call(&mut self, uri: Uri) -> Self::Future {
-        let endpoint = format!("{:?}:{:?}", uri.host(), uri.port());
+        let endpoint = format!("{:?}", uri.host());
         let monitor = self.monitor.clone();
         self.inner
             .call(uri)
@@ -259,7 +259,7 @@ where
                 result.map(|conn| {
                     let remote_addr = conn.connect_info().remote_addr();
                     let endpoint = remote_addr
-                        .map(|remote_addr| format!("{}:{}", remote_addr.ip(), remote_addr.port()))
+                        .map(|remote_addr| format!("{}", remote_addr.ip()))
                         .unwrap_or("unknown".to_string());
                     MonitoredConnection::new(conn, monitor.new_connection_monitor(endpoint))
                 })
@@ -274,17 +274,17 @@ where
 
 #[derive(Clone)]
 pub struct ConnectionMetrics {
-    connection_count: GenericGaugeVec<AtomicI64>,
-    connection_create_rate: GenericCounterVec<AtomicU64>,
-    connection_err_rate: GenericCounterVec<AtomicU64>,
+    connection_count: IntGaugeVec,
+    connection_create_rate: IntCounterVec,
+    connection_err_rate: IntCounterVec,
 
-    read_rate: GenericCounterVec<AtomicU64>,
-    reader_count: GenericGaugeVec<AtomicI64>,
+    read_rate: IntCounterVec,
+    reader_count: IntGaugeVec,
 
-    write_rate: GenericCounterVec<AtomicU64>,
-    writer_count: GenericGaugeVec<AtomicI64>,
+    write_rate: IntCounterVec,
+    writer_count: IntGaugeVec,
 
-    io_err_rate: GenericCounterVec<AtomicU64>,
+    io_err_rate: LabelGuardedIntCounterVec<4>,
 }
 
 pub static GLOBAL_CONNECTION_METRICS: LazyLock<ConnectionMetrics> =
@@ -349,7 +349,7 @@ impl ConnectionMetrics {
         )
         .unwrap();
 
-        let io_err_rate = register_int_counter_vec_with_registry!(
+        let io_err_rate = register_guarded_int_counter_vec_with_registry!(
             "connection_io_err_rate",
             "IO err rate of a connection",
             &["connection_type", "uri", "op_type", "error_kind"],
@@ -564,27 +564,27 @@ pub struct MonitorAsyncReadWriteImpl {
     connection_type: String,
 
     unreported_read_rate: u64,
-    read_rate: GenericCounter<AtomicU64>,
-    reader_count_guard: GenericGauge<AtomicI64>,
+    read_rate: IntCounter,
+    reader_count_guard: IntGauge,
     is_eof: bool,
 
     unreported_write_rate: u64,
-    write_rate: GenericCounter<AtomicU64>,
-    writer_count_guard: GenericGauge<AtomicI64>,
+    write_rate: IntCounter,
+    writer_count_guard: IntGauge,
     is_shutdown: bool,
 
-    connection_count_guard: GenericGauge<AtomicI64>,
+    connection_count_guard: IntGauge,
 }
 
 impl MonitorAsyncReadWriteImpl {
     pub fn new(
         endpoint: String,
         connection_type: String,
-        read_rate: GenericCounter<AtomicU64>,
-        reader_count: GenericGauge<AtomicI64>,
-        write_rate: GenericCounter<AtomicU64>,
-        writer_count: GenericGauge<AtomicI64>,
-        connection_count: GenericGauge<AtomicI64>,
+        read_rate: IntCounter,
+        reader_count: IntGauge,
+        write_rate: IntCounter,
+        writer_count: IntGauge,
+        connection_count: IntGauge,
     ) -> Self {
         reader_count.inc();
         writer_count.inc();
@@ -642,9 +642,11 @@ impl MonitorAsyncReadWrite for MonitorAsyncReadWriteImpl {
     }
 
     fn on_read_err(&mut self, err: &Error) {
+        // No need to store the value returned from with_label_values
+        // because it is reporting a single error.
         GLOBAL_CONNECTION_METRICS
             .io_err_rate
-            .with_label_values(&[
+            .with_guarded_label_values(&[
                 self.connection_type.as_str(),
                 self.endpoint.as_str(),
                 "read",
@@ -671,9 +673,11 @@ impl MonitorAsyncReadWrite for MonitorAsyncReadWriteImpl {
     }
 
     fn on_write_err(&mut self, err: &Error) {
+        // No need to store the value returned from with_label_values
+        // because it is reporting a single error.
         GLOBAL_CONNECTION_METRICS
             .io_err_rate
-            .with_label_values(&[
+            .with_guarded_label_values(&[
                 self.connection_type.as_str(),
                 self.endpoint.as_str(),
                 "write",
