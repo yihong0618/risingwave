@@ -26,8 +26,7 @@ public class Binding {
         }
     }
 
-    public static native void tracingSlf4jEvent(
-            String threadName, String name, int level, String message);
+    public static native void tracingSlf4jEvent(String name, int level, String message);
 
     public static native int vnodeCount();
 

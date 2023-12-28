@@ -70,7 +70,7 @@ impl BatchManager {
                 builder.worker_threads(worker_threads_num);
             }
             builder
-                .thread_name("rw-batch")
+                .thread_name("risingwave-batch-tasks")
                 .enable_all()
                 .build()
                 .unwrap()
