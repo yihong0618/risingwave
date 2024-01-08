@@ -247,7 +247,7 @@ impl LocalStoreMetrics {
         let cache_data_block_total = metrics
             .sst_store_block_request_counts
             .with_label_values(&[table_id_label, "data_total"])
-            .local();
+            .locall();
 
         let cache_data_block_miss = metrics
             .sst_store_block_request_counts

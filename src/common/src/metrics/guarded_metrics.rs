@@ -15,6 +15,7 @@
 use std::any::type_name;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter};
+use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -138,14 +139,50 @@ fn gen_test_label<const N: usize>() -> [&'static str; N] {
         .unwrap()
 }
 
-#[derive(Default)]
-struct LabelGuardedMetricsInfo<const N: usize> {
-    labeled_metrics_count: HashMap<[String; N], usize>,
-    uncollected_removed_labels: HashSet<[String; N]>,
+pub trait LabelGuardedMetricVecCallbacks {
+    type Metrics;
+
+    fn on_collect(&mut self, metrics: &Self::Metrics);
 }
 
-impl<const N: usize> LabelGuardedMetricsInfo<N> {
-    fn register_new_label(mutex: &Arc<Mutex<Self>>, labels: &[&str; N]) -> LabelGuard<N> {
+pub struct DefaultLabelGuardedMetricVecCallbacks<T>(PhantomData<T>);
+
+impl<T> Default for DefaultLabelGuardedMetricVecCallbacks<T> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<T> LabelGuardedMetricVecCallbacks for DefaultLabelGuardedMetricVecCallbacks<T> {
+    type Metrics = T;
+
+    fn on_collect(&mut self, _metrics: &Self::Metrics) {}
+}
+
+struct LabelGuardedMetricsInfo<
+    T,
+    const N: usize,
+    C: LabelGuardedMetricVecCallbacks = DefaultLabelGuardedMetricVecCallbacks<T>,
+> {
+    labeled_metrics_count: HashMap<[String; N], usize>,
+    uncollected_removed_labels: HashSet<[String; N]>,
+    callbacks: C,
+    _marker: PhantomData<T>,
+}
+
+impl<T, const N: usize> Default for LabelGuardedMetricsInfo<T, N> {
+    fn default() -> Self {
+        Self {
+            labeled_metrics_count: Default::default(),
+            uncollected_removed_labels: Default::default(),
+            callbacks: Default::default(),
+            _marker: Default::default(),
+        }
+    }
+}
+
+impl<T, const N: usize> LabelGuardedMetricsInfo<T, N> {
+    fn register_new_label(mutex: &Arc<Mutex<Self>>, labels: &[&str; N]) -> LabelGuard<T, N> {
         let mut guard = mutex.lock();
         let label_string = labels.map(|str| str.to_string());
         guard.uncollected_removed_labels.remove(&label_string);
@@ -160,11 +197,26 @@ impl<const N: usize> LabelGuardedMetricsInfo<N> {
     }
 }
 
-#[derive(Clone)]
-pub struct LabelGuardedMetricVec<T: MetricVecBuilder, const N: usize> {
+pub struct LabelGuardedMetricVec<
+    T: MetricVecBuilder,
+    const N: usize,
+    C: LabelGuardedMetricVecCallbacks = DefaultLabelGuardedMetricVecCallbacks<
+        <T as MetricVecBuilder>::M,
+    >,
+> {
     inner: MetricVec<T>,
-    info: Arc<Mutex<LabelGuardedMetricsInfo<N>>>,
+    info: Arc<Mutex<LabelGuardedMetricsInfo<T::M, N, C>>>,
     labels: [&'static str; N],
+}
+
+impl<T: MetricVecBuilder, const N: usize> Clone for LabelGuardedMetricVec<T, N> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            info: self.info.clone(),
+            labels: self.labels.clone(),
+        }
+    }
 }
 
 impl<T: MetricVecBuilder, const N: usize> Debug for LabelGuardedMetricVec<T, N> {
@@ -182,6 +234,9 @@ impl<T: MetricVecBuilder, const N: usize> Collector for LabelGuardedMetricVec<T,
 
     fn collect(&self) -> Vec<MetricFamily> {
         let mut guard = self.info.lock();
+        guard
+            .callbacks
+            .on_collect(&self.inner.with_label_values(&self.labels));
         let ret = self.inner.collect();
         for labels in guard.uncollected_removed_labels.drain() {
             if let Err(e) = self
@@ -234,6 +289,23 @@ impl<T: MetricVecBuilder, const N: usize> LabelGuardedMetricVec<T, N> {
     }
 }
 
+impl<T: MetricVecBuilder, const N: usize, C: LabelGuardedMetricVecCallbacks>
+    LabelGuardedMetricVec<T, N, C>
+{
+    pub fn with_callbacks(inner: MetricVec<T>, labels: &[&'static str; N], callbacks: C) -> Self {
+        Self {
+            inner,
+            info: Arc::new(Mutex::new(LabelGuardedMetricsInfo {
+                labeled_metrics_count: Default::default(),
+                uncollected_removed_labels: Default::default(),
+                callbacks,
+                _marker: PhantomData,
+            })),
+            labels: *labels,
+        }
+    }
+}
+
 impl<const N: usize> LabelGuardedIntCounterVec<N> {
     pub fn test_int_counter_vec() -> Self {
         let registry = prometheus::Registry::new();
@@ -282,12 +354,12 @@ impl<const N: usize> LabelGuardedHistogramVec<N> {
 }
 
 #[derive(Clone)]
-struct LabelGuard<const N: usize> {
+struct LabelGuard<T, const N: usize> {
     labels: [String; N],
-    info: Arc<Mutex<LabelGuardedMetricsInfo<N>>>,
+    info: Arc<Mutex<LabelGuardedMetricsInfo<T, N>>>,
 }
 
-impl<const N: usize> Drop for LabelGuard<N> {
+impl<T, const N: usize> Drop for LabelGuard<T, N> {
     fn drop(&mut self) {
         let mut guard = self.info.lock();
         let count = guard.labeled_metrics_count.get_mut(&self.labels).expect(
@@ -307,7 +379,7 @@ impl<const N: usize> Drop for LabelGuard<N> {
 #[derive(Clone)]
 pub struct LabelGuardedMetric<T, const N: usize> {
     inner: T,
-    _guard: Arc<LabelGuard<N>>,
+    _guard: Arc<LabelGuard<T, N>>,
 }
 
 impl<T: MetricVecBuilder, const N: usize> Debug for LabelGuardedMetric<T, N> {
