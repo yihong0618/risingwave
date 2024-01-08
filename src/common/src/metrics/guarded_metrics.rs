@@ -141,17 +141,11 @@ fn gen_test_label<const N: usize>() -> [&'static str; N] {
         .unwrap()
 }
 
-pub trait LabelGuardedMetricVecContext<M>: Clone {
+pub trait LabelGuardedMetricVecContext<M> {
     fn on_collect(&mut self, metrics: &M);
 }
 
 pub struct DefaultLabelGuardedMetricVecContext<M>(PhantomData<M>);
-
-impl<M> Clone for DefaultLabelGuardedMetricVecContext<M> {
-    fn clone(&self) -> Self {
-        Self(PhantomData)
-    }
-}
 
 impl<M> Default for DefaultLabelGuardedMetricVecContext<M> {
     fn default() -> Self {
@@ -361,10 +355,21 @@ impl<const N: usize> LabelGuardedHistogramVec<N> {
     }
 }
 
-#[derive(Clone)]
 struct LabelGuard<T, const N: usize, C: LabelGuardedMetricVecContext<T>> {
     labels: [String; N],
     info: Arc<Mutex<LabelGuardedMetricsInfo<T, N, C>>>,
+}
+
+impl<T, const N: usize, C> Clone for LabelGuard<T, N, C>
+where
+    C: LabelGuardedMetricVecContext<T>,
+{
+    fn clone(&self) -> Self {
+        Self {
+            labels: self.labels.clone(),
+            info: self.info.clone(),
+        }
+    }
 }
 
 impl<T, const N: usize, C: LabelGuardedMetricVecContext<T>> Drop for LabelGuard<T, N, C> {
@@ -384,7 +389,6 @@ impl<T, const N: usize, C: LabelGuardedMetricVecContext<T>> Drop for LabelGuard<
     }
 }
 
-#[derive(Clone)]
 pub struct LabelGuardedMetric<
     // inner type
     T,
@@ -397,6 +401,20 @@ pub struct LabelGuardedMetric<
     inner: T,
     _guard: Arc<LabelGuard<M, N, C>>,
     _phantom: PhantomData<M>,
+}
+
+impl<T, M, const N: usize, C> Clone for LabelGuardedMetric<T, M, N, C>
+where
+    T: Clone,
+    C: LabelGuardedMetricVecContext<M>,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            _guard: self._guard.clone(),
+            _phantom: self._phantom.clone(),
+        }
+    }
 }
 
 impl<T, M, const N: usize, C: LabelGuardedMetricVecContext<M>> Debug
