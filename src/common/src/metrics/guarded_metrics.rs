@@ -210,7 +210,7 @@ impl<T: MetricVecBuilder, const N: usize> Clone for LabelGuardedMetricVec<T, N> 
         Self {
             inner: self.inner.clone(),
             info: self.info.clone(),
-            labels: self.labels.clone(),
+            labels: self.labels,
         }
     }
 }
@@ -280,8 +280,8 @@ impl<T: MetricVecBuilder, const N: usize, C: LabelGuardedMetricVecContext<T::M> 
         let inner = self.inner.with_label_values(labels);
         LabelGuardedMetric {
             inner,
-            _guard: Arc::new(guard),
-            _phantom: PhantomData,
+            guard: Arc::new(guard),
+            phanton: PhantomData,
         }
     }
 
@@ -399,8 +399,8 @@ pub struct LabelGuardedMetric<
     C: LabelGuardedMetricVecContext<M> = DefaultLabelGuardedMetricVecContext<M>,
 > {
     inner: T,
-    _guard: Arc<LabelGuard<M, N, C>>,
-    _phantom: PhantomData<M>,
+    guard: Arc<LabelGuard<M, N, C>>,
+    phanton: PhantomData<M>,
 }
 
 impl<T, M, const N: usize, C> Clone for LabelGuardedMetric<T, M, N, C>
@@ -411,8 +411,8 @@ where
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
-            _guard: self._guard.clone(),
-            _phantom: self._phantom.clone(),
+            guard: self.guard.clone(),
+            phanton: self.phanton,
         }
     }
 }
@@ -486,8 +486,8 @@ impl<T: MetricWithLocal, const N: usize, C: LabelGuardedMetricVecContext<T>>
     pub fn local(&self) -> LabelGuardedMetric<T::Local, T, N, C> {
         LabelGuardedMetric {
             inner: self.inner.local(),
-            _guard: self._guard.clone(),
-            _phantom: PhantomData,
+            guard: self.guard.clone(),
+            phanton: PhantomData,
         }
     }
 }
