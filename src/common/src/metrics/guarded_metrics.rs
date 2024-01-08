@@ -18,6 +18,7 @@ use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use itertools::Itertools;
 use parking_lot::Mutex;
@@ -142,6 +143,10 @@ fn gen_test_label<const N: usize>() -> [&'static str; N] {
 }
 
 pub trait LabelGuardedMetricVecContext<M> {
+    type LabelGuardContext;
+
+    fn new_label_guard_context(&mut self) -> Self::LabelGuardContext;
+    fn on_label_guard_drop(&mut self, guard_context: &Self::LabelGuardContext);
     fn on_collect(&mut self, metrics: &M);
 }
 
@@ -154,14 +159,68 @@ impl<M> Default for DefaultLabelGuardedMetricVecContext<M> {
 }
 
 impl<M> LabelGuardedMetricVecContext<M> for DefaultLabelGuardedMetricVecContext<M> {
+    type LabelGuardContext = ();
+
+    fn new_label_guard_context(&mut self) -> Self::LabelGuardContext {}
+
+    fn on_label_guard_drop(&mut self, _guard_context: &Self::LabelGuardContext) {}
+
     fn on_collect(&mut self, _metrics: &M) {}
+}
+
+pub struct SlowOpLabelGuardedMetricVecContext {
+    sequence: usize,
+    threshold: Duration,
+    ongoing: HashMap<usize, Instant>,
+    durations_to_observe: Vec<Duration>,
+}
+
+impl SlowOpLabelGuardedMetricVecContext {
+    pub fn new(threshold: Duration) -> Self {
+        Self {
+            sequence: 0,
+            threshold,
+            ongoing: Default::default(),
+            durations_to_observe: Default::default(),
+        }
+    }
+}
+
+impl LabelGuardedMetricVecContext<Histogram> for SlowOpLabelGuardedMetricVecContext {
+    type LabelGuardContext = usize;
+
+    fn new_label_guard_context(&mut self) -> Self::LabelGuardContext {
+        let sequence = self.sequence;
+        self.sequence += 1;
+        sequence
+    }
+
+    fn on_label_guard_drop(&mut self, guard_context: &Self::LabelGuardContext) {
+        let start = self.ongoing.remove(guard_context).unwrap();
+        let duration = start.elapsed();
+        if duration >= self.threshold {
+            self.durations_to_observe.push(duration);
+        }
+    }
+
+    fn on_collect(&mut self, metrics: &Histogram) {
+        for duration in self.durations_to_observe.drain(..) {
+            metrics.observe(duration.as_secs_f64());
+        }
+        for start in self.ongoing.values() {
+            let duration = start.elapsed();
+            if duration >= self.threshold {
+                metrics.observe(duration.as_secs_f64());
+            }
+        }
+    }
 }
 
 struct LabelGuardedMetricsInfo<T, const N: usize, C: LabelGuardedMetricVecContext<T>> {
     labeled_metrics_count: HashMap<[String; N], usize>,
     uncollected_removed_labels: HashSet<[String; N]>,
     context: C,
-    _marker: PhantomData<T>,
+    marker: PhantomData<T>,
 }
 
 impl<T, const N: usize, C: LabelGuardedMetricVecContext<T> + Default> Default
@@ -172,7 +231,7 @@ impl<T, const N: usize, C: LabelGuardedMetricVecContext<T> + Default> Default
             labeled_metrics_count: Default::default(),
             uncollected_removed_labels: Default::default(),
             context: Default::default(),
-            _marker: Default::default(),
+            marker: Default::default(),
         }
     }
 }
@@ -186,9 +245,11 @@ impl<T, const N: usize, C: LabelGuardedMetricVecContext<T>> LabelGuardedMetricsI
             .labeled_metrics_count
             .entry(label_string.clone())
             .or_insert(0) += 1;
+        let context = Arc::new(guard.context.new_label_guard_context());
         LabelGuard {
             labels: label_string,
             info: mutex.clone(),
+            context,
         }
     }
 }
@@ -251,13 +312,28 @@ impl<T: MetricVecBuilder, const N: usize> Collector for LabelGuardedMetricVec<T,
     }
 }
 
-impl<T: MetricVecBuilder, const N: usize, C: LabelGuardedMetricVecContext<T::M> + Default>
+impl<T: MetricVecBuilder, const N: usize> LabelGuardedMetricVec<T, N> {
+    pub fn new(inner: MetricVec<T>, labels: &[&'static str; N]) -> Self {
+        Self::with_context(
+            inner,
+            labels,
+            DefaultLabelGuardedMetricVecContext::default(),
+        )
+    }
+}
+
+impl<T: MetricVecBuilder, const N: usize, C: LabelGuardedMetricVecContext<T::M>>
     LabelGuardedMetricVec<T, N, C>
 {
-    pub fn new(inner: MetricVec<T>, labels: &[&'static str; N]) -> Self {
+    pub fn with_context(inner: MetricVec<T>, labels: &[&'static str; N], context: C) -> Self {
         Self {
             inner,
-            info: Default::default(),
+            info: Arc::new(Mutex::new(LabelGuardedMetricsInfo {
+                labeled_metrics_count: Default::default(),
+                uncollected_removed_labels: Default::default(),
+                context,
+                marker: PhantomData,
+            })),
             labels: *labels,
         }
     }
@@ -281,30 +357,12 @@ impl<T: MetricVecBuilder, const N: usize, C: LabelGuardedMetricVecContext<T::M> 
         LabelGuardedMetric {
             inner,
             guard: Arc::new(guard),
-            phanton: PhantomData,
         }
     }
 
     pub fn with_test_label(&self) -> LabelGuardedMetric<T::M, T::M, N, C> {
         let labels: [&'static str; N] = gen_test_label::<N>();
         self.with_guarded_label_values(&labels)
-    }
-}
-
-impl<T: MetricVecBuilder, const N: usize, C: LabelGuardedMetricVecContext<T::M>>
-    LabelGuardedMetricVec<T, N, C>
-{
-    pub fn with_context(inner: MetricVec<T>, labels: &[&'static str; N], context: C) -> Self {
-        Self {
-            inner,
-            info: Arc::new(Mutex::new(LabelGuardedMetricsInfo {
-                labeled_metrics_count: Default::default(),
-                uncollected_removed_labels: Default::default(),
-                context,
-                _marker: PhantomData,
-            })),
-            labels: *labels,
-        }
     }
 }
 
@@ -358,6 +416,7 @@ impl<const N: usize> LabelGuardedHistogramVec<N> {
 struct LabelGuard<T, const N: usize, C: LabelGuardedMetricVecContext<T>> {
     labels: [String; N],
     info: Arc<Mutex<LabelGuardedMetricsInfo<T, N, C>>>,
+    context: Arc<C::LabelGuardContext>,
 }
 
 impl<T, const N: usize, C> Clone for LabelGuard<T, N, C>
@@ -368,6 +427,7 @@ where
         Self {
             labels: self.labels.clone(),
             info: self.info.clone(),
+            context: self.context.clone(),
         }
     }
 }
@@ -375,6 +435,7 @@ where
 impl<T, const N: usize, C: LabelGuardedMetricVecContext<T>> Drop for LabelGuard<T, N, C> {
     fn drop(&mut self) {
         let mut guard = self.info.lock();
+        guard.context.on_label_guard_drop(&self.context);
         let count = guard.labeled_metrics_count.get_mut(&self.labels).expect(
             "should exist because the current existing dropping one means the count is not zero",
         );
@@ -400,7 +461,6 @@ pub struct LabelGuardedMetric<
 > {
     inner: T,
     guard: Arc<LabelGuard<M, N, C>>,
-    phanton: PhantomData<M>,
 }
 
 impl<T, M, const N: usize, C> Clone for LabelGuardedMetric<T, M, N, C>
@@ -412,7 +472,6 @@ where
         Self {
             inner: self.inner.clone(),
             guard: self.guard.clone(),
-            phanton: self.phanton,
         }
     }
 }
@@ -487,7 +546,6 @@ impl<T: MetricWithLocal, const N: usize, C: LabelGuardedMetricVecContext<T>>
         LabelGuardedMetric {
             inner: self.inner.local(),
             guard: self.guard.clone(),
-            phanton: PhantomData,
         }
     }
 }
