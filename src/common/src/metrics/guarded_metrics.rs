@@ -122,13 +122,15 @@ pub type LabelGuardedIntGaugeVec<const N: usize> =
 pub type LabelGuardedGaugeVec<const N: usize> =
     LabelGuardedMetricVec<VecBuilderOfGauge<AtomicF64>, N>;
 
-pub type LabelGuardedHistogram<const N: usize> = LabelGuardedMetric<Histogram, N>;
-pub type LabelGuardedIntCounter<const N: usize> = LabelGuardedMetric<IntCounter, N>;
-pub type LabelGuardedIntGauge<const N: usize> = LabelGuardedMetric<IntGauge, N>;
-pub type LabelGuardedGauge<const N: usize> = LabelGuardedMetric<Gauge, N>;
+pub type LabelGuardedHistogram<const N: usize> = LabelGuardedMetric<Histogram, Histogram, N>;
+pub type LabelGuardedIntCounter<const N: usize> = LabelGuardedMetric<IntCounter, IntCounter, N>;
+pub type LabelGuardedIntGauge<const N: usize> = LabelGuardedMetric<IntGauge, IntGauge, N>;
+pub type LabelGuardedGauge<const N: usize> = LabelGuardedMetric<Gauge, Gauge, N>;
 
-pub type LabelGuardedLocalHistogram<const N: usize> = LabelGuardedMetric<LocalHistogram, N>;
-pub type LabelGuardedLocalIntCounter<const N: usize> = LabelGuardedMetric<LocalIntCounter, N>;
+pub type LabelGuardedLocalHistogram<const N: usize> =
+    LabelGuardedMetric<LocalHistogram, Histogram, N>;
+pub type LabelGuardedLocalIntCounter<const N: usize> =
+    LabelGuardedMetric<LocalIntCounter, IntCounter, N>;
 
 fn gen_test_label<const N: usize>() -> [&'static str; N] {
     const TEST_LABELS: [&str; 5] = ["test1", "test2", "test3", "test4", "test5"];
@@ -139,38 +141,38 @@ fn gen_test_label<const N: usize>() -> [&'static str; N] {
         .unwrap()
 }
 
-pub trait LabelGuardedMetricVecCallbacks {
-    type Metrics;
-
-    fn on_collect(&mut self, metrics: &Self::Metrics);
+pub trait LabelGuardedMetricVecCallbacks<M>: Clone {
+    fn on_collect(&mut self, metrics: &M);
 }
 
-pub struct DefaultLabelGuardedMetricVecCallbacks<T>(PhantomData<T>);
+pub struct DefaultLabelGuardedMetricVecCallbacks<M>(PhantomData<M>);
 
-impl<T> Default for DefaultLabelGuardedMetricVecCallbacks<T> {
+impl<M> Clone for DefaultLabelGuardedMetricVecCallbacks<M> {
+    fn clone(&self) -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<M> Default for DefaultLabelGuardedMetricVecCallbacks<M> {
     fn default() -> Self {
         Self(PhantomData)
     }
 }
 
-impl<T> LabelGuardedMetricVecCallbacks for DefaultLabelGuardedMetricVecCallbacks<T> {
-    type Metrics = T;
-
-    fn on_collect(&mut self, _metrics: &Self::Metrics) {}
+impl<M> LabelGuardedMetricVecCallbacks<M> for DefaultLabelGuardedMetricVecCallbacks<M> {
+    fn on_collect(&mut self, _metrics: &M) {}
 }
 
-struct LabelGuardedMetricsInfo<
-    T,
-    const N: usize,
-    C: LabelGuardedMetricVecCallbacks = DefaultLabelGuardedMetricVecCallbacks<T>,
-> {
+struct LabelGuardedMetricsInfo<T, const N: usize, C: LabelGuardedMetricVecCallbacks<T>> {
     labeled_metrics_count: HashMap<[String; N], usize>,
     uncollected_removed_labels: HashSet<[String; N]>,
     callbacks: C,
     _marker: PhantomData<T>,
 }
 
-impl<T, const N: usize> Default for LabelGuardedMetricsInfo<T, N> {
+impl<T, const N: usize, C: LabelGuardedMetricVecCallbacks<T> + Default> Default
+    for LabelGuardedMetricsInfo<T, N, C>
+{
     fn default() -> Self {
         Self {
             labeled_metrics_count: Default::default(),
@@ -181,8 +183,8 @@ impl<T, const N: usize> Default for LabelGuardedMetricsInfo<T, N> {
     }
 }
 
-impl<T, const N: usize> LabelGuardedMetricsInfo<T, N> {
-    fn register_new_label(mutex: &Arc<Mutex<Self>>, labels: &[&str; N]) -> LabelGuard<T, N> {
+impl<T, const N: usize, C: LabelGuardedMetricVecCallbacks<T>> LabelGuardedMetricsInfo<T, N, C> {
+    fn register_new_label(mutex: &Arc<Mutex<Self>>, labels: &[&str; N]) -> LabelGuard<T, N, C> {
         let mut guard = mutex.lock();
         let label_string = labels.map(|str| str.to_string());
         guard.uncollected_removed_labels.remove(&label_string);
@@ -200,7 +202,7 @@ impl<T, const N: usize> LabelGuardedMetricsInfo<T, N> {
 pub struct LabelGuardedMetricVec<
     T: MetricVecBuilder,
     const N: usize,
-    C: LabelGuardedMetricVecCallbacks = DefaultLabelGuardedMetricVecCallbacks<
+    C: LabelGuardedMetricVecCallbacks<T::M> = DefaultLabelGuardedMetricVecCallbacks<
         <T as MetricVecBuilder>::M,
     >,
 > {
@@ -255,7 +257,9 @@ impl<T: MetricVecBuilder, const N: usize> Collector for LabelGuardedMetricVec<T,
     }
 }
 
-impl<T: MetricVecBuilder, const N: usize> LabelGuardedMetricVec<T, N> {
+impl<T: MetricVecBuilder, const N: usize, C: LabelGuardedMetricVecCallbacks<T::M> + Default>
+    LabelGuardedMetricVec<T, N, C>
+{
     pub fn new(inner: MetricVec<T>, labels: &[&'static str; N]) -> Self {
         Self {
             inner,
@@ -274,22 +278,26 @@ impl<T: MetricVecBuilder, const N: usize> LabelGuardedMetricVec<T, N> {
     /// Instead, we should store the returned `LabelGuardedMetric` in a scope with longer
     /// lifetime so that the labels can be regarded as being used in its whole life scope.
     /// This is also the recommended way to use the raw metrics vec.
-    pub fn with_guarded_label_values(&self, labels: &[&str; N]) -> LabelGuardedMetric<T::M, N> {
+    pub fn with_guarded_label_values(
+        &self,
+        labels: &[&str; N],
+    ) -> LabelGuardedMetric<T::M, T::M, N, C> {
         let guard = LabelGuardedMetricsInfo::register_new_label(&self.info, labels);
         let inner = self.inner.with_label_values(labels);
         LabelGuardedMetric {
             inner,
             _guard: Arc::new(guard),
+            _phantom: PhantomData,
         }
     }
 
-    pub fn with_test_label(&self) -> LabelGuardedMetric<T::M, N> {
+    pub fn with_test_label(&self) -> LabelGuardedMetric<T::M, T::M, N, C> {
         let labels: [&'static str; N] = gen_test_label::<N>();
         self.with_guarded_label_values(&labels)
     }
 }
 
-impl<T: MetricVecBuilder, const N: usize, C: LabelGuardedMetricVecCallbacks>
+impl<T: MetricVecBuilder, const N: usize, C: LabelGuardedMetricVecCallbacks<T::M>>
     LabelGuardedMetricVec<T, N, C>
 {
     pub fn with_callbacks(inner: MetricVec<T>, labels: &[&'static str; N], callbacks: C) -> Self {
@@ -354,12 +362,12 @@ impl<const N: usize> LabelGuardedHistogramVec<N> {
 }
 
 #[derive(Clone)]
-struct LabelGuard<T, const N: usize> {
+struct LabelGuard<T, const N: usize, C: LabelGuardedMetricVecCallbacks<T>> {
     labels: [String; N],
-    info: Arc<Mutex<LabelGuardedMetricsInfo<T, N>>>,
+    info: Arc<Mutex<LabelGuardedMetricsInfo<T, N, C>>>,
 }
 
-impl<T, const N: usize> Drop for LabelGuard<T, N> {
+impl<T, const N: usize, C: LabelGuardedMetricVecCallbacks<T>> Drop for LabelGuard<T, N, C> {
     fn drop(&mut self) {
         let mut guard = self.info.lock();
         let count = guard.labeled_metrics_count.get_mut(&self.labels).expect(
@@ -377,18 +385,31 @@ impl<T, const N: usize> Drop for LabelGuard<T, N> {
 }
 
 #[derive(Clone)]
-pub struct LabelGuardedMetric<T, const N: usize> {
+pub struct LabelGuardedMetric<
+    // inner type
+    T,
+    // Type used for collect. For LocalMetrics, the type M is the outer type (e.g. the M of LocalHistogram is Histogram)
+    // and for normal Metrics, the type M is itself
+    M,
+    const N: usize,
+    C: LabelGuardedMetricVecCallbacks<M> = DefaultLabelGuardedMetricVecCallbacks<M>,
+> {
     inner: T,
-    _guard: Arc<LabelGuard<T, N>>,
+    _guard: Arc<LabelGuard<M, N, C>>,
+    _phantom: PhantomData<M>,
 }
 
-impl<T: MetricVecBuilder, const N: usize> Debug for LabelGuardedMetric<T, N> {
+impl<T, M, const N: usize, C: LabelGuardedMetricVecCallbacks<M>> Debug
+    for LabelGuardedMetric<T, M, N, C>
+{
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LabelGuardedMetric").finish()
     }
 }
 
-impl<T, const N: usize> Deref for LabelGuardedMetric<T, N> {
+impl<T, M, const N: usize, C: LabelGuardedMetricVecCallbacks<M>> Deref
+    for LabelGuardedMetric<T, M, N, C>
+{
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -441,11 +462,14 @@ impl<P: Atomic> MetricWithLocal for GenericCounter<P> {
     }
 }
 
-impl<T: MetricWithLocal, const N: usize> LabelGuardedMetric<T, N> {
-    pub fn local(&self) -> LabelGuardedMetric<T::Local, N> {
+impl<T: MetricWithLocal, const N: usize, C: LabelGuardedMetricVecCallbacks<T>>
+    LabelGuardedMetric<T, T, N, C>
+{
+    pub fn local(&self) -> LabelGuardedMetric<T::Local, T, N, C> {
         LabelGuardedMetric {
             inner: self.inner.local(),
             _guard: self._guard.clone(),
+            _phantom: PhantomData,
         }
     }
 }
