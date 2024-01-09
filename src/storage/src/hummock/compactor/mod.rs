@@ -465,48 +465,65 @@ pub fn start_compactor(
                                 let running_task_count = running_task_count.clone();
                                 match event {
                                     ResponseEvent::CompactTask(compact_task)  => {
-                                        running_task_count.fetch_add(1, Ordering::SeqCst);
-                                        let (tx, rx) = tokio::sync::oneshot::channel();
-                                        let task_id = compact_task.task_id;
-                                        shutdown.lock().unwrap().insert(task_id, tx);
-                                        let (compact_task, table_stats) = match sstable_object_id_manager.add_watermark_object_id(None).await
-                                        {
-                                            Ok(tracker_id) => {
-                                                let sstable_object_id_manager_clone = sstable_object_id_manager.clone();
-                                                let _guard = scopeguard::guard(
-                                                    (tracker_id, sstable_object_id_manager_clone),
-                                                    |(tracker_id, sstable_object_id_manager)| {
-                                                        sstable_object_id_manager.remove_watermark_object_id(tracker_id);
-                                                    },
-                                                );
-                                                compactor_runner::compact(context, compact_task, rx, Box::new(sstable_object_id_manager.clone()), filter_key_extractor_manager.clone()).await
-                                            },
-                                            Err(err) => {
-                                                tracing::warn!("Failed to track pending SST object id. {:#?}", err);
-                                                let mut compact_task = compact_task;
-                                                // return TaskStatus::TrackSstObjectIdFailed;
-                                                compact_task.set_task_status(TaskStatus::TrackSstObjectIdFailed);
-                                                (compact_task, HashMap::default())
-                                            }
-                                        };
-                                        shutdown.lock().unwrap().remove(&task_id);
-                                        running_task_count.fetch_sub(1, Ordering::SeqCst);
-
-                                        if let Err(e) = request_sender.send(SubscribeCompactionEventRequest {
-                                            event: Some(RequestEvent::ReportTask(
-                                                ReportTask {
-                                                    task_id: compact_task.task_id,
-                                                    task_status: compact_task.task_status,
-                                                    sorted_output_ssts: compact_task.sorted_output_ssts,
-                                                    table_stats_change:to_prost_table_stats_map(table_stats),
+                                        if running_task_count.load(Ordering::SeqCst) < max_pull_task_count {
+                                            running_task_count.fetch_add(1, Ordering::SeqCst);
+                                            let (tx, rx) = tokio::sync::oneshot::channel();
+                                            let task_id = compact_task.task_id;
+                                            shutdown.lock().unwrap().insert(task_id, tx);
+                                            let (compact_task, table_stats) = match sstable_object_id_manager.add_watermark_object_id(None).await
+                                            {
+                                                Ok(tracker_id) => {
+                                                    let sstable_object_id_manager_clone = sstable_object_id_manager.clone();
+                                                    let _guard = scopeguard::guard(
+                                                        (tracker_id, sstable_object_id_manager_clone),
+                                                        |(tracker_id, sstable_object_id_manager)| {
+                                                            sstable_object_id_manager.remove_watermark_object_id(tracker_id);
+                                                        },
+                                                    );
+                                                    compactor_runner::compact(context, compact_task, rx, Box::new(sstable_object_id_manager.clone()), filter_key_extractor_manager.clone()).await
+                                                },
+                                                Err(err) => {
+                                                    tracing::warn!("Failed to track pending SST object id. {:#?}", err);
+                                                    let mut compact_task = compact_task;
+                                                    // return TaskStatus::TrackSstObjectIdFailed;
+                                                    compact_task.set_task_status(TaskStatus::TrackSstObjectIdFailed);
+                                                    (compact_task, HashMap::default())
                                                 }
-                                            )),
-                                            create_at: SystemTime::now()
-                                                .duration_since(std::time::UNIX_EPOCH)
-                                                .expect("Clock may have gone backwards")
-                                                .as_millis() as u64,
-                                        }) {
-                                            tracing::warn!("Failed to report task {task_id:?} . {e:?}");
+                                            };
+                                            shutdown.lock().unwrap().remove(&task_id);
+                                            running_task_count.fetch_sub(1, Ordering::SeqCst);
+
+                                            if let Err(e) = request_sender.send(SubscribeCompactionEventRequest {
+                                                event: Some(RequestEvent::ReportTask(
+                                                    ReportTask {
+                                                        task_id: compact_task.task_id,
+                                                        task_status: compact_task.task_status,
+                                                        sorted_output_ssts: compact_task.sorted_output_ssts,
+                                                        table_stats_change:to_prost_table_stats_map(table_stats),
+                                                    }
+                                                )),
+                                                create_at: SystemTime::now()
+                                                    .duration_since(std::time::UNIX_EPOCH)
+                                                    .expect("Clock may have gone backwards")
+                                                    .as_millis() as u64,
+                                            }) {
+                                                tracing::warn!("Failed to report task {task_id:?} . {e:?}");
+                                            }
+                                        } else if let Err(e) = request_sender.send(SubscribeCompactionEventRequest {
+                                                event: Some(RequestEvent::ReportTask(
+                                                    ReportTask {
+                                                        task_id: compact_task.task_id,
+                                                        task_status: TaskStatus::NoAvailResourceCanceled as _,
+                                                        sorted_output_ssts: vec![],
+                                                        table_stats_change: HashMap::default(),
+                                                    }
+                                                )),
+                                                create_at: SystemTime::now()
+                                                    .duration_since(std::time::UNIX_EPOCH)
+                                                    .expect("Clock may have gone backwards")
+                                                    .as_millis() as u64,
+                                            }) {
+                                                tracing::warn!("Failed to report task {0:?} . {e:?}", compact_task.task_id);
                                         }
                                     }
                                     ResponseEvent::VacuumTask(vacuum_task) => {
