@@ -88,7 +88,7 @@ impl<T: MetricVecBuilder> RelabeledMetricVec<MetricVec<T>> {
 }
 
 impl<T: MetricVecBuilder, const N: usize> RelabeledMetricVec<LabelGuardedMetricVec<T, N>> {
-    pub fn with_label_values(&self, vals: &[&str; N]) -> LabelGuardedMetric<T::M, T::M, N> {
+    pub fn with_label_values(&self, vals: &[&str; N]) -> LabelGuardedMetric<T::M, MetricVec<T>, N> {
         if self.metric_level > self.relabel_threshold {
             // relabel first n labels to empty string
             let mut relabeled_vals = *vals;

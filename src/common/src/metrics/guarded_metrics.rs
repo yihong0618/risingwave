@@ -28,7 +28,9 @@ use prometheus::core::{
 };
 use prometheus::local::{LocalHistogram, LocalIntCounter};
 use prometheus::proto::MetricFamily;
-use prometheus::{Gauge, Histogram, HistogramVec, IntCounter, IntGauge};
+use prometheus::{
+    Gauge, GaugeVec, Histogram, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+};
 use thiserror_ext::AsReport;
 use tracing::warn;
 
@@ -123,10 +125,10 @@ pub type LabelGuardedIntGaugeVec<const N: usize> =
 pub type LabelGuardedGaugeVec<const N: usize> =
     LabelGuardedMetricVec<VecBuilderOfGauge<AtomicF64>, N>;
 
-pub type LabelGuardedHistogram<const N: usize> = LabelGuardedMetric<Histogram, Histogram, N>;
-pub type LabelGuardedIntCounter<const N: usize> = LabelGuardedMetric<IntCounter, IntCounter, N>;
-pub type LabelGuardedIntGauge<const N: usize> = LabelGuardedMetric<IntGauge, IntGauge, N>;
-pub type LabelGuardedGauge<const N: usize> = LabelGuardedMetric<Gauge, Gauge, N>;
+pub type LabelGuardedHistogram<const N: usize> = LabelGuardedMetric<Histogram, HistogramVec, N>;
+pub type LabelGuardedIntCounter<const N: usize> = LabelGuardedMetric<IntCounter, IntCounterVec, N>;
+pub type LabelGuardedIntGauge<const N: usize> = LabelGuardedMetric<IntGauge, IntGaugeVec, N>;
+pub type LabelGuardedGauge<const N: usize> = LabelGuardedMetric<Gauge, GaugeVec, N>;
 
 pub type LabelGuardedLocalHistogram<const N: usize> =
     LabelGuardedMetric<LocalHistogram, Histogram, N>;
@@ -257,12 +259,12 @@ impl<T, const N: usize, C: LabelGuardedMetricVecContext<T>> LabelGuardedMetricsI
 pub struct LabelGuardedMetricVec<
     T: MetricVecBuilder,
     const N: usize,
-    C: LabelGuardedMetricVecContext<T::M> = DefaultLabelGuardedMetricVecContext<
-        <T as MetricVecBuilder>::M,
+    C: LabelGuardedMetricVecContext<MetricVec<T>> = DefaultLabelGuardedMetricVecContext<
+        MetricVec<T>,
     >,
 > {
     inner: MetricVec<T>,
-    info: Arc<Mutex<LabelGuardedMetricsInfo<T::M, N, C>>>,
+    info: Arc<Mutex<LabelGuardedMetricsInfo<MetricVec<T>, N, C>>>,
     labels: [&'static str; N],
 }
 
@@ -291,9 +293,7 @@ impl<T: MetricVecBuilder, const N: usize> Collector for LabelGuardedMetricVec<T,
 
     fn collect(&self) -> Vec<MetricFamily> {
         let mut guard = self.info.lock();
-        guard
-            .context
-            .on_collect(&self.inner.with_label_values(&self.labels));
+        guard.context.on_collect(&self.inner);
         let ret = self.inner.collect();
         for labels in guard.uncollected_removed_labels.drain() {
             if let Err(e) = self
@@ -322,7 +322,7 @@ impl<T: MetricVecBuilder, const N: usize> LabelGuardedMetricVec<T, N> {
     }
 }
 
-impl<T: MetricVecBuilder, const N: usize, C: LabelGuardedMetricVecContext<T::M>>
+impl<T: MetricVecBuilder, const N: usize, C: LabelGuardedMetricVecContext<MetricVec<T>>>
     LabelGuardedMetricVec<T, N, C>
 {
     pub fn with_context(inner: MetricVec<T>, labels: &[&'static str; N], context: C) -> Self {
@@ -351,7 +351,7 @@ impl<T: MetricVecBuilder, const N: usize, C: LabelGuardedMetricVecContext<T::M>>
     pub fn with_guarded_label_values(
         &self,
         labels: &[&str; N],
-    ) -> LabelGuardedMetric<T::M, T::M, N, C> {
+    ) -> LabelGuardedMetric<T::M, MetricVec<T>, N, C> {
         let guard = LabelGuardedMetricsInfo::register_new_label(&self.info, labels);
         let inner = self.inner.with_label_values(labels);
         LabelGuardedMetric {
@@ -360,7 +360,7 @@ impl<T: MetricVecBuilder, const N: usize, C: LabelGuardedMetricVecContext<T::M>>
         }
     }
 
-    pub fn with_test_label(&self) -> LabelGuardedMetric<T::M, T::M, N, C> {
+    pub fn with_test_label(&self) -> LabelGuardedMetric<T::M, MetricVec<T>, N, C> {
         let labels: [&'static str; N] = gen_test_label::<N>();
         self.with_guarded_label_values(&labels)
     }
@@ -496,6 +496,7 @@ impl<T, M, const N: usize, C: LabelGuardedMetricVecContext<M>> Deref
 
 impl<const N: usize> LabelGuardedHistogram<N> {
     pub fn test_histogram() -> Self {
+        // LabelGuardedHistogramVec::<N>::test_histogram_vec().with_test_label()
         LabelGuardedHistogramVec::<N>::test_histogram_vec().with_test_label()
     }
 }
