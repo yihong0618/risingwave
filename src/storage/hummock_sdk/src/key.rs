@@ -921,6 +921,46 @@ pub fn bound_table_key_range<T: AsRef<[u8]> + EmptySliceRef>(
     (start, end)
 }
 
+pub struct FullKeyTracker<T: AsRef<[u8]> + Ord + Eq + Default> {
+    last_key: FullKey<T>,
+}
+
+impl<T: AsRef<[u8]> + Ord + Eq + Default> FullKeyTracker<T> {
+    pub fn new() -> Self {
+        Self {
+            last_key: FullKey::default(),
+        }
+    }
+
+    pub fn take(self) -> FullKey<T> {
+        self.last_key
+    }
+
+    // Return whether the key contiains a new unseen user key
+    pub fn observe_new_key(&self, key: FullKey<&[u8]>) -> bool {
+        match self.last_key.user_key.as_ref().cmp(&key.user_key) {
+            Ordering::Less => {
+                if key.epoch_with_gap >= self.last_key.epoch_with_gap {
+                    panic!(
+                        "key {:?} epoch {:?} >= prev epoch {:?}",
+                        key.user_key, key.epoch_with_gap, self.last_key.epoch_with_gap
+                    );
+                }
+                true
+            }
+            Ordering::Equal => false,
+            Ordering::Greater => {
+                panic!("key {:?} <= prev key {:?}", key, self.last_key);
+            }
+        }
+    }
+
+    // Return the prev `last_key`
+    pub fn update_last_key(&mut self, key: FullKey<T>) -> FullKey<T> {
+        std::mem::replace(&mut self.last_key, key)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cmp::Ordering;

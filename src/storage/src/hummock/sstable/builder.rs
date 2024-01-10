@@ -302,6 +302,7 @@ impl<W: SstableWriter, F: FilterBuilder> SstableBuilder<W, F> {
         full_key: FullKey<&[u8]>,
         value: HummockValue<&[u8]>,
     ) -> HummockResult<()> {
+        println!("Add {:?}", full_key);
         self.add_impl(full_key, value, true).await
     }
 
