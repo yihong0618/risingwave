@@ -83,7 +83,7 @@ pub(crate) struct SharedBufferBatchInner {
     kv_count: usize,
     /// Total size of all key-value items (excluding the `epoch` of value versions)
     size: usize,
-    _tracker: Option<MemoryTracker>,
+    tracker: Option<MemoryTracker>,
     /// For a batch created from multiple batches, this will be
     /// the largest batch id among input batches
     batch_id: SharedBufferBatchId,
@@ -97,7 +97,7 @@ impl SharedBufferBatchInner {
         payload: Vec<SharedBufferItem>,
         delete_ranges: Vec<(Bound<Bytes>, Bound<Bytes>)>,
         size: usize,
-        _tracker: Option<MemoryTracker>,
+        tracker: Option<MemoryTracker>,
     ) -> Self {
         let point_range_pairs = delete_ranges
             .into_iter()
@@ -182,7 +182,7 @@ impl SharedBufferBatchInner {
             size,
             largest_table_key,
             smallest_table_key: smallest_table_key.freeze(),
-            _tracker,
+            tracker,
             batch_id,
         }
     }
@@ -214,7 +214,7 @@ impl SharedBufferBatchInner {
             smallest_table_key,
             kv_count: num_items,
             size,
-            _tracker: tracker,
+            tracker: tracker,
             batch_id: max_imm_id,
         }
     }
@@ -331,6 +331,10 @@ impl SharedBufferBatchInner {
         } else {
             self.monotonic_tombstone_events[idx - 1].new_epoch
         }
+    }
+
+    pub(crate) fn get_memory_limiter(&self,) ->  {
+        &self.tracker
     }
 }
 
@@ -585,7 +589,7 @@ impl SharedBufferBatch {
         delete_ranges: Vec<(Bound<Bytes>, Bound<Bytes>)>,
         table_id: TableId,
         instance_id: Option<LocalInstanceId>,
-        tracker: Option<MemoryTracker>,
+        tracker: MemoryTracker,
     ) -> Self {
         let inner = SharedBufferBatchInner::new(
             table_id,
@@ -594,7 +598,32 @@ impl SharedBufferBatch {
             sorted_items,
             delete_ranges,
             size,
-            tracker,
+            Some(tracker),
+        );
+        SharedBufferBatch {
+            inner: Arc::new(inner),
+            table_id,
+            instance_id: instance_id.unwrap_or_default(),
+        }
+    }
+
+    pub fn build_shared_buffer_batch_for_test(
+        epoch: HummockEpoch,
+        spill_offset: u16,
+        sorted_items: Vec<SharedBufferItem>,
+        size: usize,
+        delete_ranges: Vec<(Bound<Bytes>, Bound<Bytes>)>,
+        table_id: TableId,
+        instance_id: Option<LocalInstanceId>,
+    ) -> Self {
+        let inner = SharedBufferBatchInner::new(
+            table_id,
+            epoch,
+            spill_offset,
+            sorted_items,
+            delete_ranges,
+            size,
+            None,
         );
         SharedBufferBatch {
             inner: Arc::new(inner),
@@ -991,7 +1020,7 @@ mod tests {
         output.reverse();
         assert_eq!(output, shared_buffer_items);
 
-        let batch = SharedBufferBatch::build_shared_buffer_batch(
+        let batch = SharedBufferBatch::build_shared_buffer_batch_for_test(
             epoch,
             0,
             vec![],
@@ -1007,7 +1036,6 @@ mod tests {
                 ),
             ],
             TableId::new(0),
-            None,
             None,
         );
         assert_eq!(batch.start_table_key().as_ref(), "a".as_bytes());
@@ -1174,14 +1202,13 @@ mod tests {
                 Bound::Excluded(Bytes::from(b"eee".to_vec())),
             ),
         ];
-        let shared_buffer_batch = SharedBufferBatch::build_shared_buffer_batch(
+        let shared_buffer_batch = SharedBufferBatch::build_shared_buffer_batch_for_test(
             epoch,
             0,
             vec![],
             0,
             delete_ranges,
             Default::default(),
-            None,
             None,
         );
         assert_eq!(
@@ -1467,14 +1494,13 @@ mod tests {
         ];
         let sorted_items1 = transform_shared_buffer(shared_buffer_items1);
         let size = SharedBufferBatch::measure_batch_size(&sorted_items1);
-        let imm1 = SharedBufferBatch::build_shared_buffer_batch(
+        let imm1 = SharedBufferBatch::build_shared_buffer_batch_for_test(
             epoch,
             0,
             sorted_items1,
             size,
             delete_ranges,
             table_id,
-            None,
             None,
         );
 
@@ -1513,14 +1539,13 @@ mod tests {
         ];
         let sorted_items2 = transform_shared_buffer(shared_buffer_items2);
         let size = SharedBufferBatch::measure_batch_size(&sorted_items2);
-        let imm2 = SharedBufferBatch::build_shared_buffer_batch(
+        let imm2 = SharedBufferBatch::build_shared_buffer_batch_for_test(
             epoch,
             0,
             sorted_items2,
             size,
             delete_ranges,
             table_id,
-            None,
             None,
         );
 

@@ -169,6 +169,7 @@ pub fn prune_nonoverlapping_ssts<'a>(
 #[derive(Debug)]
 struct MemoryLimiterInner {
     total_size: AtomicU64,
+    total_mem_table_size: AtomicU64,
     notify: Notify,
     quota: u64,
 }
@@ -181,6 +182,17 @@ impl MemoryLimiterInner {
 
     fn add_memory(&self, quota: u64) {
         self.total_size.fetch_add(quota, AtomicOrdering::SeqCst);
+    }
+
+    pub fn release_mem_table_quota(&self, quota: u64) {
+        self.total_mem_table_size
+            .fetch_sub(quota, AtomicOrdering::Release);
+        self.notify.notify_waiters();
+    }
+
+    pub fn add_mem_table_memory(&self, quota: u64) {
+        self.total_mem_table_size
+            .fetch_add(quota, AtomicOrdering::SeqCst);
     }
 
     fn try_require_memory(&self, quota: u64) -> bool {
@@ -269,6 +281,7 @@ impl MemoryLimiter {
         Arc::new(Self {
             inner: Arc::new(MemoryLimiterInner {
                 total_size: AtomicU64::new(0),
+                total_mem_table_size: AtomicU64::new(0),
                 notify: Notify::new(),
                 quota: u64::MAX - 1,
             }),
@@ -279,6 +292,7 @@ impl MemoryLimiter {
         Self {
             inner: Arc::new(MemoryLimiterInner {
                 total_size: AtomicU64::new(0),
+                total_mem_table_size: AtomicU64::new(0),
                 notify: Notify::new(),
                 quota,
             }),
@@ -321,6 +335,22 @@ impl MemoryLimiter {
         // Since the over provision limiter gets blocked only when the current usage exceeds the
         // memory quota, it is allowed to apply for more than the memory quota.
         self.inner.require_memory(quota).await;
+        MemoryTracker {
+            limiter: self.inner.clone(),
+            quota,
+        }
+    }
+
+    pub fn add_mem_table_memory(&self, quota: u64) -> MemoryTracker {
+        self.inner.add_mem_table_memory(quota);
+        MemoryTracker {
+            limiter: self.inner.clone(),
+            quota,
+        }
+    }
+
+    pub fn release_mem_table_quota(&self, quota: u64) -> MemoryTracker {
+        self.inner.release_mem_table_quota(quota);
         MemoryTracker {
             limiter: self.inner.clone(),
             quota,

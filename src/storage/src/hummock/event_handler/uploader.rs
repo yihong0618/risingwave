@@ -260,6 +260,10 @@ impl UploadingTask {
     pub fn get_task_info(&self) -> &UploadTaskInfo {
         &self.task_info
     }
+
+    pub fn get_task_size(&self) -> &GenericGauge<AtomicU64> {
+        &self.task_size_guard
+    }
 }
 
 impl Future for UploadingTask {
@@ -984,7 +988,7 @@ impl HummockUploader {
         }
     }
 
-    pub(crate) fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) -> u64 {
         let max_committed_epoch = self.context.pinned_version.max_committed_epoch();
         self.max_synced_epoch = max_committed_epoch;
         self.max_syncing_epoch = max_committed_epoch;
@@ -994,6 +998,7 @@ impl HummockUploader {
         self.sealed_data.clear();
         self.unsealed_data.clear();
 
+        self.context.buffer_tracker.global_upload_task_size().get()
         // TODO: call `abort` on the uploading task join handle
     }
 
@@ -1221,7 +1226,7 @@ mod tests {
             vec![],
             TEST_TABLE_ID,
             None,
-            tracker,
+            tracker.unwrap(),
         )
     }
 

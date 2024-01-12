@@ -292,6 +292,8 @@ impl LocalStateStore for LocalHummockStorage {
             .iter()
             .map(|(key, _)| key)
             .is_sorted_by(|a, b| Some(cmp_delete_range_left_bounds(a.as_ref(), b.as_ref()))));
+        let kv_size = self.mem_table.kv_size.size() as u64;
+        self.memory_limiter.add_mem_table_memory(kv_size);
         let buffer = self.mem_table.drain().into_parts();
         let mut kv_pairs = Vec::with_capacity(buffer.len());
         for (key, key_op) in filter_with_delete_range(buffer.into_iter(), delete_ranges.iter()) {
@@ -491,7 +493,7 @@ impl LocalHummockStorage {
                 delete_ranges,
                 table_id,
                 Some(instance_id),
-                Some(tracker),
+                tracker,
             );
             self.spill_offset += 1;
             let imm_size = imm.size();

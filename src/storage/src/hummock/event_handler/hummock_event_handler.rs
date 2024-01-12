@@ -134,6 +134,7 @@ async fn flush_imms(
     compactor_context: CompactorContext,
     filter_key_extractor_manager: FilterKeyExtractorManager,
     sstable_object_id_manager: Arc<SstableObjectIdManager>,
+    global_buffer: Arc<MemoryLimiter>,
 ) -> HummockResult<Vec<LocalSstableInfo>> {
     for epoch in &task_info.epochs {
         let _ = sstable_object_id_manager
@@ -142,6 +143,10 @@ async fn flush_imms(
             .inspect_err(|e| {
                 error!("unable to set watermark sst id. epoch: {}, {:?}", epoch, e);
             });
+    }
+    for shared_buffer_batch in &payload {
+
+        global_buffer.release_mem_table_quota(shared_buffer_batch.size() as u64);
     }
     compact(
         compactor_context,
@@ -178,6 +183,7 @@ impl HummockEventHandler {
         let sstable_store = compactor_context.sstable_store.clone();
         let upload_compactor_context = compactor_context.clone();
         let cloned_sstable_object_id_manager = sstable_object_id_manager.clone();
+        let global_buffer = buffer_tracker.global_buffer.clone();
         let uploader = HummockUploader::new(
             state_store_metrics,
             pinned_version.clone(),
@@ -188,6 +194,7 @@ impl HummockEventHandler {
                     upload_compactor_context.clone(),
                     filter_key_extractor_manager.clone(),
                     cloned_sstable_object_id_manager.clone(),
+                    global_buffer.clone(),
                 ))
             }),
             buffer_tracker,

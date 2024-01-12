@@ -406,14 +406,13 @@ pub mod delete_range {
             delete_ranges: Vec<(Bound<Bytes>, Bound<Bytes>)>,
         ) {
             let size = SharedBufferBatch::measure_delete_range_size(&delete_ranges);
-            let batch = SharedBufferBatch::build_shared_buffer_batch(
+            let batch = SharedBufferBatch::build_shared_buffer_batch_for_test(
                 epoch,
                 0,
                 vec![],
                 size,
                 delete_ranges,
                 table_id,
-                None,
                 None,
             );
             self.iter.add_batch_iter(batch.delete_range_iter());
