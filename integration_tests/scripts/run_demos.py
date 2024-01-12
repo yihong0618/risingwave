@@ -28,6 +28,13 @@ def run_demo(demo: str, format: str, wait_time=40):
     subprocess.run(["docker", "compose", "up", "-d", "--build"], cwd=demo_dir, check=True)
     sleep(wait_time)
 
+    if demo == 'kinesis-s3-source':
+        script = '''
+aws --endpoint-url=http://localstack:14566 kinesis describe-stream-summary --stream-name ad-impression) && SHARD_ITERATOR=$(aws --endpoint-url=http://localstack:14566 kinesis get-shard-iterator --shard-id shardId-000000000000 --shard-iterator-type TRIM_HORIZON --stream-name ad-impression --query 'ShardIterator') && aws --endpoint-url=http://localstack:14566 kinesis get-records --shard-iterator $SHARD_ITERATOR
+                '''
+        print(subprocess.Popen('grub', stderr=subprocess.STDOUT).communicate(script)[0])
+
+
     prepare_file = 'prepare.sh'
     if os.path.exists(os.path.join(demo_dir, prepare_file)):
         subprocess.run(["bash", prepare_file], cwd=demo_dir, check=True)

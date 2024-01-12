@@ -28,9 +28,8 @@ services:
       default:
         aliases:
           - ad-click.localstack
-    # ports:
-      # - "127.0.0.1:14566:4566"             # LocalStack Gateway
-      # - "127.0.0.1:14510-14559:4510-4559"  # external services port range
+    ports:
+      - "127.0.0.1:14566:4566"             # LocalStack Gateway
   datagen:
     build: ../datagen
     depends_on: [localstack]
@@ -43,8 +42,14 @@ services:
         export AWS_DEFAULT_REGION="us-east-1"
         aws --endpoint-url=http://localstack:4566 kinesis create-stream --stream-name ad-impression
         aws --endpoint-url=http://localstack:4566 s3api create-bucket --bucket ad-click
+        echo "sleep 10s"
+        sleep 10
         /datagen --mode ad-ctr --topic ad_impression --qps 100 kinesis --region us-east-1 --name ad-impression --endpoint http://localstack:4566 &
-        /datagen --mode ad-ctr --topic ad_click --qps 100 s3 --region us-east-1 --bucket ad-click --endpoint http://localstack:4566
+        /datagen --mode ad-ctr --topic ad_click --qps 100 s3 --region us-east-1 --bucket ad-click --endpoint http://localstack:4566 &
+        echo "sleep 5s"
+        sleep 5
+        echo "$(aws --endpoint-url=http://localstack:4566 kinesis describe-stream-summary --stream-name ad-impression)"
+        SHARD_ITERATOR=$(aws --endpoint-url=http://localstack:4566 kinesis get-shard-iterator --shard-id shardId-000000000000 --shard-iterator-type TRIM_HORIZON --stream-name ad-impression --query 'ShardIterator') && aws --endpoint-url=http://localstack:4566 kinesis get-records --shard-iterator $SHARD_ITERATOR
     restart: always
     container_name: datagen
 volumes:

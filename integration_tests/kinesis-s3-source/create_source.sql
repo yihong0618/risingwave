@@ -1,4 +1,4 @@
-CREATE SOURCE ad_impression (
+CREATE TABLE ad_impression (
     bid_id BIGINT,
     ad_id BIGINT,
     impression_timestamp TIMESTAMPTZ
@@ -12,7 +12,7 @@ CREATE SOURCE ad_impression (
     endpoint='http://localstack:4566'
 ) FORMAT PLAIN ENCODE JSON;
 
-CREATE SOURCE ad_click (
+CREATE TABLE ad_click (
     bid_id BIGINT,
     click_timestamp TIMESTAMPTZ
 ) WITH (
