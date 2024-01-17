@@ -427,10 +427,21 @@ pub async fn merge_imms_in_memory(
     }
 
     let mut merged_payload: Vec<SharedBufferVersionedEntry> = Vec::new();
-    let mut full_key_tracker = FullKeyTracker::<Bytes>::new();
+    let first_full_key = items
+        .first()
+        .map(|((k, _), epoch_with_gap)| {
+            FullKey::new_with_gap_epoch(table_id, k.clone(), epoch_with_gap)
+        })
+        .unwrap_or_default();
+
     let mut monotonic_tombstone_events = vec![];
-    let target_extended_user_key =
-        PointRange::from_user_key(UserKey::new(table_id, TableKey(pivot.as_ref())), false);
+    let target_extended_user_key = PointRange::from_user_key(
+        UserKey::new(
+            table_id,
+            TableKey(first_full_key.user_key.table_key.as_ref()),
+        ),
+        false,
+    );
     while del_iter.is_valid() && del_iter.key().le(&target_extended_user_key) {
         let event_key = del_iter.key().to_vec();
         del_iter.next().await?;
@@ -440,16 +451,13 @@ pub async fn merge_imms_in_memory(
         });
     }
 
+    let mut full_key_tracker = FullKeyTracker::<Bytes>::new(first_full_key);
     let mut table_key_versions: Vec<(EpochWithGap, HummockValue<Bytes>)> = Vec::new();
-
     let mut table_key_last_delete_epoch = HummockEpoch::MAX;
 
     for ((key, value), epoch_with_gap) in items {
         let full_key = FullKey::new_with_gap_epoch(table_id, key, epoch_with_gap);
-        if full_key_tracker.observe_new_key(full_key.to_ref()) {
-            // Encounter a new key
-            let last_full_key = full_key_tracker.update_last_key(full_key);
-
+        if let Some(last_full_key) = full_key_tracker.observe_new_key(full_key.to_ref()) {
             // Record range tombstones if any
             let target_extended_user_key =
                 PointRange::from_user_key(last_full_key.user_key.as_ref(), false);
@@ -503,7 +511,7 @@ pub async fn merge_imms_in_memory(
     // process the last key
     if !table_key_versions.is_empty() {
         merged_payload.push((
-            full_key_tracker.take().user_key.table_key,
+            full_key_tracker.last_user_key.table_key,
             table_key_versions,
         ));
     }

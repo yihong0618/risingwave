@@ -31,9 +31,6 @@ pub struct UserIterator<I: HummockIterator<Direction = Forward>> {
     /// Inner table iterator.
     iterator: I,
 
-    /// Last full key.
-    last_key: FullKey<Bytes>,
-
     /// Last user value
     last_val: Bytes,
 
@@ -74,7 +71,6 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
         Self {
             iterator,
             key_range,
-            last_key: FullKey::default(),
             last_val: Bytes::new(),
             read_epoch,
             min_epoch,
@@ -82,7 +78,7 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
             delete_range_iter,
             _version: version,
             is_current_pos_valid: false,
-            full_key_tracker: FullKeyTracker::new()
+            full_key_tracker: FullKeyTracker::new(FullKey::default())
         }
     }
 
@@ -140,8 +136,7 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
     pub async fn rewind(&mut self) -> HummockResult<()> {
         // Reset
         self.is_current_pos_valid = false;
-        self.last_key = FullKey::default();
-        self.full_key_tracker.update_last_key(FullKey::default());
+        self.full_key_tracker = FullKeyTracker::new(FullKey::default());
 
         // Handle range scan
         match &self.key_range.0 {
@@ -185,8 +180,7 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
     pub async fn seek(&mut self, user_key: UserKey<&[u8]>) -> HummockResult<()> {
         // Reset
         self.is_current_pos_valid = false;
-        self.last_key = FullKey::default();
-        self.full_key_tracker.update_last_key(FullKey::default());
+        self.full_key_tracker = FullKeyTracker::new(FullKey::default());
 
         // Handle range scan when key < begin_key
         let user_key = match &self.key_range.0 {
@@ -251,15 +245,13 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
             }
 
             // Skip older version entry for the same user key
-            let is_new_user_key = self.full_key_tracker.observe_new_key(full_key);
-            if is_new_user_key {
+            if self.full_key_tracker.observe_new_key(full_key).is_none() {
                 self.stats.skip_multi_version_key_count += 1;
                 self.iterator.next().await?;
                 continue;
             }
 
             // A new user key is observed.
-            self.last_key = full_key.copy_into();
 
             // It is better to early return here if the user key is already
             // out of range to avoid unnecessary access on the range tomestones

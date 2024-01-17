@@ -727,7 +727,7 @@ where
     };
     let max_key = end_key.to_ref();
 
-    let mut full_key_tracker = FullKeyTracker::<Vec<u8>>::new();
+    let mut full_key_tracker = FullKeyTracker::<Vec<u8>>::new(FullKey::default());
     let mut watermark_can_see_last_key = false;
     let mut user_key_last_delete_epoch = HummockEpoch::MAX;
     let mut local_stats = StoreLocalStatistic::default();
@@ -741,7 +741,7 @@ where
         let mut iter_key = iter.key();
         compaction_statistics.iter_total_key_counts += 1;
 
-        let mut is_new_user_key = full_key_tracker.observe_new_key(iter.key());
+        let mut is_new_user_key = full_key_tracker.observe_new_key(iter.key()).is_some();
         let mut drop = false;
 
         let epoch = iter_key.epoch_with_gap.pure_epoch();
@@ -750,7 +750,6 @@ where
             if !max_key.is_empty() && iter_key >= max_key {
                 break;
             }
-            full_key_tracker.update_last_key(iter.key().to_vec());
             watermark_can_see_last_key = false;
             user_key_last_delete_epoch = HummockEpoch::MAX;
             if value.is_delete() {
