@@ -16,7 +16,7 @@ use std::ops::Bound::*;
 
 use bytes::Bytes;
 use risingwave_common::util::epoch::MAX_SPILL_TIMES;
-use risingwave_hummock_sdk::key::{FullKey, UserKey, UserKeyRange};
+use risingwave_hummock_sdk::key::{FullKey, UserKey, UserKeyRange, FullKeyTracker};
 use risingwave_hummock_sdk::{EpochWithGap, HummockEpoch};
 
 use super::DeleteRangeIterator;
@@ -55,6 +55,9 @@ pub struct UserIterator<I: HummockIterator<Direction = Forward>> {
 
     /// Whether the iterator is pointing to a valid position
     is_current_pos_valid: bool,
+
+    // Track the last seen full key
+    full_key_tracker: FullKeyTracker<Bytes>
 }
 
 // TODO: decide whether this should also impl `HummockIterator`
@@ -79,6 +82,7 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
             delete_range_iter,
             _version: version,
             is_current_pos_valid: false,
+            full_key_tracker: FullKeyTracker::new()
         }
     }
 
@@ -137,6 +141,7 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
         // Reset
         self.is_current_pos_valid = false;
         self.last_key = FullKey::default();
+        self.full_key_tracker.update_last_key(FullKey::default());
 
         // Handle range scan
         match &self.key_range.0 {
@@ -181,6 +186,7 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
         // Reset
         self.is_current_pos_valid = false;
         self.last_key = FullKey::default();
+        self.full_key_tracker.update_last_key(FullKey::default());
 
         // Handle range scan when key < begin_key
         let user_key = match &self.key_range.0 {
@@ -245,7 +251,8 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
             }
 
             // Skip older version entry for the same user key
-            if self.last_key.user_key.as_ref() == full_key.user_key {
+            let is_new_user_key = self.full_key_tracker.observe_new_key(full_key);
+            if is_new_user_key {
                 self.stats.skip_multi_version_key_count += 1;
                 self.iterator.next().await?;
                 continue;

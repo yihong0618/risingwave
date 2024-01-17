@@ -922,42 +922,51 @@ pub fn bound_table_key_range<T: AsRef<[u8]> + EmptySliceRef>(
 }
 
 pub struct FullKeyTracker<T: AsRef<[u8]> + Ord + Eq + Default> {
-    last_key: FullKey<T>,
+    last_user_key: UserKey<T>,
+    smallest_observed_epoch_with_gap: EpochWithGap,
+    largest_observed_epoch_with_gap: EpochWithGap
 }
 
-impl<T: AsRef<[u8]> + Ord + Eq + Default> FullKeyTracker<T> {
+impl<T: AsRef<[u8]> + Ord + Eq + Default + CopyFromSlice> FullKeyTracker<T> {
     pub fn new() -> Self {
         Self {
-            last_key: FullKey::default(),
+            last_user_key: UserKey::default(),
+            smallest_observed_epoch_with_gap: EpochWithGap::new_min_epoch(),
+            largest_observed_epoch_with_gap: EpochWithGap::new_max_epoch(),
         }
     }
 
-    pub fn take(self) -> FullKey<T> {
-        self.last_key
-    }
+    // pub fn take(self) -> FullKey<T> {
+    //     self.last_key
+    // }
 
     // Return whether the key contiains a new unseen user key
-    pub fn observe_new_key(&self, key: FullKey<&[u8]>) -> bool {
-        match self.last_key.user_key.as_ref().cmp(&key.user_key) {
+    pub fn observe_new_key(&mut self, key: FullKey<&[u8]>) -> bool {
+        match self.last_user_key.as_ref().cmp(&key.user_key) {
             Ordering::Less => {
+                // First time we observe a new user key
+                self.last_user_key = key.user_key.copy_into();
+                self.smallest_observed_epoch_with_gap = key.epoch_with_gap;
+                self.largest_observed_epoch_with_gap = key.epoch_with_gap;
+                true
+            }
+            Ordering::Equal => {
                 if key.epoch_with_gap >= self.last_key.epoch_with_gap {
+                    // Epoch from the same user key should be monotonically decreasing
                     panic!(
                         "key {:?} epoch {:?} >= prev epoch {:?}",
                         key.user_key, key.epoch_with_gap, self.last_key.epoch_with_gap
                     );
                 }
-                true
+                // Only need to update the epoch part here because user key is the same
+                self.last_key.epoch_with_gap = key.epoch_with_gap;
+                false
             }
-            Ordering::Equal => false,
             Ordering::Greater => {
+                // User key should be monotonically increasing
                 panic!("key {:?} <= prev key {:?}", key, self.last_key);
             }
         }
-    }
-
-    // Return the prev `last_key`
-    pub fn update_last_key(&mut self, key: FullKey<T>) -> FullKey<T> {
-        std::mem::replace(&mut self.last_key, key)
     }
 }
 
