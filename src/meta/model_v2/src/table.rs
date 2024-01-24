@@ -123,6 +123,7 @@ pub struct Model {
     pub cleaned_by_watermark: bool,
     pub description: Option<String>,
     pub version: Option<TableVersion>,
+    pub incoming_sinks: I32Array,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -232,6 +233,7 @@ impl From<PbTable> for ActiveModel {
             cleaned_by_watermark: Set(pb_table.cleaned_by_watermark),
             description: Set(pb_table.description),
             version: Set(pb_table.version.map(|v| v.into())),
+            incoming_sinks: Set(pb_table.incoming_sinks.into()),
         }
     }
 }
