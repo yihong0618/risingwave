@@ -25,8 +25,7 @@ use icelake::types::{
 use risingwave_common::array::arrow::{FromArrow, IcebergArrowConvert, ToArrow};
 use risingwave_common::array::{ArrayRef, DataChunk};
 use risingwave_common::ensure;
-use risingwave_common::row::OwnedRow;
-use risingwave_common::types::{DataType, Datum};
+use risingwave_common::types::DataType;
 use risingwave_expr::expr::BoxedExpression;
 use risingwave_expr::{build_function, ExprError, Result};
 use thiserror_ext::AsReport;
@@ -65,12 +64,6 @@ impl risingwave_expr::expr::Expression for IcebergTransform {
         Ok(Arc::new(
             IcebergArrowConvert.from_array(&self.output_arrow_field, &res_array)?,
         ))
-    }
-
-    async fn eval_row(&self, _row: &OwnedRow) -> Result<Datum> {
-        Err(ExprError::Internal(anyhow!(
-            "eval_row in iceberg_transform is not supported yet"
-        )))
     }
 }
 

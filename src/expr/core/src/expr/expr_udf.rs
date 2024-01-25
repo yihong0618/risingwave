@@ -44,7 +44,6 @@ use crate::{bail, Result};
 #[derive(Debug)]
 pub struct UserDefinedFunction {
     children: Vec<BoxedExpression>,
-    arg_types: Vec<DataType>,
     return_type: DataType,
     arg_schema: SchemaRef,
     imp: UdfImpl,
@@ -97,18 +96,6 @@ impl Expression for UserDefinedFunction {
         }
         let chunk = DataChunk::new(columns, input.visibility().clone());
         self.eval_inner(&chunk).await
-    }
-
-    async fn eval_row(&self, input: &OwnedRow) -> Result<Datum> {
-        let mut columns = Vec::with_capacity(self.children.len());
-        for child in &self.children {
-            let datum = child.eval_row(input).await?;
-            columns.push(datum);
-        }
-        let arg_row = OwnedRow::new(columns);
-        let chunk = DataChunk::from_rows(std::slice::from_ref(&arg_row), &self.arg_types);
-        let output_array = self.eval_inner(&chunk).await?;
-        Ok(output_array.to_datum())
     }
 }
 
@@ -361,7 +348,6 @@ impl Build for UserDefinedFunction {
 
         Ok(Self {
             children: udf.children.iter().map(build_child).try_collect()?,
-            arg_types: udf.arg_types.iter().map(|t| t.into()).collect(),
             return_type,
             arg_schema,
             imp,
