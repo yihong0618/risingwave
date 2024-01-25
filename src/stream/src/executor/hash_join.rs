@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use itertools::Itertools;
 use multimap::MultiMap;
-use risingwave_common::array::{Op, RowRef};
+use risingwave_common::array::{DataChunk, Op, RowRef, StreamChunk};
 use risingwave_common::hash::{HashKey, NullBitmap};
 use risingwave_common::types::{DefaultOrd, ToOwnedDatum};
 use risingwave_common::util::epoch::EpochPair;
@@ -680,6 +680,14 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
                 }
             };
         }
+        // construct a 1x1 data chunk for watermark expression evaluation
+        let watermark_chunk = {
+            let mut builder = watermark.data_type.create_array_builder(1);
+            builder.append(Some(watermark.val.clone()));
+            let array = builder.finish().into_ref();
+            DataChunk::new(vec![array], 1)
+        };
+
         for (inequality_index, need_offset) in
             &side_update.input2inequality_index[watermark.col_idx]
         {
@@ -693,12 +701,9 @@ impl<K: HashKey, S: StateStore, const T: JoinTypePrimitive> HashJoinExecutor<K, 
             {
                 // allow since we will handle error manually.
                 #[allow(clippy::disallowed_methods)]
-                let eval_result = delta_expression
-                    .inner()
-                    .eval_row(&OwnedRow::new(vec![Some(input_watermark.val)]))
-                    .await;
+                let eval_result = delta_expression.inner().eval(&watermark_chunk).await;
                 match eval_result {
-                    Ok(value) => input_watermark.val = value.unwrap(),
+                    Ok(value) => input_watermark.val = value.datum_at(0).unwrap(),
                     Err(err) => {
                         if !matches!(err, ExprError::NumericOutOfRange) {
                             self.ctx.on_compute_error(err, &self.info.identity);
