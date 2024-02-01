@@ -167,7 +167,6 @@ pub enum MetaBackend {
     #[default]
     Mem,
     Etcd,
-    Sql,
 }
 
 /// The section `[meta]` in `risingwave.toml`.

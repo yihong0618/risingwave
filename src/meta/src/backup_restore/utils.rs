@@ -62,7 +62,6 @@ pub async fn get_meta_store(opts: RestoreOpts) -> BackupResult<MetaStoreBackendI
             },
         },
         MetaBackend::Mem => MetaStoreBackend::Mem,
-        MetaBackend::Sql => panic!("not supported"),
     };
     match meta_store_backend {
         MetaStoreBackend::Etcd {
@@ -80,7 +79,6 @@ pub async fn get_meta_store(opts: RestoreOpts) -> BackupResult<MetaStoreBackendI
             Ok(MetaStoreBackendImpl::Etcd(EtcdMetaStore::new(client)))
         }
         MetaStoreBackend::Mem => Ok(MetaStoreBackendImpl::Mem(MemStore::new())),
-        MetaStoreBackend::Sql { .. } => panic!("not supported"),
     }
 }
 

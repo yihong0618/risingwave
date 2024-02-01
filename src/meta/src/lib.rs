@@ -58,7 +58,4 @@ pub enum MetaStoreBackend {
         credentials: Option<(String, String)>,
     },
     Mem,
-    Sql {
-        endpoint: String,
-    },
 }

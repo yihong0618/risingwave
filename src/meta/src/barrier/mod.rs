@@ -460,7 +460,6 @@ impl GlobalBarrierManager {
             } else {
                 self.env
                     .system_params_manager()
-                    .unwrap()
                     .set_param(PAUSE_ON_NEXT_BOOTSTRAP_KEY, Some("false".to_owned()))
                     .await?;
             }
