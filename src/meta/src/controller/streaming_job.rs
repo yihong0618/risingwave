@@ -296,8 +296,12 @@ impl CatalogController {
     ) -> MetaResult<()> {
         let fragment_actors =
             Self::extract_fragment_and_actors_from_table_fragments(table_fragment)?;
+
+        println!("qqqqqq");
         let inner = self.inner.write().await;
         let txn = inner.db.begin().await?;
+
+        println!("wwwww");
 
         // Add fragments, actors and actor dispatchers.
         for (fragment, actors, actor_dispatchers) in fragment_actors {
@@ -328,6 +332,8 @@ impl CatalogController {
             }
         }
 
+        println!("eeeeeee");
+
         if !for_replace {
             // // Update dml fragment id.
             if let StreamingJob::Table(_, table, ..) = streaming_job {
@@ -340,6 +346,8 @@ impl CatalogController {
                 .await?;
             }
         }
+
+        println!("rrrrrr");
 
         txn.commit().await?;
 
