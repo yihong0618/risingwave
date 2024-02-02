@@ -465,10 +465,15 @@ pub struct BlockBuilder {
 
 impl BlockBuilder {
     pub fn new(options: BlockBuilderOptions) -> Self {
+        let compress_buf = if options.compression_algorithm == CompressionAlgorithm::None {
+            BytesMut::default()
+        } else {
+            BytesMut::with_capacity(options.capacity + 1024)
+        };
         Self {
             // add more space to avoid re-allocate space.
             buf: BytesMut::with_capacity(options.capacity + 1024),
-            compress_buf: BytesMut::default(),
+            compress_buf,
             restart_count: options.restart_interval,
             restart_points: Vec::with_capacity(
                 options.capacity / DEFAULT_ENTRY_SIZE / options.restart_interval + 1,
