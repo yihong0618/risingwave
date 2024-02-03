@@ -151,6 +151,7 @@ tikv-jemalloc-ctl = { git = "https://github.com/risingwavelabs/jemallocator.git"
 tikv-jemallocator = { git = "https://github.com/risingwavelabs/jemallocator.git", features = [
   "profiling",
   "stats",
+  "background_threads",
 ], rev = "64a2d9" }
 tokio-util = "0.7"
 
