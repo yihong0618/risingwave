@@ -58,7 +58,7 @@ mod jsonb_object;
 mod jsonb_path;
 mod length;
 mod lower;
-mod make_time;
+mod make_timestamptz;
 mod md5;
 mod overlay;
 mod position;
