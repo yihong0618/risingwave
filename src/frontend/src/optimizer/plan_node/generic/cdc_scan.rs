@@ -39,8 +39,6 @@ pub struct CdcScan {
     #[educe(PartialEq(ignore))]
     #[educe(Hash(ignore))]
     pub ctx: OptimizerContextRef,
-
-    pub disable_backfill: bool,
 }
 
 impl CdcScan {
@@ -104,14 +102,12 @@ impl CdcScan {
         output_col_idx: Vec<usize>, // the column index in the table
         cdc_table_desc: Rc<CdcTableDesc>,
         ctx: OptimizerContextRef,
-        disable_backfill: bool,
     ) -> Self {
         Self {
             table_name,
             output_col_idx,
             cdc_table_desc,
             ctx,
-            disable_backfill,
         }
     }
 

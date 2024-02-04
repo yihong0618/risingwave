@@ -239,7 +239,6 @@ async fn test_cdc_backfill() -> StreamResult<()> {
         Arc::new(StreamingMetrics::unused()),
         state_table,
         4, // 4 rows in a snapshot chunk
-        false,
     );
 
     // Create a `MaterializeExecutor` to write the changes to storage.
