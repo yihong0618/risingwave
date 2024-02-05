@@ -154,7 +154,7 @@ pub struct CompactTaskStatistics {
 
 pub fn estimate_memory_for_compact_task(
     task: &CompactTask,
-    block_size: u64,
+    mut block_size: u64,
     recv_buffer_size: u64,
     sst_capacity: u64,
     support_streaming_upload: bool,
@@ -169,7 +169,6 @@ pub fn estimate_memory_for_compact_task(
     // The memory usage of the SstableStreamIterator comes from SstableInfo with some state
     // information (use ESTIMATED_META_SIZE to estimate it), the BlockStream being read (one block),
     // and tcp recv_buffer_size.
-    let max_input_stream_estimated_memory = block_size + recv_buffer_size;
 
     // input
     for level in &task.input_ssts {
@@ -177,14 +176,19 @@ pub fn estimate_memory_for_compact_task(
             let mut cur_level_max_sst_meta_size = 0;
             for sst in &level.table_infos {
                 let meta_size = sst.file_size - sst.meta_offset;
+                let avg_kv_size = sst.uncompressed_file_size / (sst.total_key_count + 1);
+                block_size = std::cmp::max(block_size, 2 * avg_kv_size);
                 task_max_sst_meta_ratio =
                     std::cmp::max(task_max_sst_meta_ratio, meta_size * 100 / sst.file_size);
                 cur_level_max_sst_meta_size = std::cmp::max(meta_size, cur_level_max_sst_meta_size);
             }
+            let max_input_stream_estimated_memory = block_size + recv_buffer_size;
             result += max_input_stream_estimated_memory + cur_level_max_sst_meta_size;
         } else {
             for sst in &level.table_infos {
                 let meta_size = sst.file_size - sst.meta_offset;
+                let avg_kv_size = sst.uncompressed_file_size / (sst.total_key_count + 1);
+                let max_input_stream_estimated_memory =  std::cmp::max(block_size, 2 * avg_kv_size) + recv_buffer_size;
                 result += max_input_stream_estimated_memory + meta_size;
                 task_max_sst_meta_ratio =
                     std::cmp::max(task_max_sst_meta_ratio, meta_size * 100 / sst.file_size);
