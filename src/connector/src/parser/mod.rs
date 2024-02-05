@@ -615,6 +615,9 @@ async fn into_chunk_stream<P: ByteStreamSourceParser>(mut parser: P, data_stream
                     .observe(lag_ms as f64);
             }
 
+            // For debug
+            let msg_clone = msg.clone();
+
             split_offset_mapping.insert(msg.split_id.clone(), msg.offset.clone());
 
             let old_op_num = builder.op_num();
@@ -642,6 +645,12 @@ async fn into_chunk_stream<P: ByteStreamSourceParser>(mut parser: P, data_stream
                     }
 
                     if let Err(error) = res {
+                        tracing::error!("Failed to parse message, split id: [{:?}], offset: [{:?}], key: [{:?}],
+                        key_string: [{:?}], payload: [{:?}], payload_string: [{:?}]",
+                            &msg_clone.split_id, &msg_clone.offset, &msg_clone.key,
+                            msg_clone.key.clone().map(String::from_utf8),
+                            &msg_clone.payload, msg_clone.payload.clone().map(String::from_utf8),);
+
                         // TODO: not using tracing span to provide `split_id` and `offset` due to performance concern,
                         //       see #13105
                         static LOG_SUPPERSSER: LazyLock<LogSuppresser> =
