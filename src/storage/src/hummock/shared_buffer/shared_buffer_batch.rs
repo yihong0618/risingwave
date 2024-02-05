@@ -22,7 +22,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::{Arc, LazyLock};
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use itertools::Itertools;
 use risingwave_common::catalog::TableId;
 use risingwave_common::hash::VirtualNode;
@@ -445,6 +445,7 @@ pub struct SharedBufferBatchIterator<D: HummockIteratorDirection> {
     current_idx: usize,
     table_id: TableId,
     _phantom: PhantomData<D>,
+    buf: BytesMut,
 }
 
 impl<D: HummockIteratorDirection> SharedBufferBatchIterator<D> {
@@ -455,6 +456,7 @@ impl<D: HummockIteratorDirection> SharedBufferBatchIterator<D> {
             current_value_idx: 0,
             table_id,
             _phantom: Default::default(),
+            buf: BytesMut::default(),
         }
     }
 
@@ -486,6 +488,23 @@ impl<D: HummockIteratorDirection> SharedBufferBatchIterator<D> {
         };
         let cur_entry = &self.inner[idx];
         (&cur_entry.key, &cur_entry.new_values[value_idx as usize])
+    }
+
+    fn encode_buffer(&mut self) {
+        if self.is_valid() {
+            self.buf.clear();
+            let (idx, value_idx) = match D::direction() {
+                DirectionEnum::Forward => (self.current_idx, self.current_value_idx),
+                DirectionEnum::Backward => (
+                    self.inner.len() - self.current_idx - 1,
+                    self.current_value_idx,
+                ),
+            };
+            let cur_entry = &self.inner[idx];
+            cur_entry.new_values[value_idx as usize]
+                .1
+                .encode(&mut self.buf);
+        }
     }
 }
 
@@ -526,6 +545,7 @@ impl<D: HummockIteratorDirection> HummockIterator for SharedBufferBatchIterator<
                 }
             }
         }
+        self.encode_buffer();
         Ok(())
     }
 
@@ -537,6 +557,10 @@ impl<D: HummockIteratorDirection> HummockIterator for SharedBufferBatchIterator<
     fn value(&self) -> HummockValue<&[u8]> {
         let (_, (_, value)) = self.current_item();
         value.as_slice()
+    }
+
+    fn raw_value(&self) -> &[u8] {
+        &self.buf
     }
 
     fn is_valid(&self) -> bool {
@@ -557,6 +581,7 @@ impl<D: HummockIteratorDirection> HummockIterator for SharedBufferBatchIterator<
                 self.current_value_idx = self.current_values_len() - 1;
             }
         }
+        self.encode_buffer();
         Ok(())
     }
 
@@ -626,6 +651,7 @@ impl<D: HummockIteratorDirection> HummockIterator for SharedBufferBatchIterator<
                 }
             }
         }
+        self.encode_buffer();
         Ok(())
     }
 

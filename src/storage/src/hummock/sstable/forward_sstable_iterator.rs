@@ -256,6 +256,10 @@ impl HummockIterator for SstableIterator {
         HummockValue::from_slice(raw_value).expect("decode error")
     }
 
+    fn raw_value(&self) -> &[u8] {
+        self.block_iter.as_ref().expect("no block iter").value()
+    }
+
     fn is_valid(&self) -> bool {
         self.block_iter.as_ref().map_or(false, |i| i.is_valid())
     }

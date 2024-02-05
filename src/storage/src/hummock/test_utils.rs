@@ -256,11 +256,15 @@ pub async fn gen_test_sstable_impl<B: AsRef<[u8]> + Clone + Default + Eq, F: Fil
             user_key_last_delete = earliest_delete_epoch;
 
             key.epoch_with_gap = EpochWithGap::new_from_epoch(earliest_delete_epoch);
-            b.add(key.to_ref(), HummockValue::Delete).await.unwrap();
+            b.add_for_test(key.to_ref(), HummockValue::Delete)
+                .await
+                .unwrap();
             key.epoch_with_gap = EpochWithGap::new_from_epoch(epoch);
         }
 
-        b.add(key.to_ref(), value.as_slice()).await.unwrap();
+        b.add_for_test(key.to_ref(), value.as_slice())
+            .await
+            .unwrap();
     }
     b.add_monotonic_deletes(delete_range::create_monotonic_events(range_tombstones));
     let output = b.finish().await.unwrap();

@@ -132,6 +132,13 @@ impl<TI: SstableIteratorType> HummockIterator for ConcatIteratorInner<TI> {
         self.sstable_iter.as_ref().expect("no table iter").value()
     }
 
+    fn raw_value(&self) -> &[u8] {
+        self.sstable_iter
+            .as_ref()
+            .expect("no table iter")
+            .raw_value()
+    }
+
     fn is_valid(&self) -> bool {
         self.sstable_iter.as_ref().map_or(false, |i| i.is_valid())
     }

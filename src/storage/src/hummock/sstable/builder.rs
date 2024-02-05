@@ -231,16 +231,6 @@ impl<W: SstableWriter, F: FilterBuilder> SstableBuilder<W, F> {
         self.monotonic_deletes.last()
     }
 
-    /// Add kv pair to sstable.
-    pub async fn add_for_test(
-        &mut self,
-        full_key: FullKey<&[u8]>,
-        value: HummockValue<&[u8]>,
-    ) -> HummockResult<()> {
-        self.add(full_key, value).await
-    }
-
-    /// only for test
     pub fn current_block_size(&self) -> usize {
         self.block_builder.approximate_len()
     }
@@ -273,7 +263,8 @@ impl<W: SstableWriter, F: FilterBuilder> SstableBuilder<W, F> {
                             self.sstable_id, self.block_metas.len(), self.last_table_id
                         )
                     });
-                    self.add_impl(iter.key(), value, false).await?;
+                    self.add_impl(iter.key(), iter.value(), false, value.is_delete())
+                        .await?;
                     iter.next();
                 }
                 return Ok(false);
@@ -301,25 +292,34 @@ impl<W: SstableWriter, F: FilterBuilder> SstableBuilder<W, F> {
     pub async fn add(
         &mut self,
         full_key: FullKey<&[u8]>,
+        value: &[u8],
+        is_delete: bool,
+    ) -> HummockResult<()> {
+        self.add_impl(full_key, value, true, is_delete).await
+    }
+
+    pub async fn add_for_test(
+        &mut self,
+        full_key: FullKey<&[u8]>,
         value: HummockValue<&[u8]>,
     ) -> HummockResult<()> {
-        self.add_impl(full_key, value, true).await
+        let mut buf = BytesMut::default();
+        value.encode(&mut buf);
+        self.add_impl(full_key, &buf, true, value.is_delete()).await
     }
 
     /// Add kv pair to sstable.
     async fn add_impl(
         &mut self,
         full_key: FullKey<&[u8]>,
-        value: HummockValue<&[u8]>,
+        value: &[u8],
         could_switch_block: bool,
+        is_delete: bool,
     ) -> HummockResult<()> {
         const LARGE_KEY_LEN: usize = MAX_KEY_LEN >> 1;
 
         let table_key_len = full_key.user_key.table_key.as_ref().len();
-        let table_value_len = match &value {
-            HummockValue::Put(t) => t.len(),
-            HummockValue::Delete => 0,
-        };
+        let table_value_len = value.len();
         let large_value_len = self.options.max_sst_size as usize / 10;
         let large_key_value_len = self.options.max_sst_size as usize / 2;
         if table_key_len >= LARGE_KEY_LEN
@@ -339,7 +339,6 @@ impl<W: SstableWriter, F: FilterBuilder> SstableBuilder<W, F> {
 
         // TODO: refine me
         full_key.encode_into(&mut self.raw_key);
-        value.encode(&mut self.raw_value);
         let is_new_user_key = self.last_full_key.is_empty()
             || !user_key(&self.raw_key).eq(user_key(&self.last_full_key));
         let table_id = full_key.user_key.table_id.table_id();
@@ -392,13 +391,13 @@ impl<W: SstableWriter, F: FilterBuilder> SstableBuilder<W, F> {
         if !extract_key.is_empty() {
             self.filter_builder.add_key(extract_key, table_id);
         }
-        self.block_builder.add(full_key, self.raw_value.as_ref());
+        self.block_builder.add(full_key, value);
         self.block_metas.last_mut().unwrap().total_key_count += 1;
-        if !is_new_user_key || value.is_delete() {
+        if !is_new_user_key || is_delete {
             self.block_metas.last_mut().unwrap().stale_key_count += 1;
         }
         self.last_table_stats.total_key_size += full_key.encoded_len() as i64;
-        self.last_table_stats.total_value_size += value.encoded_len() as i64;
+        self.last_table_stats.total_value_size += value.len() as i64;
 
         self.last_full_key.clear();
         self.last_full_key.extend_from_slice(&self.raw_key);
@@ -919,7 +918,7 @@ pub(super) mod tests {
                 let k = UserKey::for_test(TableId::new(table_id), table_key.as_ref());
                 let v = test_value_of(idx);
                 builder
-                    .add(FullKey::from_user_key(k, 1), HummockValue::put(v.as_ref()))
+                    .add_for_test(FullKey::from_user_key(k, 1), HummockValue::put(v.as_ref()))
                     .await
                     .unwrap();
             }

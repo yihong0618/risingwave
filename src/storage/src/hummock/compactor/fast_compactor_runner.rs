@@ -637,13 +637,13 @@ impl<F: TableBuilderFactory> CompactTaskExecutor<F> {
                 if should_count {
                     self.last_table_stats.total_key_count -= 1;
                     self.last_table_stats.total_key_size -= self.last_key.encoded_len() as i64;
-                    self.last_table_stats.total_value_size -= value.encoded_len() as i64;
+                    self.last_table_stats.total_value_size -= iter.value().len() as i64;
                 }
                 iter.next();
                 continue;
             }
             self.builder
-                .add_full_key(iter.key(), value, is_new_user_key)
+                .add_full_key(iter.key(), iter.value(), value.is_delete(), is_new_user_key)
                 .await?;
             iter.next();
         }

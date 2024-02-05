@@ -1718,7 +1718,7 @@ pub(crate) mod tests {
                     // cut block when the key is same with the last key.
                     builder.build_block().await.unwrap();
                 }
-                builder.add(key, v.as_slice()).await.unwrap();
+                builder.add_for_test(key, v.as_slice()).await.unwrap();
                 last_k = k;
                 last_epoch = epoch;
             }

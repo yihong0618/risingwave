@@ -17,7 +17,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::Arc;
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use num_integer::Integer;
 use risingwave_common::hash::VirtualNode;
 use risingwave_common::util::epoch::is_max_epoch;
@@ -134,7 +134,10 @@ where
         value: HummockValue<&[u8]>,
         is_new_user_key: bool,
     ) -> HummockResult<()> {
-        self.add_full_key(full_key, value, is_new_user_key).await
+        let mut buf = BytesMut::default();
+        value.encode(&mut buf);
+        self.add_full_key(full_key, &buf, value.is_delete(), is_new_user_key)
+            .await
     }
 
     pub async fn add_raw_block(
@@ -169,7 +172,8 @@ where
     pub async fn add_full_key(
         &mut self,
         full_key: FullKey<&[u8]>,
-        value: HummockValue<&[u8]>,
+        value: &[u8],
+        is_delete: bool,
         is_new_user_key: bool,
     ) -> HummockResult<()> {
         let switch_builder = self.check_switch_builder(&full_key.user_key);
@@ -231,7 +235,7 @@ where
         }
 
         let builder = self.current_builder.as_mut().unwrap();
-        builder.add(full_key, value).await
+        builder.add(full_key, value, is_delete).await
     }
 
     pub fn check_switch_builder(&mut self, user_key: &UserKey<&[u8]>) -> bool {
@@ -607,7 +611,7 @@ mod tests {
                 .unwrap();
         }
         builder
-            .add_full_key(full_key.to_ref(), HummockValue::put(b"v"), false)
+            .add_full_key_for_test(full_key.to_ref(), HummockValue::put(b"v"), false)
             .await
             .unwrap();
         while del_iter.is_valid() {
@@ -734,7 +738,7 @@ mod tests {
         let v = vec![5u8; 220];
         let epoch = 12;
         builder
-            .add_full_key(
+            .add_full_key_for_test(
                 FullKey::from_user_key(UserKey::for_test(table_id, b"bbbb"), epoch),
                 HummockValue::put(v.as_slice()),
                 true,
@@ -742,7 +746,7 @@ mod tests {
             .await
             .unwrap();
         builder
-            .add_full_key(
+            .add_full_key_for_test(
                 FullKey::from_user_key(UserKey::for_test(table_id, b"cccc"), epoch),
                 HummockValue::put(v.as_slice()),
                 true,
@@ -770,7 +774,7 @@ mod tests {
             .await
             .unwrap();
         builder
-            .add_full_key(
+            .add_full_key_for_test(
                 FullKey::from_user_key(UserKey::for_test(table_id, b"ffff"), epoch),
                 HummockValue::put(v.as_slice()),
                 true,

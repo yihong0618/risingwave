@@ -96,6 +96,16 @@ pub trait HummockIterator: Send + Sync {
     /// [`HummockValue`].
     fn value(&self) -> HummockValue<&[u8]>;
 
+    /// Retrieves the current value. Only for compaction runner to avoid memory copy and allocate.
+    ///
+    /// Note:
+    /// - Before calling this function, makes sure the iterator `is_valid`.
+    /// - This function should be straightforward and return immediately.
+    ///
+    /// # Panics
+    /// This function will panic if the iterator is invalid
+    fn raw_value(&self) -> &[u8];
+
     /// Indicates whether the iterator can be used.
     ///
     /// Note:
@@ -144,6 +154,10 @@ impl<D: HummockIteratorDirection> HummockIterator for PhantomHummockIterator<D> 
     }
 
     fn value(&self) -> HummockValue<&[u8]> {
+        unreachable!()
+    }
+
+    fn raw_value(&self) -> &[u8] {
         unreachable!()
     }
 
@@ -224,6 +238,15 @@ impl<
         }
     }
 
+    fn raw_value(&self) -> &[u8] {
+        match self {
+            First(iter) => iter.raw_value(),
+            Second(iter) => iter.raw_value(),
+            Third(iter) => iter.raw_value(),
+            Fourth(iter) => iter.raw_value(),
+        }
+    }
+
     fn is_valid(&self) -> bool {
         match self {
             First(iter) => iter.is_valid(),
@@ -274,6 +297,10 @@ impl<I: HummockIterator> HummockIterator for Box<I> {
 
     fn value(&self) -> HummockValue<&[u8]> {
         (*self).deref().value()
+    }
+
+    fn raw_value(&self) -> &[u8] {
+        (*self).deref().raw_value()
     }
 
     fn is_valid(&self) -> bool {
@@ -375,6 +402,10 @@ impl<'a, B: RustIteratorBuilder> HummockIterator for FromRustIterator<'a, B> {
     fn value(&self) -> HummockValue<&[u8]> {
         let (_, _, value) = self.iter.as_ref().expect("should be valid");
         *value
+    }
+
+    fn raw_value(&self) -> &[u8] {
+        unimplemented!("this method shall only be called in compaction")
     }
 
     fn is_valid(&self) -> bool {

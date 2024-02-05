@@ -492,7 +492,10 @@ mod tests {
                     epoch_with_gap: EpochWithGap::new_from_epoch(epoch),
                 };
                 let v = HummockValue::put(test_value_of(i));
-                builder.add(k.to_ref(), v.as_slice()).await.unwrap();
+                builder
+                    .add_for_test(k.to_ref(), v.as_slice())
+                    .await
+                    .unwrap();
             }
         }
         let ret = builder.finish().await.unwrap();

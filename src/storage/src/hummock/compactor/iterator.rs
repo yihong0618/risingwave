@@ -227,13 +227,16 @@ impl SstableStreamIterator {
     }
 
     pub fn value(&self) -> HummockValue<&[u8]> {
-        let raw_value = self
-            .block_iter
+        HummockValue::from_slice(self.raw_value())
+            .unwrap_or_else(|_| panic!("decode error sstinfo={}", self.sst_debug_info()))
+    }
+
+    #[inline(always)]
+    pub fn raw_value(&self) -> &[u8] {
+        self.block_iter
             .as_ref()
             .unwrap_or_else(|| panic!("no block iter sstinfo={}", self.sst_debug_info()))
-            .value();
-        HummockValue::from_slice(raw_value)
-            .unwrap_or_else(|_| panic!("decode error sstinfo={}", self.sst_debug_info()))
+            .value()
     }
 
     pub fn is_valid(&self) -> bool {
@@ -451,6 +454,13 @@ impl HummockIterator for ConcatSstableIterator {
         self.sstable_iter.as_ref().expect("no table iter").value()
     }
 
+    fn raw_value(&self) -> &[u8] {
+        self.sstable_iter
+            .as_ref()
+            .expect("no block iter")
+            .raw_value()
+    }
+
     fn is_valid(&self) -> bool {
         self.sstable_iter.as_ref().map_or(false, |i| i.is_valid())
     }
@@ -526,6 +536,10 @@ impl<I: HummockIterator<Direction = Forward>> HummockIterator for MonitoredCompa
 
     fn value(&self) -> HummockValue<&[u8]> {
         self.inner.value()
+    }
+
+    fn raw_value(&self) -> &[u8] {
+        self.inner.raw_value()
     }
 
     fn is_valid(&self) -> bool {

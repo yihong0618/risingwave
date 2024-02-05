@@ -248,6 +248,10 @@ impl<I: HummockIterator<Direction = Forward>> HummockIterator for SkipWatermarkI
         self.inner.value()
     }
 
+    fn raw_value(&self) -> &[u8] {
+        self.inner.raw_value()
+    }
+
     fn is_valid(&self) -> bool {
         self.inner.is_valid()
     }

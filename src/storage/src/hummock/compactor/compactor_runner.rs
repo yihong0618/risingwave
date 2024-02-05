@@ -49,7 +49,6 @@ use crate::hummock::iterator::{
     Forward, ForwardMergeRangeIterator, HummockIterator, MergeIterator, SkipWatermarkIterator,
 };
 use crate::hummock::multi_builder::{CapacitySplitTableBuilder, TableBuilderFactory};
-use crate::hummock::value::HummockValue;
 use crate::hummock::{
     BlockedXor16FilterBuilder, CachePolicy, CompactionDeleteRangeIterator, CompressionAlgorithm,
     GetObjectId, HummockResult, MonotonicDeleteEvent, SstableBuilderOptions,
@@ -853,7 +852,7 @@ where
             iter_key.epoch_with_gap =
                 EpochWithGap::new_from_epoch(earliest_range_delete_which_can_see_iter_key);
             sst_builder
-                .add_full_key(iter_key, HummockValue::Delete, is_new_user_key)
+                .add_full_key(iter_key, iter.raw_value(), true, is_new_user_key)
                 .verbose_instrument_await("add_full_key_delete")
                 .await?;
             last_table_stats.total_key_count += 1;
@@ -865,7 +864,12 @@ where
 
         // Don't allow two SSTs to share same user key
         sst_builder
-            .add_full_key(iter_key, value, is_new_user_key)
+            .add_full_key(
+                iter_key,
+                iter.raw_value(),
+                value.is_delete(),
+                is_new_user_key,
+            )
             .verbose_instrument_await("add_full_key")
             .await?;
 
@@ -929,6 +933,7 @@ mod tests {
     use crate::hummock::iterator::test_utils::mock_sstable_store;
     use crate::hummock::test_utils::delete_range::create_monotonic_events;
     use crate::hummock::test_utils::{default_builder_opt_for_test, gen_test_sstable_impl};
+    use crate::hummock::value::HummockValue;
     use crate::hummock::{
         DeleteRangeTombstone, SharedComapctorObjectIdManager, Xor16FilterBuilder,
     };

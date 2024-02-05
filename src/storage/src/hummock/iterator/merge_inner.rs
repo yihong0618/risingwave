@@ -268,6 +268,10 @@ where
         self.heap.peek().expect("no inner iter").iter.value()
     }
 
+    fn raw_value(&self) -> &[u8] {
+        self.heap.peek().expect("no inner iter").iter.raw_value()
+    }
+
     fn is_valid(&self) -> bool {
         self.heap.peek().map_or(false, |n| n.iter.is_valid())
     }

@@ -183,6 +183,10 @@ mod test {
             HummockValue::delete()
         }
 
+        fn raw_value(&self) -> &[u8] {
+            b""
+        }
+
         fn is_valid(&self) -> bool {
             true
         }
