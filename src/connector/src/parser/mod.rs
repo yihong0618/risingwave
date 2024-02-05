@@ -646,10 +646,33 @@ async fn into_chunk_stream<P: ByteStreamSourceParser>(mut parser: P, data_stream
 
                     if let Err(error) = res {
                         tracing::error!("Failed to parse message, split id: [{:?}], offset: [{:?}], key: [{:?}],
-                        key_string: [{:?}], payload: [{:?}], payload_string: [{:?}]",
-                            &msg_clone.split_id, &msg_clone.offset, &msg_clone.key,
-                            msg_clone.key.clone().map(String::from_utf8),
-                            &msg_clone.payload, msg_clone.payload.clone().map(String::from_utf8),);
+                        payload: [{:?}]",
+                            &msg_clone.split_id, &msg_clone.offset, &msg_clone.key, &msg_clone.payload);
+
+                        let key_str = msg_clone.key.clone().map(String::from_utf8);
+                        match key_str {
+                            Some(Ok(s)) => {
+                                tracing::error!("Key of message in string format: {}", s);
+                            }
+                            Some(Err(e)) => {
+                                tracing::error!(
+                                    "Key of message is not utf8 string, failed to convert: {:?}",
+                                    e
+                                );
+                            }
+                            None => {}
+                        }
+
+                        let payload_str = msg_clone.payload.clone().map(String::from_utf8);
+                        match payload_str {
+                            Some(Ok(s)) => {
+                                tracing::error!("Payload of message in string format: {}", s);
+                            }
+                            Some(Err(e)) => {
+                                tracing::error!("Payload of message is not utf8 string, failed to convert: {:?}", e);
+                            }
+                            None => {}
+                        }
 
                         // TODO: not using tracing span to provide `split_id` and `offset` due to performance concern,
                         //       see #13105
