@@ -458,7 +458,11 @@ impl<'a, B: RustIteratorBuilder> HummockIterator for FromRustIterator<'a, B> {
     fn collect_local_statistic(&self, _stats: &mut StoreLocalStatistic) {}
 
     fn debug_print(&self) -> String {
-        format!("MemtableIterator: [epoch: {:?}]", self.epoch)
+        let (_, key, _) = self.iter.as_ref().expect("should be valid");
+        format!(
+            "MemtableIterator: [epoch: {:?}, current key: {:?}, table_id: {}]",
+            self.epoch, key, self.table_id
+        )
     }
 }
 
