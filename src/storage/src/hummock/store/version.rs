@@ -297,7 +297,7 @@ impl HummockReadVersion {
                         self.staging.imm.iter().map(|imm| imm.batch_id()).collect();
 
                     // intersected batch_id order from oldest to newest
-                    let intersect_imm_ids = staging_sst
+                    let mut intersect_imm_ids = staging_sst
                         .imm_ids
                         .iter()
                         .rev()
@@ -313,10 +313,12 @@ impl HummockReadVersion {
                         ));
 
                         // Check 3) and replace imms with a staging sst
+                        let mut removed_immds = vec![];
                         for imm_id in &intersect_imm_ids {
                             if let Some(imm) = self.staging.imm.back() {
                                 if *imm_id == imm.batch_id() {
                                     self.staging.imm.pop_back();
+                                    removed_immds.push(*imm_id)
                                 }
                             } else {
                                 let local_imm_ids = self
@@ -340,6 +342,36 @@ impl HummockReadVersion {
                                 );
                             }
                         }
+                        intersect_imm_ids.sort();
+                        removed_immds.sort();
+                        if removed_immds != intersect_imm_ids {
+                            tracing::warn!(
+                                "TESTREPTEAD: There may be some memtable uncleared for sst-{:?}, need clear: {:?}, actual cleared: {:?}. total memtables: {:?}",
+                                staging_sst.sstable_infos.iter().map(|info| info.sst_info.sst_id).collect_vec(),
+                               intersect_imm_ids,
+                               removed_immds,
+                                self.staging.imm.iter().map(|imm| imm.batch_id()).collect_vec(),
+                            );
+                        }
+                        let staging_imm_ids_from_imms: HashSet<u64> = self
+                            .staging
+                            .imm
+                            .iter()
+                            .flat_map(|imm| imm.epochs().iter())
+                            .cloned()
+                            .collect();
+                        if staging_sst
+                            .epochs
+                            .iter()
+                            .any(|epoch| staging_imm_ids_from_imms.contains(epoch))
+                        {
+                            tracing::warn!(
+                                "TESTREPTEAD: The epoch of this sst may be overlap with immemtable because of spill. sst: {:?}, imms: {:?}",
+                                staging_sst.epochs,
+                                staging_imm_ids_from_imms,
+                            );
+                        }
+
                         self.staging.sst.push_front(staging_sst);
                     }
                 }

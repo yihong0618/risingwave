@@ -253,7 +253,7 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
                         None => 0,
                     };
                     panic!(
-                        "key {:?} epoch {:?} >= prev epoch {:?}, committed_epoch: {:?}, read epoch: {:?},debug info: {:?}",
+                        "TESTREPTEAD: key {:?} epoch {:?} >= prev epoch {:?}, committed_epoch: {:?}, read epoch: {:?},debug info: {:?}",
                         full_key.user_key, current_epoch, last_epoch,
                         max_committed_epoch,
                         self.read_epoch,

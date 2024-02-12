@@ -633,9 +633,9 @@ impl<D: HummockIteratorDirection> HummockIterator for SharedBufferBatchIterator<
 
     fn debug_print(&self) -> String {
         format!(
-            "SharedBuffer: [ min_epoch: {}, max_epoch: {}, current key: {:?} ],",
-            self.inner.epochs.first().cloned().unwrap_or_default(),
-            self.inner.epochs.last().cloned().unwrap_or_default(),
+            "SharedBuffer: [ imm id: {}, epochs: {:?}, current key: {:?} ],",
+            self.inner.batch_id,
+            self.inner.epochs,
             self.key(),
         )
     }
