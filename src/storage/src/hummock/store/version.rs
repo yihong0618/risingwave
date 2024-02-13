@@ -344,10 +344,15 @@ impl HummockReadVersion {
                         }
                         intersect_imm_ids.sort();
                         removed_immds.sort();
+                        let sst_ids = staging_sst
+                            .sstable_infos
+                            .iter()
+                            .map(|info| info.sst_info.sst_id)
+                            .collect_vec();
                         if removed_immds != intersect_imm_ids {
-                            tracing::warn!(
+                            panic!(
                                 "TESTREPTEAD: There may be some memtable uncleared for sst-{:?}, need clear: {:?}, actual cleared: {:?}. total memtables: {:?}",
-                                staging_sst.sstable_infos.iter().map(|info| info.sst_info.sst_id).collect_vec(),
+                                sst_ids,
                                intersect_imm_ids,
                                removed_immds,
                                 self.staging.imm.iter().map(|imm| imm.batch_id()).collect_vec(),
@@ -360,17 +365,12 @@ impl HummockReadVersion {
                             .flat_map(|imm| imm.epochs().iter())
                             .cloned()
                             .collect();
-                        if staging_sst
-                            .epochs
-                            .iter()
-                            .any(|epoch| staging_imm_ids_from_imms.contains(epoch))
-                        {
-                            tracing::warn!(
-                                "TESTREPTEAD: The epoch of this sst may be overlap with immemtable because of spill. sst: {:?}, imms: {:?}",
-                                staging_sst.epochs,
-                                staging_imm_ids_from_imms,
-                            );
-                        }
+                        tracing::info!(
+                            "TESTREPTEAD: flush sst-{:?} epochs: {:?}, current imm epochs: {:?}",
+                            sst_ids,
+                            staging_sst.epochs,
+                            staging_imm_ids_from_imms,
+                        );
 
                         self.staging.sst.push_front(staging_sst);
                     }
