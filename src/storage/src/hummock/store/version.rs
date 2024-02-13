@@ -269,9 +269,38 @@ impl HummockReadVersion {
                         debug_assert!(item.batch_id() < imm.batch_id());
                     }
 
-                    self.staging.imm.push_front(imm)
+                    let epoch = *imm.epochs().first().unwrap();
+                    for sst in &self.staging.sst {
+                        if sst.epochs.iter().any(|sst_epoch| *sst_epoch >= epoch) {
+                            panic!(
+                                "flush a larger epoch of shared-buffer {} than epochs {:?} of sst-[{:?}]",
+                                epoch,
+                                sst.epochs,
+                                sst.sstable_infos
+                                    .iter()
+                                    .map(|sst| sst.sst_info.sst_id)
+                                    .collect_vec()
+                            );
+                        }
+                    }
+                    self.staging.imm.push_front(imm);
                 }
                 StagingData::MergedImmMem(merged_imm, imm_ids) => {
+                    for epoch in merged_imm.epochs() {
+                        for sst in &self.staging.sst {
+                            if sst.epochs.iter().any(|sst_epoch| *sst_epoch >= *epoch) {
+                                panic!(
+                                    "flush a larger epoch of shared-buffer {} than epochs {:?} of sst-[{:?}]",
+                                    epoch,
+                                    sst.epochs,
+                                    sst.sstable_infos
+                                        .iter()
+                                        .map(|sst| sst.sst_info.sst_id)
+                                        .collect_vec()
+                                );
+                            }
+                        }
+                    }
                     self.add_merged_imm(merged_imm, imm_ids);
                 }
                 StagingData::Sst(staging_sst) => {
@@ -358,19 +387,22 @@ impl HummockReadVersion {
                                 self.staging.imm.iter().map(|imm| imm.batch_id()).collect_vec(),
                             );
                         }
-                        let staging_imm_ids_from_imms: HashSet<u64> = self
-                            .staging
-                            .imm
-                            .iter()
-                            .flat_map(|imm| imm.epochs().iter())
-                            .cloned()
-                            .collect();
-                        tracing::info!(
-                            "TESTREPTEAD: flush sst-{:?} epochs: {:?}, current imm epochs: {:?}",
+                        if !intersect_imm_ids.is_empty() {
+                            let staging_epochs: HashSet<u64> = self
+                                .staging
+                                .imm
+                                .iter()
+                                .flat_map(|imm| imm.epochs().iter())
+                                .cloned()
+                                .collect();
+                            tracing::info!(
+                            "TESTREPTEAD: flush sst-{:?} epochs: {:?}, current imm epochs: {:?}, removed epochs: {:?}",
                             sst_ids,
                             staging_sst.epochs,
-                            staging_imm_ids_from_imms,
+                            staging_epochs,
+                                intersect_imm_ids,
                         );
+                        }
 
                         self.staging.sst.push_front(staging_sst);
                     }
@@ -430,6 +462,27 @@ impl HummockReadVersion {
 
     pub fn committed(&self) -> &CommittedVersion {
         &self.committed
+    }
+
+    pub fn max_epoch(&self) -> u64 {
+        let imm_epoch = self
+            .staging
+            .imm
+            .iter()
+            .flat_map(|imm| imm.epochs().iter())
+            .cloned()
+            .max()
+            .unwrap_or(0);
+        let sst_epoch = self
+            .staging
+            .sst
+            .iter()
+            .flat_map(|sst| sst.epochs.iter())
+            .cloned()
+            .max()
+            .unwrap_or(0);
+        let epoch = std::cmp::max(imm_epoch, sst_epoch);
+        std::cmp::max(epoch, self.committed.max_committed_epoch())
     }
 
     /// We have assumption that the watermark is increasing monotonically. Therefore,

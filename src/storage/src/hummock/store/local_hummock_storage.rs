@@ -55,6 +55,7 @@ pub struct LocalHummockStorage {
 
     spill_offset: u16,
     epoch: Option<u64>,
+    last_epoch: Option<u64>,
 
     table_id: TableId,
     op_consistency_level: OpConsistencyLevel,
@@ -381,6 +382,11 @@ impl LocalStateStore for LocalHummockStorage {
         if self.is_replicated {
             self.wait_for_epoch(epoch.prev).await?;
         }
+        tracing::info!(
+            "init epoch {}, last epoch: {}",
+            epoch.curr,
+            self.read_version.read().max_epoch()
+        );
         assert!(
             self.epoch.replace(epoch.curr).is_none(),
             "local state store of table id {:?} is init for more than once",
@@ -400,6 +406,7 @@ impl LocalStateStore for LocalHummockStorage {
             .epoch
             .replace(next_epoch)
             .expect("should have init epoch before seal the first epoch");
+        self.last_epoch = Some(prev_epoch);
         self.spill_offset = 0;
         assert!(
             next_epoch > prev_epoch,
@@ -476,6 +483,14 @@ impl LocalHummockStorage {
                 );
                 tracker
             };
+            if self.spill_offset == 0 {
+                assert!(
+                    epoch > self.last_epoch.clone().unwrap_or(0),
+                    "the epoch {} must be larger than last seal epoch: {:?}",
+                    epoch,
+                    self.last_epoch,
+                );
+            }
 
             let instance_id = self.instance_guard.instance_id;
             let imm = SharedBufferBatch::build_shared_buffer_batch(
@@ -530,6 +545,7 @@ impl LocalHummockStorage {
             mem_table: MemTable::new(option.op_consistency_level.clone()),
             spill_offset: 0,
             epoch: None,
+            last_epoch: None,
             table_id: option.table_id,
             op_consistency_level: option.op_consistency_level,
             table_option: option.table_option,
