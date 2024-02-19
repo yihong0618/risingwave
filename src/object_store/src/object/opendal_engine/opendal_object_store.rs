@@ -159,7 +159,7 @@ impl ObjectStore for OpendalObjectStore {
             .op
             .lister_with(prefix)
             .delimiter("")
-            .metakey(Metakey::ContentLength | Metakey::ContentType)
+            .metakey(Metakey::ContentLength)
             .await?;
 
         let stream = stream::unfold(object_lister, |mut object_lister| async move {
