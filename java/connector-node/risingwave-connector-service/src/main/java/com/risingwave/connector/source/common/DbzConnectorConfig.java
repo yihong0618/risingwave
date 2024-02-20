@@ -14,6 +14,7 @@
 
 package com.risingwave.connector.source.common;
 
+import com.mongodb.ConnectionString;
 import com.risingwave.connector.api.source.SourceTypeE;
 import com.risingwave.connector.cdc.debezium.internal.ConfigurableOffsetBackingStore;
 import java.io.IOException;
@@ -233,6 +234,17 @@ public class DbzConnectorConfig {
                 mongodbProps.setProperty(
                         ConfigurableOffsetBackingStore.OFFSET_STATE_VALUE, startOffset);
             }
+
+            var mongodbUrl = userProps.get("mongodb.url");
+            var connectionStr = new ConnectionString(mongodbUrl);
+            var connectorName =
+                    String.format(
+                            "%s:%s.%s",
+                            connectionStr.getHosts(),
+                            connectionStr.getDatabase(),
+                            connectionStr.getCollection());
+            mongodbProps.setProperty("name", connectorName);
+
             dbzProps.putAll(mongodbProps);
 
         } else {
