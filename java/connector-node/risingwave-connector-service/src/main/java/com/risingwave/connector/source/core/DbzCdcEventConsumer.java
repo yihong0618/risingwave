@@ -184,9 +184,6 @@ public class DbzCdcEventConsumer
                 default:
                     break;
             }
-
-            // mark the event as processed
-            committer.markProcessed(event);
         }
 
         // skip empty batch
@@ -195,8 +192,6 @@ public class DbzCdcEventConsumer
             var response = respBuilder.build();
             outputChannel.put(response);
         }
-
-        committer.markBatchFinished();
     }
 
     @Override
