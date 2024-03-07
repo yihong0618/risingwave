@@ -357,6 +357,7 @@ impl MySqlExternalTableReader {
         // Set session timezone to UTC
         conn.exec_drop("SET time_zone = \"+00:00\"", ()).await?;
 
+        tracing::info!("executing sql: {}", sql);
         if start_pk_row.is_none() {
             let mut result_set = conn.query_iter(sql).await?;
             let rs_stream = result_set.stream::<mysql_async::Row>().await?;
