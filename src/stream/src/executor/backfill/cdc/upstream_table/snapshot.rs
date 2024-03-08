@@ -21,6 +21,7 @@ use risingwave_common::array::StreamChunk;
 use risingwave_common::row::OwnedRow;
 use risingwave_common::util::chunk_coalesce::DataChunkBuilder;
 use risingwave_connector::source::cdc::external::{CdcOffset, ExternalTableReader};
+use tokio::time::Instant;
 
 use super::external::ExternalStorageTable;
 use crate::executor::backfill::utils::iter_chunks;
@@ -102,9 +103,17 @@ impl UpstreamTableRead for UpstreamTableReader<ExternalStorageTable> {
 
         let mut builder = DataChunkBuilder::new(self.inner.schema().data_types(), args.chunk_size);
         let chunk_stream = iter_chunks(row_stream, &mut builder);
+        let table_name = self.inner.qualified_table_name();
+        let mut start_time = Instant::now();
         #[for_await]
         for chunk in chunk_stream {
+            tracing::info!(
+                table_name = table_name.as_str(),
+                elapsed = start_time.elapsed().as_millis(),
+                "cdc snapshot_read get a chunk",
+            );
             yield Some(chunk?);
+            start_time = Instant::now();
         }
         yield None;
     }
