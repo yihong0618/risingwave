@@ -176,7 +176,7 @@ impl HummockManager {
                         }
                     };
                 }
-                if generated_task_count < pull_task_count && meet_error {
+                if generated_task_count < pull_task_count && !meet_error {
                     // no compact_task to be picked
                     for group in groups {
                         self.compaction_state.unschedule(group, task_type);
