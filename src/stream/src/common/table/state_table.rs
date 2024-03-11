@@ -78,6 +78,13 @@ const WATERMARK_CACHE_ENTRIES: usize = 16;
 
 type DefaultWatermarkBufferStrategy = WatermarkBufferByEpoch<STATE_CLEANING_PERIOD_EPOCH>;
 
+const RANDOM_DROP_PROB: f64 = 0.4;
+fn random_drop() -> bool {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    rng.gen_bool(RANDOM_DROP_PROB)
+}
+
 /// `StateTableInner` is the interface accessing relational data in KV(`StateStore`) with
 /// row-based encoding.
 #[derive(Clone)]
@@ -348,7 +355,7 @@ where
             )
         };
 
-        let op_consistency_level = if is_consistent_op {
+        let op_consistency_level = if is_consistent_op && RANDOM_DROP_PROB == 0.0 {
             let row_serde = make_row_serde();
             consistent_old_value_op(row_serde)
         } else {
@@ -864,12 +871,18 @@ where
     }
 
     fn insert_inner(&mut self, key: TableKey<Bytes>, value_bytes: Bytes) {
+        if random_drop() {
+            return;
+        }
         self.local_store
             .insert(key, value_bytes, None)
             .unwrap_or_else(|e| self.handle_mem_table_error(e));
     }
 
     fn delete_inner(&mut self, key: TableKey<Bytes>, value_bytes: Bytes) {
+        if random_drop() {
+            return;
+        }
         self.local_store
             .delete(key, value_bytes)
             .unwrap_or_else(|e| self.handle_mem_table_error(e));
@@ -881,6 +894,9 @@ where
         old_value_bytes: Option<Bytes>,
         new_value_bytes: Bytes,
     ) {
+        if random_drop() {
+            return;
+        }
         self.local_store
             .insert(key_bytes, new_value_bytes, old_value_bytes)
             .unwrap_or_else(|e| self.handle_mem_table_error(e));
