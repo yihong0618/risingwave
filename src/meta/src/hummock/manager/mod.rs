@@ -3038,6 +3038,7 @@ impl HummockManager {
 
         // We've already lowered the default limit for write limit in PR-12183, and to prevent older clusters from continuing to use the outdated configuration, we've introduced a new logic to rewrite it in a uniform way.
         let mut rewrite_cg_ids = vec![];
+        let mut rewrite_emergency_picker_cg_ids = vec![];
         let mut restore_cg_to_partition_vnode: HashMap<u64, BTreeMap<u32, u32>> =
             HashMap::default();
         for (cg_id, compaction_group_config) in &mut configs {
@@ -3073,6 +3074,14 @@ impl HummockManager {
                         .collect(),
                 );
             }
+
+            // for kaito
+            if compaction_group_config
+                .compaction_config
+                .enable_emergency_picker
+            {
+                rewrite_emergency_picker_cg_ids.push(*cg_id);
+            }
         }
 
         if !rewrite_cg_ids.is_empty() {
@@ -3104,6 +3113,25 @@ impl HummockManager {
             calc_new_write_limits(configs, HashMap::new(), &versioning_guard.current_version);
         trigger_write_stop_stats(&self.metrics, &versioning_guard.write_limit);
         tracing::debug!("Hummock stopped write: {:#?}", versioning_guard.write_limit);
+
+        if !rewrite_emergency_picker_cg_ids.is_empty() {
+            tracing::info!(
+                "Compaction group {:?} configs rewrite_emergency_picker",
+                rewrite_emergency_picker_cg_ids
+            );
+
+            // update meta store
+            let _ = self
+                .compaction_group_manager
+                .write()
+                .await
+                .update_compaction_config(
+                    &rewrite_cg_ids,
+                    &[mutable_config::MutableConfig::EnableEmergencyPicker(false)],
+                    self.env.meta_store(),
+                )
+                .await?;
+        }
 
         {
             // 2. Restore the memory data structure according to the memory of the compaction group config.
