@@ -198,11 +198,12 @@ impl CompactorRunner {
                     task_progress.clone(),
                     compact_io_retry_time,
                 ));
-            } else if level.table_infos.len() > MAX_OVERLAPPING_SST {
+            } else if tables.len() > MAX_OVERLAPPING_SST {
+                let origin_size = tables.len();
                 let sst_groups = partition_overlapping_sstable_infos(tables);
                 tracing::warn!(
                     "COMPACT A LARGE OVERLAPPING LEVEL: try to partition {} ssts with {} groups",
-                    level.table_infos.len(),
+                    origin_size,
                     sst_groups.len()
                 );
                 for table_infos in sst_groups {
