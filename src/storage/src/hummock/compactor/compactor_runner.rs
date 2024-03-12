@@ -272,13 +272,13 @@ pub fn partition_overlapping_sstable_infos(
     }
     impl PartialOrd for SstableGroup {
         fn partial_cmp(&self, other: &SstableGroup) -> Option<std::cmp::Ordering> {
-            Some(KeyComparator::compare_encoded_full_key(&self.max_right_bound, &other.max_right_bound))
+            Some(KeyComparator::compare_encoded_full_key(&other.max_right_bound, &self.max_right_bound))
         }
     }
     impl Eq for SstableGroup {}
     impl Ord for SstableGroup {
         fn cmp(&self, other: &SstableGroup) -> std::cmp::Ordering {
-            KeyComparator::compare_encoded_full_key(&self.max_right_bound, &other.max_right_bound)
+            KeyComparator::compare_encoded_full_key(&other.max_right_bound, &self.max_right_bound)
         }
     }
     let mut groups: BinaryHeap<SstableGroup> = BinaryHeap::default();
