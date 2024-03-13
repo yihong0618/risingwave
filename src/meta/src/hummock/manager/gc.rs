@@ -23,10 +23,11 @@ use itertools::Itertools;
 use risingwave_hummock_sdk::HummockSstableObjectId;
 use risingwave_pb::common::worker_node::State::Running;
 use risingwave_pb::common::WorkerType;
+use risingwave_pb::hummock::subscribe_compaction_event_response::Event as ResponseEvent;
 use risingwave_pb::hummock::FullScanTask;
 
 use crate::hummock::error::{Error, Result};
-use crate::hummock::manager::{commit_multi_var, read_lock, write_lock, ResponseEvent};
+use crate::hummock::manager::{commit_multi_var, read_lock, write_lock};
 use crate::hummock::{start_measure_real_process_timer, HummockManager};
 use crate::manager::MetadataManager;
 use crate::model::{BTreeMapTransaction, ValTransaction};
