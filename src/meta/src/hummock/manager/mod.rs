@@ -790,9 +790,8 @@ impl HummockManager {
     pub async fn get_compact_tasks_impl(
         &self,
         compaction_groups: Vec<CompactionGroupId>,
-        max_task_count: usize,
         selector: &mut Box<dyn CompactionSelector>,
-    ) -> crate::hummock::error::Result<(Vec<CompactTask>, Vec<CompactTask>)> {
+    ) -> crate::hummock::error::Result<Vec<CompactTask>> {
         // TODO: `get_all_table_options` will hold catalog_manager async lock, to avoid holding the
         // lock in compaction_guard, take out all table_options in advance there may be a
         // waste of resources here, need to add a more efficient filter in catalog_manager
@@ -806,7 +805,12 @@ impl HummockManager {
 
         let mut compaction_guard = write_lock!(self, compaction).await;
         let compaction = compaction_guard.deref_mut();
-
+        let mut versioning_guard = write_lock!(self, versioning).await;
+        let versioning = versioning_guard.deref_mut();
+        let mut hummock_version_deltas =
+            BTreeMapTransaction::new(&mut versioning.hummock_version_deltas);
+        let mut branched_ssts = BTreeMapTransaction::new(&mut versioning.branched_ssts);
+        let mut current_version = versioning.current_version.clone();
         let start_time = Instant::now();
 
         let mut compaction_statuses = BTreeMapTransaction::new(&mut compaction.compaction_statuses);
@@ -814,25 +818,18 @@ impl HummockManager {
         let mut compact_task_assignment =
             BTreeMapTransaction::new(&mut compaction.compact_task_assignment);
 
-        let (current_version, watermark) = {
-            let versioning_guard = read_lock!(self, versioning).await;
-            let max_committed_epoch = versioning_guard.current_version.max_committed_epoch;
-            let watermark = versioning_guard
-                .pinned_snapshots
-                .values()
-                .map(|v| v.minimal_pinned_snapshot)
-                .fold(max_committed_epoch, std::cmp::min);
-
-            (versioning_guard.current_version.clone(), watermark)
-        };
+        let max_committed_epoch = current_version.max_committed_epoch;
+        let watermark = versioning
+            .pinned_snapshots
+            .values()
+            .map(|v| v.minimal_pinned_snapshot)
+            .fold(max_committed_epoch, std::cmp::min);
+        let last_apply_version_id = current_version.id;
         let mut trivial_tasks = vec![];
         let mut pick_tasks = vec![];
         for compaction_group_id in compaction_groups {
             if current_version.levels.get(&compaction_group_id).is_none() {
                 continue;
-            }
-            if pick_tasks.len() >= max_task_count {
-                break;
             }
 
             // StoredIdGenerator already implements ids pre-allocation by ID_PREALLOCATE_INTERVAL.
@@ -863,131 +860,116 @@ impl HummockManager {
                     ),
                 );
             }
+
             let mut compact_status = compaction_statuses.get_mut(compaction_group_id).unwrap();
 
             let can_trivial_move = matches!(selector.task_type(), TaskType::Dynamic)
                 || matches!(selector.task_type(), TaskType::Emergency);
 
             let mut stats = LocalSelectorStatistic::default();
-            let member_table_ids = &current_version
+            let member_table_ids = current_version
                 .get_compaction_group_levels(compaction_group_id)
-                .member_table_ids;
+                .member_table_ids.clone();
 
             let mut table_id_to_option: HashMap<u32, _> = HashMap::default();
 
-            for table_id in member_table_ids {
+            for table_id in &member_table_ids {
                 if let Some(opts) = all_table_id_to_option.get(table_id) {
                     table_id_to_option.insert(*table_id, *opts);
                 }
             }
-            let compact_task = compact_status.get_compact_task(
+            while let Some(mut compact_task) = compact_status.get_compact_task(
                 current_version.get_compaction_group_levels(compaction_group_id),
                 task_id as HummockCompactionTaskId,
                 &group_config,
                 &mut stats,
                 selector,
                 table_id_to_option.clone(),
-            );
+            ) {
+                compact_task.watermark = watermark;
+                compact_task.existing_table_ids = member_table_ids.clone();
 
-            stats.report_to_metrics(compaction_group_id, self.metrics.as_ref());
-            let mut compact_task = match compact_task {
-                None => {
-                    continue;
+                let is_trivial_reclaim = CompactStatus::is_trivial_reclaim(&compact_task);
+                let is_trivial_move = CompactStatus::is_trivial_move_task(&compact_task);
+
+                if is_trivial_reclaim || (is_trivial_move && can_trivial_move) {
+                    let log_label = if is_trivial_reclaim {
+                        "TrivialReclaim"
+                    } else {
+                        "TrivialMove"
+                    };
+                    let label = if is_trivial_reclaim {
+                        "trivial-space-reclaim"
+                    } else  {
+                        "trivial-move"
+                    };
+                    tracing::debug!("{} for compaction group {}: input: {:?}, cost time: {:?}",log_label, compaction_group_id, compact_task.input_ssts,start_time.elapsed());
+                    compact_task.set_task_status(TaskStatus::Success);
+                    compact_status.report_compact_task(&compact_task);
+                    if !is_trivial_reclaim {
+                        compact_task.sorted_output_ssts = compact_task.input_ssts[0].table_infos.clone();
+                    }
+                    self.metrics
+                        .compact_frequency
+                        .with_label_values(&[
+                            label,
+                            &compact_task.compaction_group_id.to_string(),
+                            selector.task_type().as_str_name(),
+                            "SUCCESS",
+                        ]);
+                    let version_delta = gen_version_delta(
+                        &mut hummock_version_deltas,
+                        &mut branched_ssts,
+                        &current_version,
+                        &compact_task,
+                        deterministic_mode,
+                    );
+                    current_version.apply_version_delta(&version_delta);
+                    trivial_tasks.push(compact_task);
+                } else {
+                    compact_task.table_options = table_id_to_option
+                        .into_iter()
+                        .filter_map(|(table_id, table_option)| {
+                            if compact_task.existing_table_ids.contains(&table_id) {
+                                return Some((table_id, TableOption::from(&table_option)));
+                            }
+
+                            None
+                        })
+                        .collect();
+                    compact_task.current_epoch_time = Epoch::now().0;
+                    compact_task.compaction_filter_mask =
+                        group_config.compaction_config.compaction_filter_mask;
+                    let mut table_to_vnode_partition = match self
+                        .group_to_table_vnode_partition
+                        .read()
+                        .get(&compaction_group_id)
+                    {
+                        Some(table_to_vnode_partition) => table_to_vnode_partition.clone(),
+                        None => BTreeMap::default(),
+                    };
+                    table_to_vnode_partition
+                        .retain(|table_id, _| compact_task.existing_table_ids.contains(table_id));
+                    compact_task.table_watermarks =
+                        current_version.safe_epoch_table_watermarks(&compact_task.existing_table_ids);
+
+                    compact_task_assignment.insert(
+                        compact_task.task_id,
+                        CompactTaskAssignment {
+                            compact_task: Some(compact_task.clone()),
+                            context_id: META_NODE_ID, // deprecated
+                        },
+                    );
+
+                    pick_tasks.push(compact_task);
+                    break;
                 }
-                Some(task) => task,
-            };
-
-            compact_task.watermark = watermark;
-            compact_task.existing_table_ids = member_table_ids.clone();
-
-            let is_trivial_reclaim = CompactStatus::is_trivial_reclaim(&compact_task);
-            let is_trivial_move = CompactStatus::is_trivial_move_task(&compact_task);
-            if is_trivial_reclaim {
-                tracing::debug!(
-                    "TrivialReclaim for compaction group {}: remove {} sstables, cost time: {:?}",
-                    compaction_group_id,
-                    compact_task
-                        .input_ssts
-                        .iter()
-                        .map(|level| level.table_infos.len())
-                        .sum::<usize>(),
-                    start_time.elapsed()
-                );
-                compact_task.set_task_status(TaskStatus::Success);
-                compact_status.report_compact_task(&compact_task);
-                trivial_tasks.push(compact_task);
-            } else if is_trivial_move && can_trivial_move {
-                tracing::debug!(
-                "TrivialMove for compaction group {}: pick up {} sstables in level {} to compact to target_level {} cost time: {:?} input {:?}",
-                compaction_group_id,
-                compact_task.input_ssts[0].table_infos.len(),
-                compact_task.input_ssts[0].level_idx,
-                compact_task.target_level,
-                start_time.elapsed(),
-                compact_task.input_ssts
-                );
-                // this task has been finished and `trivial_move_task` does not need to be schedule.
-                compact_task.set_task_status(TaskStatus::Success);
-                compact_task.sorted_output_ssts = compact_task.input_ssts[0].table_infos.clone();
-                compact_status.report_compact_task(&compact_task);
-                trivial_tasks.push(compact_task);
-            } else {
-                compact_task.table_options = table_id_to_option
-                    .into_iter()
-                    .filter_map(|(table_id, table_option)| {
-                        if compact_task.existing_table_ids.contains(&table_id) {
-                            return Some((table_id, TableOption::from(&table_option)));
-                        }
-
-                        None
-                    })
-                    .collect();
-                compact_task.current_epoch_time = Epoch::now().0;
-                compact_task.compaction_filter_mask =
-                    group_config.compaction_config.compaction_filter_mask;
-                let mut table_to_vnode_partition = match self
-                    .group_to_table_vnode_partition
-                    .read()
-                    .get(&compaction_group_id)
-                {
-                    Some(table_to_vnode_partition) => table_to_vnode_partition.clone(),
-                    None => BTreeMap::default(),
-                };
-                table_to_vnode_partition
-                    .retain(|table_id, _| compact_task.existing_table_ids.contains(table_id));
-                compact_task.table_watermarks =
-                    current_version.safe_epoch_table_watermarks(&compact_task.existing_table_ids);
-
-                compact_task_assignment.insert(
-                    compact_task.task_id,
-                    CompactTaskAssignment {
-                        compact_task: Some(compact_task.clone()),
-                        context_id: META_NODE_ID, // deprecated
-                    },
-                );
-
-                pick_tasks.push(compact_task);
+                stats = LocalSelectorStatistic::default();
             }
+            stats.report_to_metrics(compaction_group_id, self.metrics.as_ref());
         }
 
         if !trivial_tasks.is_empty() {
-            let mut versioning_guard = write_lock!(self, versioning).await;
-            let versioning = versioning_guard.deref_mut();
-            let mut hummock_version_deltas =
-                BTreeMapTransaction::new(&mut versioning.hummock_version_deltas);
-            let mut branched_ssts = BTreeMapTransaction::new(&mut versioning.branched_ssts);
-            let mut current_version = versioning.current_version.clone();
-            let last_apply_version_id = current_version.id;
-            for compact_task in &trivial_tasks {
-                let version_delta = gen_version_delta(
-                    &mut hummock_version_deltas,
-                    &mut branched_ssts,
-                    &current_version,
-                    compact_task,
-                    deterministic_mode,
-                );
-                current_version.apply_version_delta(&version_delta);
-            }
             commit_multi_var!(
                 self,
                 None,
@@ -1003,15 +985,6 @@ impl HummockManager {
             self.notify_stats(&versioning.version_stats);
             versioning.current_version = current_version;
             self.notify_version_deltas(versioning, last_apply_version_id);
-            self.metrics
-                .compact_frequency
-                .with_label_values(&[
-                    "trivial-space-reclaim",
-                    "several_group",
-                    selector.task_type().as_str_name(),
-                    "SUCCESS",
-                ])
-                .inc_by(trivial_tasks.len() as u64);
             self.metrics
                 .compact_task_batch_count
                 .with_label_values(&["batch_trivial_move"])
@@ -1047,7 +1020,7 @@ impl HummockManager {
             trigger_sst_stat(
                 &self.metrics,
                 compaction.compaction_statuses.get(&compaction_group_id),
-                &current_version,
+                &versioning.current_version,
                 compaction_group_id,
             );
             let compact_task_statistics = statistics_compact_task(compact_task);
@@ -1100,7 +1073,7 @@ impl HummockManager {
             drop(compaction_guard);
             self.check_state_consistency().await;
         }
-        Ok((pick_tasks, trivial_tasks))
+        Ok(pick_tasks)
     }
 
     /// Cancels a compaction task no matter it's assigned or unassigned.
@@ -1134,31 +1107,13 @@ impl HummockManager {
 
     pub async fn get_compact_tasks(
         &self,
-        mut compaction_groups: Vec<CompactionGroupId>,
-        max_task_count: usize,
+        compaction_groups: Vec<CompactionGroupId>,
         selector: &mut Box<dyn CompactionSelector>,
-    ) -> Result<(Vec<CompactTask>, Vec<CompactTask>)> {
+    ) -> Result<Vec<CompactTask>> {
         fail_point!("fp_get_compact_task", |_| Err(Error::MetaStore(
             anyhow::anyhow!("failpoint metastore error")
         )));
-        loop {
-            let (normal_tasks, trivial_tasks) = self
-                .get_compact_tasks_impl(
-                    std::mem::take(&mut compaction_groups),
-                    max_task_count,
-                    selector,
-                )
-                .await?;
-            if !normal_tasks.is_empty() {
-                return Ok((normal_tasks, trivial_tasks));
-            } else if trivial_tasks.is_empty() {
-                return Ok((vec![], vec![]));
-            }
-            // only select groups which could generate more tasks.
-            for t in &trivial_tasks {
-                compaction_groups.push(t.compaction_group_id);
-            }
-        }
+        self.get_compact_tasks_impl(compaction_groups, selector).await
     }
 
     pub async fn get_compact_task(
@@ -1175,16 +1130,10 @@ impl HummockManager {
             .with_label_values(&["get_compact_task"])
             .start_timer();
 
-        loop {
-            let (mut normal_tasks, trivial_tasks) = self
-                .get_compact_tasks_impl(vec![compaction_group_id], 1, selector)
-                .await?;
-            if !normal_tasks.is_empty() {
-                return Ok(normal_tasks.pop());
-            } else if trivial_tasks.is_empty() {
-                return Ok(None);
-            }
-        }
+        let mut normal_tasks = self
+            .get_compact_tasks_impl(vec![compaction_group_id], selector)
+            .await?;
+        Ok(normal_tasks.pop())
     }
 
     pub async fn manual_get_compact_task(
