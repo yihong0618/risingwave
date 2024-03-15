@@ -220,7 +220,7 @@ impl<S: StateStore> CdcBackfillExecutor<S> {
             }
 
             tracing::info!(upstream_table_id, initial_binlog_offset = ?last_binlog_offset, ?current_pk_pos, "start cdc backfill loop");
-            let snapshot_read_limit: usize = 10000;
+            let snapshot_read_limit: usize = 1000;
 
             // the buffer will be drained when a barrier comes
             let mut upstream_chunk_buffer: Vec<StreamChunk> = vec![];
@@ -498,13 +498,6 @@ impl<S: StateStore> CdcBackfillExecutor<S> {
                                         // exit backfill
                                         break 'backfill_loop;
                                     } else {
-                                        tracing::info!(
-                                            upstream_table_id,
-                                            ?current_pk_pos,
-                                            ?snapshot_read_row_cnt,
-                                            "snapshot stream will contiune"
-                                        );
-
                                         // break the for loop to reconstruct a new snapshot with pk offset
                                         // to ensure we load all historical data
                                         break;
