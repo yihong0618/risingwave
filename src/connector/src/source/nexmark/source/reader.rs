@@ -190,7 +190,15 @@ impl NexmarkSplitReader {
                 )),
             ]);
 
-            if let Some(chunk) = chunk_builder.append_row(Op::Insert, OwnedRow::new(fields)) {
+            fn random_op() -> Op {
+                if rand::random() {
+                    Op::Insert
+                } else {
+                    Op::Delete
+                }
+            }
+
+            if let Some(chunk) = chunk_builder.append_row(random_op(), OwnedRow::new(fields)) {
                 self.sleep_til_next_event(start_time, start_offset, start_ts)
                     .await;
                 yield chunk;

@@ -74,7 +74,11 @@ impl RowIdGenExecutor {
                 Op::Insert => builder.append(Some(self.row_id_generator.next().into())),
                 _ => {
                     if vis {
-                        builder.append(Some(Serial::try_from(datum.unwrap()).unwrap()))
+                        if let Some(d) = datum {
+                            builder.append(Some(Serial::try_from(d).unwrap()))
+                        } else {
+                            builder.append(Some(self.row_id_generator.next().into()))
+                        }
                     } else {
                         builder.append(None)
                     }
