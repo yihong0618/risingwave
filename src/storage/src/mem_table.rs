@@ -134,39 +134,46 @@ impl MemTable {
     pub fn insert(&mut self, pk: TableKey<Bytes>, value: Bytes) -> Result<()> {
         if let OpConsistencyLevel::Inconsistent = &self.op_consistency_level {
             let key_len = std::mem::size_of::<Bytes>() + pk.len();
-            let insert_value = KeyOp::Insert(value);
-            self.kv_size.add(&pk, &insert_value);
-            let origin_value = self.buffer.insert(pk, insert_value);
-            self.sub_origin_size(origin_value, key_len);
+            let insert_op = KeyOp::Insert(value);
+            self.kv_size.add(&pk, &insert_op);
+            let existing_op = self.buffer.insert(pk, insert_op);
+            self.sub_origin_size(existing_op, key_len);
 
             return Ok(());
         };
         let entry = self.buffer.entry(pk);
         match entry {
             Entry::Vacant(e) => {
-                let insert_value = KeyOp::Insert(value);
-                self.kv_size.add(e.key(), &insert_value);
-                e.insert(insert_value);
+                let insert_op = KeyOp::Insert(value);
+                self.kv_size.add(e.key(), &insert_op);
+                e.insert(insert_op);
                 Ok(())
             }
             Entry::Occupied(mut e) => {
-                let origin_value = e.get_mut();
-                self.kv_size.sub_val(origin_value);
-                match origin_value {
+                let existing_op = e.get_mut();
+                self.kv_size.sub_val(existing_op);
+                match existing_op {
                     KeyOp::Delete(ref mut old_value) => {
-                        let old_val = std::mem::take(old_value);
-                        let update_value = KeyOp::Update((old_val, value));
-                        self.kv_size.add_val(&update_value);
-                        e.insert(update_value);
+                        let update_op = KeyOp::Update((std::mem::take(old_value), value));
+                        self.kv_size.add_val(&update_op);
+                        e.insert(update_op);
                         Ok(())
                     }
                     KeyOp::Insert(_) | KeyOp::Update(_) => {
-                        Err(MemTableError::InconsistentOperation {
+                        let res = Err(MemTableError::InconsistentOperation {
                             key: e.key().clone(),
                             prev: e.get().clone(),
-                            new: KeyOp::Insert(value),
+                            new: KeyOp::Insert(value.clone()),
                         }
-                        .into())
+                        .into());
+
+                        // Overwrite the operation before returning error, so that the error can be ignored
+                        // to achieve the same effect as when the table has `Inconsistent` consistency level.
+                        let insert_op = KeyOp::Insert(value);
+                        self.kv_size.add_val(&insert_op);
+                        e.insert(insert_op);
+
+                        res
                     }
                 }
             }
@@ -177,57 +184,79 @@ impl MemTable {
         let key_len = std::mem::size_of::<Bytes>() + pk.len();
         let OpConsistencyLevel::ConsistentOldValue(value_checker) = &self.op_consistency_level
         else {
-            let delete_value = KeyOp::Delete(old_value);
-            self.kv_size.add(&pk, &delete_value);
-            let origin_value = self.buffer.insert(pk, delete_value);
-            self.sub_origin_size(origin_value, key_len);
+            let delete_op = KeyOp::Delete(old_value);
+            self.kv_size.add(&pk, &delete_op);
+            let existing_op = self.buffer.insert(pk, delete_op);
+            self.sub_origin_size(existing_op, key_len);
             return Ok(());
         };
         let entry = self.buffer.entry(pk);
         match entry {
             Entry::Vacant(e) => {
-                let delete_value = KeyOp::Delete(old_value);
-                self.kv_size.add(e.key(), &delete_value);
-                e.insert(delete_value);
+                let delete_op = KeyOp::Delete(old_value);
+                self.kv_size.add(e.key(), &delete_op);
+                e.insert(delete_op);
                 Ok(())
             }
             Entry::Occupied(mut e) => {
-                let origin_value = e.get_mut();
-                self.kv_size.sub_val(origin_value);
-                match origin_value {
-                    KeyOp::Insert(original_value) => {
-                        if ENABLE_SANITY_CHECK && !value_checker(original_value, &old_value) {
-                            return Err(Box::new(MemTableError::InconsistentOperation {
+                let existing_op = e.get_mut();
+                self.kv_size.sub_val(existing_op);
+                match existing_op {
+                    KeyOp::Insert(existing_new_value) => {
+                        let res = if ENABLE_SANITY_CHECK
+                            && !value_checker(existing_new_value, &old_value)
+                        {
+                            Err(Box::new(MemTableError::InconsistentOperation {
                                 key: e.key().clone(),
                                 prev: e.get().clone(),
                                 new: KeyOp::Delete(old_value),
-                            }));
-                        }
+                            }))
+                        } else {
+                            Ok(())
+                        };
 
                         self.kv_size.sub_size(key_len);
                         e.remove();
 
-                        Ok(())
+                        res
                     }
-                    KeyOp::Delete(_) => Err(MemTableError::InconsistentOperation {
-                        key: e.key().clone(),
-                        prev: e.get().clone(),
-                        new: KeyOp::Delete(old_value),
-                    }
-                    .into()),
-                    KeyOp::Update(value) => {
-                        let (original_old_value, original_new_value) = std::mem::take(value);
-                        if ENABLE_SANITY_CHECK && original_new_value != old_value {
-                            return Err(Box::new(MemTableError::InconsistentOperation {
-                                key: e.key().clone(),
-                                prev: e.get().clone(),
-                                new: KeyOp::Delete(old_value),
-                            }));
+                    KeyOp::Delete(_) => {
+                        let res = Err(MemTableError::InconsistentOperation {
+                            key: e.key().clone(),
+                            prev: e.get().clone(),
+                            new: KeyOp::Delete(old_value.clone()),
                         }
-                        let delete_value = KeyOp::Delete(original_old_value);
-                        self.kv_size.add_val(&delete_value);
-                        e.insert(delete_value);
-                        Ok(())
+                        .into());
+
+                        let delete_op = KeyOp::Delete(old_value);
+                        self.kv_size.add_val(&delete_op);
+                        e.insert(delete_op);
+
+                        res
+                    }
+                    KeyOp::Update(existing_value) => {
+                        let (existing_old_value, existing_new_value) =
+                            std::mem::take(existing_value);
+                        let res = if ENABLE_SANITY_CHECK
+                            && !value_checker(&existing_new_value, &old_value)
+                        {
+                            Err(Box::new(MemTableError::InconsistentOperation {
+                                key: e.key().clone(),
+                                prev: KeyOp::Update((
+                                    existing_old_value.clone(),
+                                    existing_new_value,
+                                )),
+                                new: KeyOp::Delete(old_value),
+                            }))
+                        } else {
+                            Ok(())
+                        };
+
+                        let delete_op = KeyOp::Delete(existing_old_value);
+                        self.kv_size.add_val(&delete_op);
+                        e.insert(delete_op);
+
+                        res
                     }
                 }
             }
@@ -244,57 +273,81 @@ impl MemTable {
         else {
             let key_len = std::mem::size_of::<Bytes>() + pk.len();
 
-            let update_value = KeyOp::Update((old_value, new_value));
-            self.kv_size.add(&pk, &update_value);
-            let origin_value = self.buffer.insert(pk, update_value);
-            self.sub_origin_size(origin_value, key_len);
+            let update_op = KeyOp::Update((old_value, new_value));
+            self.kv_size.add(&pk, &update_op);
+            let existing_op = self.buffer.insert(pk, update_op);
+            self.sub_origin_size(existing_op, key_len);
             return Ok(());
         };
         let entry = self.buffer.entry(pk);
         match entry {
             Entry::Vacant(e) => {
-                let update_value = KeyOp::Update((old_value, new_value));
-                self.kv_size.add(e.key(), &update_value);
-                e.insert(update_value);
+                let update_op = KeyOp::Update((old_value, new_value));
+                self.kv_size.add(e.key(), &update_op);
+                e.insert(update_op);
                 Ok(())
             }
             Entry::Occupied(mut e) => {
-                let origin_value = e.get_mut();
-                self.kv_size.sub_val(origin_value);
-                match origin_value {
-                    KeyOp::Insert(original_new_value) => {
-                        if ENABLE_SANITY_CHECK && !value_checker(original_new_value, &old_value) {
-                            return Err(Box::new(MemTableError::InconsistentOperation {
+                let existing_op = e.get_mut();
+                self.kv_size.sub_val(existing_op);
+                match existing_op {
+                    KeyOp::Insert(existing_new_value) => {
+                        let res = if ENABLE_SANITY_CHECK
+                            && !value_checker(existing_new_value, &old_value)
+                        {
+                            Err(Box::new(MemTableError::InconsistentOperation {
                                 key: e.key().clone(),
                                 prev: e.get().clone(),
-                                new: KeyOp::Update((old_value, new_value)),
-                            }));
-                        }
-                        let new_key_op = KeyOp::Insert(new_value);
-                        self.kv_size.add_val(&new_key_op);
-                        e.insert(new_key_op);
-                        Ok(())
+                                new: KeyOp::Update((old_value, new_value.clone())),
+                            }))
+                        } else {
+                            Ok(())
+                        };
+
+                        let insert_op = KeyOp::Insert(new_value);
+                        self.kv_size.add_val(&insert_op);
+                        e.insert(insert_op);
+
+                        res
                     }
-                    KeyOp::Update((origin_old_value, original_new_value)) => {
-                        if ENABLE_SANITY_CHECK && !value_checker(original_new_value, &old_value) {
-                            return Err(Box::new(MemTableError::InconsistentOperation {
+                    KeyOp::Update(existing_value) => {
+                        let (existing_old_value, existing_new_value) =
+                            std::mem::take(existing_value);
+                        let res = if ENABLE_SANITY_CHECK
+                            && !value_checker(&existing_new_value, &old_value)
+                        {
+                            Err(Box::new(MemTableError::InconsistentOperation {
                                 key: e.key().clone(),
-                                prev: e.get().clone(),
-                                new: KeyOp::Update((old_value, new_value)),
-                            }));
+                                prev: KeyOp::Update((
+                                    existing_old_value.clone(),
+                                    existing_new_value,
+                                )),
+                                new: KeyOp::Update((old_value, new_value.clone())),
+                            }))
+                        } else {
+                            Ok(())
+                        };
+
+                        let update_op = KeyOp::Update((existing_old_value, new_value));
+                        self.kv_size.add_val(&update_op);
+                        e.insert(update_op);
+
+                        res
+                    }
+                    KeyOp::Delete(_) => {
+                        let res = Err(MemTableError::InconsistentOperation {
+                            key: e.key().clone(),
+                            prev: e.get().clone(),
+                            new: KeyOp::Update((old_value.clone(), new_value.clone())),
                         }
-                        let old_value = std::mem::take(origin_old_value);
-                        let new_key_op = KeyOp::Update((old_value, new_value));
-                        self.kv_size.add_val(&new_key_op);
-                        e.insert(new_key_op);
-                        Ok(())
+                        .into());
+
+                        let update_op = KeyOp::Update((old_value, new_value));
+                        self.kv_size.add_val(&update_op);
+                        e.insert(update_op);
+
+                        res
                     }
-                    KeyOp::Delete(_) => Err(MemTableError::InconsistentOperation {
-                        key: e.key().clone(),
-                        prev: e.get().clone(),
-                        new: KeyOp::Update((old_value, new_value)),
-                    }
-                    .into()),
                 }
             }
         }

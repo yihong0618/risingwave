@@ -94,8 +94,6 @@ mod consistency {
     /// The log message will be suppressed if it is called too frequently.
     macro_rules! consistency_error {
         ($($arg:tt)*) => {
-            debug_assert!(!crate::consistency::enable_strict_consistency());
-
             use std::sync::LazyLock;
             use risingwave_common::log::LogSuppresser;
 

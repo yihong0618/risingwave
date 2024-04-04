@@ -67,6 +67,7 @@ use super::watermark::{WatermarkBufferByEpoch, WatermarkBufferStrategy};
 use crate::cache::cache_may_stale;
 use crate::common::cache::{StateCache, StateCacheFiller};
 use crate::common::table::state_table_cache::StateTableWatermarkCache;
+use crate::consistency::{consistency_panic, consistency_error};
 use crate::executor::{StreamExecutorError, StreamExecutorResult};
 
 /// This num is arbitrary and we may want to improve this choice in the future.
@@ -234,7 +235,7 @@ fn consistent_old_value_op(row_serde: impl ValueRowSerde) -> OpConsistencyLevel 
             }
         };
         if first != second {
-            error!(first = ?first, second = ?second, "sanity check fail");
+            consistency_error!(first = ?first, second = ?second, "sanity check fail");
             false
         } else {
             true
@@ -362,13 +363,6 @@ where
             )
         };
 
-        let is_consistent_op = if crate::consistency::insane() {
-            // In insane mode, we will have inconsistent operations applied on the table, even if
-            // our executor code do not expect that.
-            false
-        } else {
-            is_consistent_op
-        };
         let op_consistency_level = if is_consistent_op {
             let row_serde = make_row_serde();
             consistent_old_value_op(row_serde)
@@ -865,7 +859,7 @@ where
         match *e {
             MemTableError::InconsistentOperation { key, prev, new } => {
                 let (vnode, key) = deserialize_pk_with_vnode(&key, &self.pk_serde).unwrap();
-                panic!(
+                consistency_panic!(
                     "mem-table operation inconsistent! table_id: {}, vnode: {}, key: {:?}, prev: {}, new: {}",
                     self.table_id(),
                     vnode,
