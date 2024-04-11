@@ -249,10 +249,10 @@ pub(crate) fn new_input(
     upstream_actor_id: ActorId,
     upstream_fragment_id: FragmentId,
 ) -> StreamResult<BoxedInput> {
-    let upstream_addr = context
-        .get_actor_info(&upstream_actor_id)?
-        .get_host()?
-        .into();
+    let upstream_actor_info = context.get_actor_info(&upstream_actor_id).inspect_err(|e|{
+        tracing::error!(error=%e.as_report(), actor_id, fragment_id, upstream_actor_id, upstream_fragment_id, "failed to get upstream actor");
+    })?;
+    let upstream_addr = upstream_actor_info.get_host()?.into();
 
     let input = if is_local_address(&context.addr, &upstream_addr) {
         LocalInput::new(
