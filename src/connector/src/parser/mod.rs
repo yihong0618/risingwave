@@ -53,7 +53,7 @@ use crate::error::{ConnectorError, ConnectorResult};
 use crate::parser::maxwell::MaxwellParser;
 use crate::parser::simd_json_parser::DebeziumMongoJsonAccessBuilder;
 use crate::parser::util::{
-    extract_header_inner_from_meta, extract_headers_from_meta, extreact_timestamp_from_meta,
+    extract_header_inner_from_meta, extract_headers_from_meta, extract_timestamp_from_meta,
 };
 use crate::schema::schema_registry::SchemaRegistryAuth;
 use crate::source::monitor::GLOBAL_SOURCE_METRICS;
@@ -348,39 +348,33 @@ impl SourceStreamChunkRowWriter<'_> {
                     ) =>
                 {
                     // SourceColumnType is for CDC source only.
-                    return Ok(A::output_for(
+                    Ok(A::output_for(
                         self.row_meta
                             .as_ref()
                             .and_then(|row_meta| row_meta.value_for_column(desc))
                             .unwrap(), // handled all match cases in internal match, unwrap is safe
-                    ));
-                }
-                (_, &Some(AdditionalColumnType::Timestamp(_))) => {
-                    return Ok(A::output_for(
-                        self.row_meta
-                            .as_ref()
-                            .and_then(|ele| extreact_timestamp_from_meta(ele.source_meta()))
-                            .unwrap_or(None),
                     ))
                 }
-                (_, &Some(AdditionalColumnType::Partition(_))) => {
-                    // the meta info does not involve spec connector
-                    return Ok(A::output_for(
+                (_, &Some(AdditionalColumnType::Timestamp(_))) => Ok(A::output_for(
                         self.row_meta
                             .as_ref()
-                            .map(|ele| ScalarImpl::Utf8(ele.split_id().to_string().into())),
-                    ));
+                        .and_then(|ele| extract_timestamp_from_meta(ele.source_meta()))
+                            .unwrap_or(None),
+                )),
+                (_, &Some(AdditionalColumnType::Partition(_))) => {
+                    // the meta info does not involve spec connector
+                    Ok(A::output_for(self.row_meta.as_ref().map(|ele| {
+                        ScalarImpl::Utf8(ele.split_id().to_string().into())
+                    })))
                 }
                 (_, &Some(AdditionalColumnType::Offset(_))) => {
                     // the meta info does not involve spec connector
-                    return Ok(A::output_for(
-                        self.row_meta
-                            .as_ref()
-                            .map(|ele| ScalarImpl::Utf8(ele.offset().to_string().into())),
-                    ));
+                    Ok(A::output_for(self.row_meta.as_ref().map(|ele| {
+                        ScalarImpl::Utf8(ele.offset().to_string().into())
+                    })))
                 }
                 (_, &Some(AdditionalColumnType::HeaderInner(ref header_inner))) => {
-                    return Ok(A::output_for(
+                    Ok(A::output_for(
                         self.row_meta
                             .as_ref()
                             .and_then(|ele| {
@@ -393,21 +387,17 @@ impl SourceStreamChunkRowWriter<'_> {
                             .unwrap_or(None),
                     ))
                 }
-                (_, &Some(AdditionalColumnType::Headers(_))) => {
-                    return Ok(A::output_for(
+                (_, &Some(AdditionalColumnType::Headers(_))) => Ok(A::output_for(
                         self.row_meta
                             .as_ref()
                             .and_then(|ele| extract_headers_from_meta(ele.source_meta()))
                             .unwrap_or(None),
-                    ))
-                }
+                )),
                 (_, &Some(AdditionalColumnType::Filename(_))) => {
                     // Filename is used as partition in FS connectors
-                    return Ok(A::output_for(
-                        self.row_meta
-                            .as_ref()
-                            .map(|ele| ScalarImpl::Utf8(ele.split_id().to_string().into())),
-                    ));
+                    Ok(A::output_for(self.row_meta.as_ref().map(|ele| {
+                        ScalarImpl::Utf8(ele.split_id().to_string().into())
+                    })))
                 }
                 (_, _) => {
                     // For normal columns, call the user provided closure.

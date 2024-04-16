@@ -113,7 +113,7 @@ pub(super) async fn bytes_from_url(
     }
 }
 
-pub fn extreact_timestamp_from_meta(meta: &SourceMeta) -> Option<Datum> {
+pub fn extract_timestamp_from_meta(meta: &SourceMeta) -> Option<Datum> {
     match meta {
         SourceMeta::Kafka(kafka_meta) => kafka_meta.extract_timestamp(),
         _ => None,
