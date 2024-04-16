@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use nexmark::event::Event;
 
 use crate::source::nexmark::source::combined_event::CombinedEvent;
-use crate::source::{SourceMessage, SourceMeta, SplitId};
+use crate::source::{NextOffset, SourceMessage, SourceMeta, SplitId};
 #[derive(Clone, Debug)]
 pub struct NexmarkMeta {
     pub timestamp: Option<i64>,
@@ -34,6 +34,8 @@ impl From<NexmarkMessage> for SourceMessage {
             key: None,
             payload: Some(msg.payload),
             offset: msg.sequence_number.clone(),
+            // TODO(rc): since nexmark source is just for test, let's care about next offset later
+            next_offset: NextOffset::IDontCare,
             split_id: msg.split_id,
             meta: SourceMeta::Nexmark(NexmarkMeta {
                 timestamp: Some(

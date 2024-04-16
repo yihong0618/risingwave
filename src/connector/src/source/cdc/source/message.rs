@@ -15,7 +15,7 @@
 use risingwave_pb::connector_service::CdcMessage;
 
 use crate::source::base::SourceMessage;
-use crate::source::SourceMeta;
+use crate::source::{NextOffset, SourceMeta};
 
 #[derive(Debug, Clone)]
 pub struct DebeziumCdcMeta {
@@ -40,6 +40,10 @@ impl From<CdcMessage> for SourceMessage {
                 Some(message.payload.as_bytes().to_vec())
             },
             offset: message.offset,
+            // use `Unknown` here because we don't know how to get the next offset
+            // see https://debezium.io/documentation/reference/stable/development/engine.html#_handling_failures
+            // TODO(rc): should investigate how to get the next offset, hence to achieve exactly-once semantics
+            next_offset: NextOffset::Unknown,
             split_id: message.partition.into(),
             meta: SourceMeta::DebeziumCdc(DebeziumCdcMeta {
                 full_table_name: message.full_table_name,

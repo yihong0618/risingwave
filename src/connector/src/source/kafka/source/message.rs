@@ -21,7 +21,7 @@ use risingwave_pb::data::DataType as PbDataType;
 
 use crate::parser::additional_columns::get_kafka_header_item_datatype;
 use crate::source::base::SourceMessage;
-use crate::source::SourceMeta;
+use crate::source::{NextOffset, SourceMeta};
 
 #[derive(Debug, Clone)]
 pub struct KafkaMeta {
@@ -92,6 +92,8 @@ impl SourceMessage {
             key: message.key().map(|p| p.to_vec()),
             payload: message.payload().map(|p| p.to_vec()),
             offset: message.offset().to_string(),
+            // use `Relative` here because we can easily get the next offset by adding 1 to the current offset
+            next_offset: NextOffset::Relative,
             split_id: message.partition().to_string().into(),
             meta: SourceMeta::Kafka(KafkaMeta {
                 timestamp: message.timestamp().to_millis(),

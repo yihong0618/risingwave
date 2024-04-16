@@ -15,7 +15,7 @@
 use aws_sdk_kinesis::types::Record;
 use aws_smithy_types_convert::date_time::DateTimeExt;
 
-use crate::source::{SourceMessage, SourceMeta, SplitId};
+use crate::source::{NextOffset, SourceMessage, SourceMeta, SplitId};
 
 #[derive(Clone, Debug)]
 pub struct KinesisMessage {}
@@ -31,6 +31,8 @@ pub fn from_kinesis_record(value: &Record, split_id: SplitId) -> SourceMessage {
         key: Some(value.partition_key.clone().into_bytes()),
         payload: Some(value.data.clone().into_inner()),
         offset: value.sequence_number.clone(),
+        // use `Relative` here because Kinesis supports `ShardIteratorType::AfterSequenceNumber`
+        next_offset: NextOffset::Relative,
         split_id,
         meta: SourceMeta::Kinesis(KinesisMeta {
             timestamp: value

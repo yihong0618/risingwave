@@ -16,7 +16,7 @@ use async_nats;
 use async_nats::jetstream::Message;
 
 use crate::source::base::SourceMessage;
-use crate::source::{SourceMeta, SplitId};
+use crate::source::{NextOffset, SourceMeta, SplitId};
 
 #[derive(Clone, Debug)]
 pub struct NatsMessage {
@@ -32,6 +32,8 @@ impl From<NatsMessage> for SourceMessage {
             payload: Some(message.payload),
             // For nats jetstream, use sequence id as offset
             offset: message.sequence_number,
+            // use `Relative` here because we can easily get the next offset by adding 1 to the current offset
+            next_offset: NextOffset::Relative,
             split_id: message.split_id,
             meta: SourceMeta::Empty,
         }

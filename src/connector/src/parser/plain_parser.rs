@@ -175,7 +175,7 @@ mod tests {
     use super::*;
     use crate::parser::{MessageMeta, SourceStreamChunkBuilder, TransactionControl};
     use crate::source::cdc::DebeziumCdcMeta;
-    use crate::source::{ConnectorProperties, DataType, SourceMessage, SplitId};
+    use crate::source::{ConnectorProperties, DataType, NextOffset, SourceMessage, SplitId};
 
     #[tokio::test]
     async fn test_emit_transactional_chunk() {
@@ -293,6 +293,7 @@ mod tests {
                     }),
                     split_id: SplitId::from("1001"),
                     offset: "0".into(),
+                    next_offset: NextOffset::IDontCare,
                     key: None,
                     payload: Some(begin_msg.as_bytes().to_vec()),
                 });
@@ -307,6 +308,7 @@ mod tests {
                     }),
                     split_id: SplitId::from("1001"),
                     offset: "0".into(),
+                    next_offset: NextOffset::IDontCare,
                     key: None,
                     payload: Some(data_msg.as_bytes().to_vec()),
                 });
@@ -321,6 +323,7 @@ mod tests {
                     }),
                     split_id: SplitId::from("1001"),
                     offset: "0".into(),
+                    next_offset: NextOffset::IDontCare,
                     key: None,
                     payload: Some(commit_msg.as_bytes().to_vec()),
                 });

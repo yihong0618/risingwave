@@ -511,6 +511,22 @@ pub struct Column {
 /// Split id resides in every source message, use `Arc` to avoid copying.
 pub type SplitId = Arc<str>;
 
+#[derive(Debug, Clone, PartialEq, Eq, EnumAsInner)]
+pub enum NextOffset {
+    /// `Absolute` means the next offset is represented as an absolute offset value.
+    /// Should prefer using `Relative` if possible.
+    Absolute(String),
+    /// `Relative` means the next offset is represented as a relative offset from the last seen offset,
+    /// e.g. `After(last_seen_offset)`.
+    Relative,
+    /// `Unknown` means we cannot know the next offset, and should start from last seen offset on recovery.
+    /// This means we can only guarantee at-least-once (instead of exactly-once) semantics for this source.
+    Unknown,
+    /// A placeholder variant. Shouldn't be used in practice, except for testing and some initialization process.
+    /// If you found yourself wanting to use this variant, you probably should use `Unknown` instead.
+    IDontCare,
+}
+
 /// The message pumped from the external source service.
 /// The third-party message structs will eventually be transformed into this struct.
 #[derive(Debug, Clone)]
@@ -518,6 +534,7 @@ pub struct SourceMessage {
     pub key: Option<Vec<u8>>,
     pub payload: Option<Vec<u8>>,
     pub offset: String, // TODO: use `Arc<str>`
+    pub next_offset: NextOffset,
     pub split_id: SplitId,
     pub meta: SourceMeta,
 }
@@ -538,6 +555,7 @@ pub enum SourceMeta {
 impl PartialEq for SourceMessage {
     fn eq(&self, other: &Self) -> bool {
         self.offset == other.offset
+            && self.next_offset == other.next_offset
             && self.split_id == other.split_id
             && self.payload == other.payload
     }

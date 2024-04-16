@@ -14,7 +14,7 @@
 
 use pulsar::consumer::Message;
 
-use crate::source::{SourceMessage, SourceMeta};
+use crate::source::{NextOffset, SourceMessage, SourceMeta};
 
 impl From<Message<Vec<u8>>> for SourceMessage {
     fn from(msg: Message<Vec<u8>>) -> Self {
@@ -30,6 +30,11 @@ impl From<Message<Vec<u8>>> for SourceMessage {
                 message_id.partition.unwrap_or(-1),
                 message_id.batch_index.unwrap_or(-1)
             ),
+            // use `Unknown` here because our current implementation assumes offset
+            // to be a string message id hence it's hard to calculate the next offset
+            // TODO(rc): it's actually possible to calculate the next offset, by not
+            // merging sequence number with other metadata in the offset
+            next_offset: NextOffset::Unknown,
             split_id: msg.topic.into(),
             meta: SourceMeta::Empty,
         }

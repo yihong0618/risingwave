@@ -15,7 +15,7 @@
 use chrono::{TimeZone, Utc};
 use google_cloud_pubsub::subscriber::ReceivedMessage;
 
-use crate::source::{SourceMessage, SourceMeta, SplitId};
+use crate::source::{NextOffset, SourceMessage, SourceMeta, SplitId};
 
 #[derive(Debug, Clone)]
 pub struct GooglePubsubMeta {
@@ -51,6 +51,8 @@ impl From<TaggedReceivedMessage> for SourceMessage {
                 }
             },
             offset: timestamp.timestamp_nanos_opt().unwrap().to_string(),
+            // use `Unknown` here because we don't know whether there's any messages with the same timestamp not consumed
+            next_offset: NextOffset::Unknown,
             split_id,
             meta: SourceMeta::GooglePubsub(GooglePubsubMeta {
                 timestamp: Some(timestamp.timestamp_millis()),

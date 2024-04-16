@@ -23,7 +23,7 @@ use risingwave_common::util::iter_util::ZipEqFast;
 
 use crate::error::ConnectorResult;
 use crate::parser::{EncodingProperties, ProtocolProperties, SpecificParserConfig};
-use crate::source::{SourceMessage, SourceMeta, SplitId};
+use crate::source::{NextOffset, SourceMessage, SourceMeta, SplitId};
 
 pub enum FieldDesc {
     // field is invisible, generate None
@@ -133,6 +133,8 @@ impl DatagenEventGenerator {
                         key: None,
                         payload: Some(payload),
                         offset: self.offset.to_string(),
+                        // TODO(rc): since datagen source is just for test, let's care about next offset later
+                        next_offset: NextOffset::IDontCare,
                         split_id: self.split_id.clone(),
                         meta: SourceMeta::Datagen(DatagenMeta {
                             timestamp: Some(

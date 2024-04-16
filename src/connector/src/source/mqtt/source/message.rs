@@ -15,7 +15,7 @@
 use rumqttc::v5::mqttbytes::v5::Publish;
 
 use crate::source::base::SourceMessage;
-use crate::source::SourceMeta;
+use crate::source::{NextOffset, SourceMeta};
 
 #[derive(Clone, Debug)]
 pub struct MqttMessage {
@@ -31,6 +31,7 @@ impl From<MqttMessage> for SourceMessage {
             payload: Some(message.payload),
             // For nats jetstream, use sequence id as offset
             offset: message.sequence_number,
+            next_offset: NextOffset::Unknown,
             split_id: message.topic.into(),
             meta: SourceMeta::Empty,
         }

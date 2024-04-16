@@ -19,7 +19,7 @@ use futures::AsyncBufReadExt;
 use futures_async_stream::try_stream;
 
 use crate::parser::EncodingProperties;
-use crate::source::{BoxSourceStream, SourceMessage};
+use crate::source::{BoxSourceStream, NextOffset, SourceMessage};
 
 pub fn need_nd_streaming(encode_config: &EncodingProperties) -> bool {
     matches!(encode_config, &EncodingProperties::Json(_))
@@ -97,6 +97,7 @@ pub async fn split_stream(data_stream: BoxSourceStream) {
                         key: None,
                         payload: Some(line.into()),
                         offset: offset.to_string(),
+                        next_offset: NextOffset::IDontCare, // TODO()
                         split_id: split_id.clone(),
                         meta: meta.clone(),
                     };
@@ -161,6 +162,7 @@ mod tests {
                             key: None,
                             payload: Some(buf.to_owned()),
                             offset: (i * N2 + j * N3).to_string(),
+                            next_offset: NextOffset::IDontCare, // TODO()
                             split_id: split_id.clone(),
                             meta: crate::source::SourceMeta::Empty,
                         })

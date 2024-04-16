@@ -39,7 +39,9 @@ use crate::source::filesystem::file_common::FsSplit;
 use crate::source::filesystem::nd_streaming;
 use crate::source::filesystem::nd_streaming::need_nd_streaming;
 use crate::source::filesystem::s3::S3Properties;
-use crate::source::{BoxChunkSourceStream, Column, SourceContextRef, SourceMessage, SourceMeta};
+use crate::source::{
+    BoxChunkSourceStream, Column, NextOffset, SourceContextRef, SourceMessage, SourceMeta,
+};
 
 const MAX_CHANNEL_BUFFER_SIZE: usize = 2048;
 const STREAM_READER_CAPACITY: usize = 4096;
@@ -112,6 +114,7 @@ impl S3FileReader {
                 key: None,
                 payload: Some(bytes.as_ref().to_vec()),
                 offset: offset.to_string(),
+                next_offset: NextOffset::IDontCare, // TODO()
                 split_id: split.id(),
                 meta: SourceMeta::Empty,
             };

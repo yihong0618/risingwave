@@ -29,8 +29,8 @@ use crate::parser::{ByteStreamSourceParserImpl, ParserConfig};
 use crate::source::filesystem::nd_streaming::need_nd_streaming;
 use crate::source::filesystem::{nd_streaming, OpendalFsSplit};
 use crate::source::{
-    BoxChunkSourceStream, Column, SourceContextRef, SourceMessage, SourceMeta, SplitMetaData,
-    SplitReader,
+    BoxChunkSourceStream, Column, NextOffset, SourceContextRef, SourceMessage, SourceMeta,
+    SplitMetaData, SplitReader,
 };
 
 const MAX_CHANNEL_BUFFER_SIZE: usize = 2048;
@@ -148,6 +148,7 @@ impl<Src: OpendalSource> OpendalReader<Src> {
                 key: None,
                 payload: Some(bytes.as_ref().to_vec()),
                 offset: offset.to_string(),
+                next_offset: NextOffset::IDontCare, // TODO()
                 split_id: split.id(),
                 meta: SourceMeta::Empty,
             };

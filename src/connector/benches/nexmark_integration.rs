@@ -26,7 +26,7 @@ use risingwave_connector::parser::{
     ByteStreamSourceParser, JsonParser, SourceParserIntoStreamExt, SpecificParserConfig,
 };
 use risingwave_connector::source::{
-    BoxChunkSourceStream, BoxSourceStream, SourceColumnDesc, SourceMessage, SourceMeta,
+    BoxChunkSourceStream, BoxSourceStream, NextOffset, SourceColumnDesc, SourceMessage, SourceMeta,
 };
 use tracing::Level;
 use tracing_subscriber::prelude::*;
@@ -47,6 +47,7 @@ fn make_batch() -> Vec<SourceMessage> {
         key: None,
         payload: None,     // to be filled
         offset: "".into(), // to be filled
+        next_offset: NextOffset::IDontCare,
         meta: SourceMeta::Empty,
     };
 
@@ -58,6 +59,7 @@ fn make_batch() -> Vec<SourceMessage> {
             SourceMessage {
                 payload: Some(payload),
                 offset: i.to_string(),
+                next_offset: NextOffset::IDontCare,
                 ..message_base.clone()
             }
         })
