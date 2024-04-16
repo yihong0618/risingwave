@@ -86,7 +86,7 @@ impl PlainParser {
     ) -> ConnectorResult<ParseResult> {
         // if the message is transaction metadata, parse it and return
         if let Some(msg_meta) = writer.row_meta
-            && let SourceMeta::DebeziumCdc(cdc_meta) = msg_meta.meta
+            && let SourceMeta::DebeziumCdc(cdc_meta) = msg_meta.source_meta()
             && cdc_meta.is_transaction_meta
             && let Some(data) = payload
         {
@@ -173,9 +173,11 @@ mod tests {
     use risingwave_common::catalog::{ColumnCatalog, ColumnDesc, ColumnId};
 
     use super::*;
-    use crate::parser::{MessageMeta, SourceStreamChunkBuilder, TransactionControl};
+    use crate::parser::{SourceStreamChunkBuilder, TransactionControl};
     use crate::source::cdc::DebeziumCdcMeta;
-    use crate::source::{ConnectorProperties, DataType, NextOffset, SourceMessage, SplitId};
+    use crate::source::{
+        ConnectorProperties, DataType, NextOffset, SourceMessage, SourceMessageMeta, SplitId,
+    };
 
     #[tokio::test]
     async fn test_emit_transactional_chunk() {
@@ -371,18 +373,14 @@ mod tests {
             source_ts_ms: 0,
             is_transaction_meta: true,
         });
-        let msg_meta = MessageMeta {
-            meta: &cdc_meta,
-            split_id: "1001",
-            offset: "",
-        };
+        let msg_meta = SourceMessageMeta::for_test(cdc_meta, "1001".into(), "".to_string());
 
         let expect_tx_id = "3E11FA47-71CA-11E1-9E33-C80AA9429562:23";
         let res = parser
             .parse_one_with_txn(
                 None,
                 Some(begin_msg.as_bytes().to_vec()),
-                builder.row_writer().with_meta(msg_meta),
+                builder.row_writer().with_meta(&msg_meta),
             )
             .await;
         match res {
@@ -395,7 +393,7 @@ mod tests {
             .parse_one_with_txn(
                 None,
                 Some(commit_msg.as_bytes().to_vec()),
-                builder.row_writer().with_meta(msg_meta),
+                builder.row_writer().with_meta(&msg_meta),
             )
             .await;
         match res {
