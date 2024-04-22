@@ -272,7 +272,10 @@ pub fn partition_overlapping_sstable_infos(
     }
     impl PartialOrd for SstableGroup {
         fn partial_cmp(&self, other: &SstableGroup) -> Option<std::cmp::Ordering> {
-            Some(KeyComparator::compare_encoded_full_key(&other.max_right_bound, &self.max_right_bound))
+            Some(KeyComparator::compare_encoded_full_key(
+                &other.max_right_bound,
+                &self.max_right_bound,
+            ))
         }
     }
     impl Eq for SstableGroup {}
@@ -289,8 +292,10 @@ pub fn partition_overlapping_sstable_infos(
     });
     for sst in origin_infos {
         if let Some(mut prev_group) = groups.peek_mut() {
-            if KeyComparator::encoded_full_key_less_than(&prev_group.max_right_bound,
-                    &sst.key_range.as_ref().unwrap().left) {
+            if KeyComparator::encoded_full_key_less_than(
+                &prev_group.max_right_bound,
+                &sst.key_range.as_ref().unwrap().left,
+            ) {
                 prev_group.max_right_bound = sst.key_range.as_ref().unwrap().right.clone();
                 prev_group.ssts.push(sst);
                 continue;

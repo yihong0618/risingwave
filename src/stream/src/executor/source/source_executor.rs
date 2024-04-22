@@ -430,6 +430,19 @@ impl<S: StateStore> SourceExecutor<S> {
             source_chunk_reader,
         );
 
+        let disabled_source_ids: HashSet<u32> = std::env::var("RW_DISABLED_SOURCE_IDS")
+            .unwrap_or("".into())
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(|id| id.parse().unwrap())
+            .collect();
+
+        let sid = self.stream_source_core.as_ref().unwrap().source_id.table_id;
+        if disabled_source_ids.contains(&sid) {
+            tracing::debug!(sid, "source is disabled");
+            stream.disable_stream();
+        }
+
         // If the first barrier requires us to pause on startup, pause the stream.
         if barrier.is_pause_on_startup() {
             stream.pause_stream();

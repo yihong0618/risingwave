@@ -45,6 +45,7 @@ pub(super) struct StreamReaderWithPause<const BIASED: bool, M> {
     inner: StreamReaderWithPauseInner<M>,
     /// Whether the source stream is paused.
     paused: bool,
+    disabled: bool,
 }
 
 impl<const BIASED: bool, M: Send + 'static> StreamReaderWithPause<BIASED, M> {
@@ -72,6 +73,7 @@ impl<const BIASED: bool, M: Send + 'static> StreamReaderWithPause<BIASED, M> {
         Self {
             inner,
             paused: false,
+            disabled: false,
         }
     }
 
@@ -115,6 +117,10 @@ impl<const BIASED: bool, M: Send + 'static> StreamReaderWithPause<BIASED, M> {
         assert!(self.paused, "not paused");
         self.paused = false;
     }
+
+    pub fn disable_stream(&mut self) {
+        self.disabled = true;
+    }
 }
 
 impl<const BIASED: bool, M> Stream for StreamReaderWithPause<BIASED, M> {
@@ -124,7 +130,7 @@ impl<const BIASED: bool, M> Stream for StreamReaderWithPause<BIASED, M> {
         mut self: Pin<&mut Self>,
         ctx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        if self.paused {
+        if self.paused || self.disabled {
             // Note: It is safe here to poll the left arm even if it contains streaming messages
             // other than barriers: after the upstream executor sends a `Mutation::Pause`, there
             // should be no more message until a `Mutation::Update` and a 'Mutation::Resume`.
