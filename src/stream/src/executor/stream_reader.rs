@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::ops::Add;
 use std::pin::Pin;
 use std::task::Poll;
+use std::time::{Duration, Instant};
 
 use either::Either;
 use futures::stream::{select_with_strategy, BoxStream, PollNext, SelectWithStrategy};
@@ -46,6 +48,9 @@ pub(super) struct StreamReaderWithPause<const BIASED: bool, M> {
     /// Whether the source stream is paused.
     paused: bool,
     disabled: bool,
+    throttle_group_id: Option<u32>,
+    throttle_group_interval_sec: u64,
+    next_tick: Instant,
 }
 
 impl<const BIASED: bool, M: Send + 'static> StreamReaderWithPause<BIASED, M> {
@@ -74,6 +79,9 @@ impl<const BIASED: bool, M: Send + 'static> StreamReaderWithPause<BIASED, M> {
             inner,
             paused: false,
             disabled: false,
+            throttle_group_id: None,
+            throttle_group_interval_sec: 0,
+            next_tick: Instant::now(),
         }
     }
 
@@ -121,6 +129,20 @@ impl<const BIASED: bool, M: Send + 'static> StreamReaderWithPause<BIASED, M> {
     pub fn disable_stream(&mut self) {
         self.disabled = true;
     }
+
+    pub fn set_throttle_group_id(&mut self, group_id: u32) {
+        self.throttle_group_id = Some(group_id);
+    }
+
+    pub fn set_throttle_group_interval_sec(&mut self, interval_sec: u64) {
+        self.throttle_group_interval_sec = interval_sec;
+    }
+
+    pub fn ack_tick(&mut self) {
+        let now = Instant::now();
+        self.next_tick = now.add(Duration::from_secs(self.throttle_group_interval_sec));
+        tracing::debug!("ack_tick {:?} {:?}", now, self.next_tick);
+    }
 }
 
 impl<const BIASED: bool, M> Stream for StreamReaderWithPause<BIASED, M> {
@@ -130,7 +152,21 @@ impl<const BIASED: bool, M> Stream for StreamReaderWithPause<BIASED, M> {
         mut self: Pin<&mut Self>,
         ctx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        if self.paused || self.disabled {
+        if self.disabled {
+            return self.inner.get_mut().0.poll_next_unpin(ctx);
+        }
+        if let Some(_group_id) = &self.throttle_group_id {
+            let now = Instant::now();
+            if now >= self.next_tick {
+                tracing::debug!("poll all {:?} {:?}", now, self.next_tick);
+                return self.inner.poll_next_unpin(ctx);
+            } else {
+                tracing::debug!("poll barrier {:?} {:?}", now, self.next_tick);
+                return self.inner.get_mut().0.poll_next_unpin(ctx);
+            }
+        }
+
+        if self.paused {
             // Note: It is safe here to poll the left arm even if it contains streaming messages
             // other than barriers: after the upstream executor sends a `Mutation::Pause`, there
             // should be no more message until a `Mutation::Update` and a 'Mutation::Resume`.

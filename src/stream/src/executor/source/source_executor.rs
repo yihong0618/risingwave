@@ -436,11 +436,26 @@ impl<S: StateStore> SourceExecutor<S> {
             .filter(|s| !s.is_empty())
             .map(|id| id.parse().unwrap())
             .collect();
+        let throttle_groups: HashMap<u32, u64> = std::env::var("RW_SOURCE_THROTTLE_GROUPS")
+            .unwrap_or("".into())
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(|p| {
+                let s = p.split(':').collect_vec();
+                (s[0].parse().unwrap(), s[1].parse().unwrap())
+            })
+            .collect();
 
         let sid = self.stream_source_core.as_ref().unwrap().source_id.table_id;
         if disabled_source_ids.contains(&sid) {
             tracing::debug!(sid, "source is disabled");
             stream.disable_stream();
+        }
+
+        if let Some(interval_sec) = throttle_groups.get(&sid) {
+            tracing::debug!(sid, "source is throttled by group");
+            stream.set_throttle_group_id(sid);
+            stream.set_throttle_group_interval_sec(*interval_sec);
         }
 
         // If the first barrier requires us to pause on startup, pause the stream.
@@ -561,6 +576,7 @@ impl<S: StateStore> SourceExecutor<S> {
                             chunk,
                             split_offset_mapping,
                         }) => {
+                            stream.ack_tick();
                             if last_barrier_time.elapsed().as_millis() > max_wait_barrier_time_ms {
                                 // Exceeds the max wait barrier time, the source will be paused.
                                 // Currently we can guarantee the
