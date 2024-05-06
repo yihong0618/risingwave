@@ -330,7 +330,7 @@ impl EpochWithGap {
     }
 
     // return the epoch_with_gap(epoch + spill_offset)
-    pub(crate) fn as_u64(&self) -> HummockEpoch {
+    pub fn as_u64(&self) -> HummockEpoch {
         self.0
     }
 
