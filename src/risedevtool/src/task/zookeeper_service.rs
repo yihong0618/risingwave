@@ -19,49 +19,38 @@ use std::process::Command;
 use anyhow::{anyhow, Result};
 
 use super::{ExecuteContext, Task};
-use crate::{KafkaConfig, KafkaGen};
+use crate::{ZooKeeperConfig, ZooKeeperGen};
 
-pub struct KafkaService {
-    config: KafkaConfig,
+pub struct ZooKeeperService {
+    config: ZooKeeperConfig,
 }
 
-impl KafkaService {
-    pub fn new(config: KafkaConfig) -> Result<Self> {
+impl ZooKeeperService {
+    pub fn new(config: ZooKeeperConfig) -> Result<Self> {
         Ok(Self { config })
     }
 
-    fn kafka_path(&self) -> Result<PathBuf> {
+    fn zookeeper_path(&self) -> Result<PathBuf> {
         let prefix_bin = env::var("PREFIX_BIN")?;
         Ok(Path::new(&prefix_bin)
             .join("kafka")
             .join("bin")
-            .join("kafka-server-start.sh"))
+            .join("zookeeper-server-start.sh"))
     }
 
-    fn kafka(&self) -> Result<Command> {
-        Ok(Command::new(self.kafka_path()?))
+    fn zookeeper(&self) -> Result<Command> {
+        Ok(Command::new(self.zookeeper_path()?))
     }
 }
 
-impl Task for KafkaService {
+impl Task for ZooKeeperService {
     fn execute(&mut self, ctx: &mut ExecuteContext<impl std::io::Write>) -> anyhow::Result<()> {
         ctx.service(self);
-
-        if self.config.user_managed {
-            ctx.pb.set_message("user managed");
-            writeln!(
-                &mut ctx.log,
-                "Please start your Kafka at {}:{}\n\n",
-                self.config.address, self.config.port
-            )?;
-            return Ok(());
-        }
-
         ctx.pb.set_message("starting...");
 
-        let path = self.kafka_path()?;
+        let path = self.zookeeper_path()?;
         if !path.exists() {
-            return Err(anyhow!("Kafka binary not found in {:?}\nDid you enable kafka feature in `./risedev configure`?", path));
+            return Err(anyhow!("ZooKeeper binary not found in {:?}\nDid you enable kafka feature in `./risedev configure`?", path));
         }
 
         let prefix_config = env::var("PREFIX_CONFIG")?;
@@ -78,10 +67,10 @@ impl Task for KafkaService {
         let config_path = Path::new(&prefix_config).join(format!("{}.properties", self.id()));
         fs_err::write(
             &config_path,
-            KafkaGen.gen_server_properties(&self.config, &path.to_string_lossy()),
+            ZooKeeperGen.gen_server_properties(&self.config, &path.to_string_lossy()),
         )?;
 
-        let mut cmd = self.kafka()?;
+        let mut cmd = self.zookeeper()?;
 
         cmd.arg(config_path);
 

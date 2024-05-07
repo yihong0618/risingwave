@@ -201,6 +201,9 @@ fn main() -> Result<()> {
             ServiceConfig::Pubsub(_) => {
                 return Err(anyhow!("not supported, please use redpanda instead"))
             }
+            ServiceConfig::ZooKeeper(_) => {
+                return Err(anyhow!("not supported, please use redpanda instead"))
+            }
             ServiceConfig::Opendal(_) => continue,
             ServiceConfig::AwsS3(_) => continue,
             ServiceConfig::RedPanda(c) => {

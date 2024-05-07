@@ -272,12 +272,11 @@ pub struct KafkaConfig {
     pub address: String,
     #[serde(with = "string")]
     pub port: u16,
-    #[serde(with = "string")]
-    pub controller_port: u16,
     pub listen_address: String,
 
+    pub provide_zookeeper: Option<Vec<ZooKeeperConfig>>,
     pub persist_data: bool,
-    pub node_id: u32,
+    pub broker_id: u32,
 
     pub user_managed: bool,
 }
@@ -291,6 +290,22 @@ pub struct PubsubConfig {
     #[serde(with = "string")]
     pub port: u16,
     pub address: String,
+
+    pub persist_data: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+#[serde(deny_unknown_fields)]
+pub struct ZooKeeperConfig {
+    #[serde(rename = "use")]
+    phantom_use: Option<String>,
+    pub id: String,
+
+    pub address: String,
+    #[serde(with = "string")]
+    pub port: u16,
+    pub listen_address: String,
 
     pub persist_data: bool,
 }
@@ -359,6 +374,7 @@ pub enum ServiceConfig {
     Kafka(KafkaConfig),
     Pubsub(PubsubConfig),
     Redis(RedisConfig),
+    ZooKeeper(ZooKeeperConfig),
     RedPanda(RedPandaConfig),
     MySql(MySqlConfig),
 }
@@ -377,6 +393,7 @@ impl ServiceConfig {
             Self::Grafana(c) => &c.id,
             Self::Tempo(c) => &c.id,
             Self::AwsS3(c) => &c.id,
+            Self::ZooKeeper(c) => &c.id,
             Self::Kafka(c) => &c.id,
             Self::Pubsub(c) => &c.id,
             Self::Redis(c) => &c.id,
@@ -399,6 +416,7 @@ impl ServiceConfig {
             Self::Grafana(c) => Some(c.port),
             Self::Tempo(c) => Some(c.port),
             Self::AwsS3(_) => None,
+            Self::ZooKeeper(c) => Some(c.port),
             Self::Kafka(c) => Some(c.port),
             Self::Pubsub(c) => Some(c.port),
             Self::Redis(c) => Some(c.port),
@@ -421,6 +439,7 @@ impl ServiceConfig {
             Self::Grafana(_c) => false,
             Self::Tempo(_c) => false,
             Self::AwsS3(_c) => false,
+            Self::ZooKeeper(_c) => false,
             Self::Kafka(c) => c.user_managed,
             Self::Pubsub(_c) => false,
             Self::Redis(_c) => false,
