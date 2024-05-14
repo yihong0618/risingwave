@@ -82,6 +82,7 @@ pub(crate) enum ScalarAdapter<'a> {
     // we use the PgNumeric type to convert the decimal to a string/decimal/rw_int256.
     Numeric(PgNumeric),
     Enum(EnumString),
+    List(Vec<Option<ScalarAdapter<'a>>>),
     NumericList(Vec<Option<PgNumeric>>),
 }
 
@@ -99,6 +100,7 @@ impl ToSql for ScalarAdapter<'_> {
             ScalarAdapter::Numeric(v) => v.to_sql(ty, out),
             ScalarAdapter::Enum(v) => v.to_sql(ty, out),
             ScalarAdapter::NumericList(v) => v.to_sql(ty, out),
+            ScalarAdapter::List(v) => v.to_sql(ty, out),
         }
     }
 
@@ -121,7 +123,8 @@ impl<'a> FromSql<'a> for ScalarAdapter<'_> {
             },
             Kind::Enum(_) => Ok(ScalarAdapter::Enum(EnumString::from_sql(ty, raw)?)),
             Kind::Array(Type::NUMERIC) => {
-                Ok(ScalarAdapter::NumericList(FromSql::from_sql(ty, raw)?))
+                // Ok(ScalarAdapter::NumericList(FromSql::from_sql(ty, raw)?))
+                Ok(ScalarAdapter::List(FromSql::from_sql(ty, raw)?))
             }
             _ => Err(anyhow!("failed to convert type {:?} to ScalarAdapter", ty).into()),
         }
@@ -141,6 +144,7 @@ impl ScalarAdapter<'_> {
             ScalarAdapter::Numeric(_) => "Numeric",
             ScalarAdapter::Enum(_) => "Enum",
             ScalarAdapter::NumericList(_) => "NumericList",
+            ScalarAdapter::List(_) => "List",
         }
     }
 
@@ -161,19 +165,15 @@ impl ScalarAdapter<'_> {
                 ScalarAdapter::Enum(EnumString(s.to_owned()))
             }
             (ScalarRefImpl::List(list), &Type::NUMERIC_ARRAY, _) => {
-                let mut vec = vec![];
-                for scalar in list.iter() {
-                    vec.push(match scalar {
-                        Some(ScalarRefImpl::Int256(s)) => Some(string_to_pg_numeric(&s.to_string())),
-                        Some(ScalarRefImpl::Decimal(s)) => Some(string_to_pg_numeric(&s.to_string())),
-                        Some(ScalarRefImpl::Utf8(s)) => Some(string_to_pg_numeric(s)),
-                        None => None,
-                        _ => {
-                            unreachable!("Currently, only rw-numeric[], rw_int256[] and varchar[] are supported to convert to pg-numeric[]");
-                        }
-                    }.transpose()?)
+                let mut vec = Vec::with_capacity(list.len());
+                for datum in list.iter() {
+                    vec.push(
+                        datum
+                            .map(|scalar| ScalarAdapter::from_scalar(scalar, &Type::NUMERIC))
+                            .transpose()?,
+                    );
                 }
-                ScalarAdapter::NumericList(vec)
+                ScalarAdapter::List(vec)
             }
             _ => ScalarAdapter::Builtin(scalar),
         })
@@ -192,6 +192,16 @@ impl ScalarAdapter<'_> {
                 pg_numeric_to_rw_int256(&numeric)
             }
             (ScalarAdapter::Enum(EnumString(s)), &DataType::Varchar) => Some(ScalarImpl::from(s)),
+            (ScalarAdapter::List(vec), &DataType::List(dtype)) => {
+                let mut builder = dtype.create_array_builder(0);
+                for val in vec {
+                    match (val, dtype) {
+                        (Some(scalar), _) => builder.append(scalar.into_scalar(dtype)),
+                        (None, _) => builder.append(None as Option<ScalarImpl>),
+                    }
+                }
+                Some(ScalarImpl::from(ListValue::new(builder.finish())))
+            }
             (ScalarAdapter::NumericList(vec), &DataType::List(dtype)) => {
                 let mut builder = dtype.create_array_builder(0);
                 for val in vec {
