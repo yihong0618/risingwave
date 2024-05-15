@@ -12,7 +12,7 @@ repository = { workspace = true }
 # some crates opt-in static linking, while some opt-in dynamic linking,
 # so they are two features :)
 rw-static-link = ["static-libz-sys", "static-lzma-sys", "static-openssl-sys", "static-sasl2-sys"]
-rw-dynamic-link = ["dynamic-zstd-sys"]
+rw-dynamic-link = ["dynamic-zstd-sys", "dynamic-rdkafka-sys"]
 
 [dependencies]
 # Disable verbose logs for release builds
@@ -26,6 +26,7 @@ static-openssl-sys = { package = "openssl-sys", version = "0.9.96", optional = t
 static-sasl2-sys = { package = "sasl2-sys", version = "0.1", optional = true, features = ["gssapi-vendored"] }
 
 # Dynamic linking
+dynamic-rdkafka-sys = { package = "rdkafka-sys", version = "4.7", optional = true, features = ["dynamic-linking"] }
 dynamic-zstd-sys = { package = "zstd-sys", version = "2", optional = true, default-features = false, features = ["pkg-config"] }
 # workspace-hack = { path = "../../workspace-hack" }
 # Don't add workspace-hack into this crate!

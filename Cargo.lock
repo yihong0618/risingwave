@@ -16298,6 +16298,7 @@ dependencies = [
  "log",
  "lzma-sys",
  "openssl-sys",
+ "rdkafka-sys",
  "sasl2-sys",
  "tracing",
  "zstd-sys",
