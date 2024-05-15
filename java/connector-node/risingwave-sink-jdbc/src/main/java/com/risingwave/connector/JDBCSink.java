@@ -311,6 +311,7 @@ public class JDBCSink implements SinkWriter {
                         .asRuntimeException();
             }
             try {
+                LOG.info("Bind delete statement:{}, row:{}", deleteStatement, row);
                 jdbcDialect.bindDeleteStatement(deleteStatement, row);
                 deleteStatement.addBatch();
             } catch (SQLException e) {
@@ -343,6 +344,9 @@ public class JDBCSink implements SinkWriter {
 
         public void execute() throws SQLException {
             // We execute DELETE statement before to avoid accidentally deletion.
+            LOG.info("Executing delete statement: {}", this.deleteStatement);
+            LOG.info("Executing upsert statement: {}", this.upsertStatement);
+            LOG.info("Executing insert statement: {}", this.insertStatement);
             executeStatement(this.deleteStatement);
             executeStatement(this.upsertStatement);
             executeStatement(this.insertStatement);

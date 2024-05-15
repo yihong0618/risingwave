@@ -23,12 +23,15 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class MySqlDialect implements JdbcDialect {
 
     private final int[] columnSqlTypes;
     private final int[] pkIndices;
     private final int[] pkColumnSqlTypes;
+    private static final Logger LOG = LoggerFactory.getLogger(MySqlDialect.class);
 
     public MySqlDialect(List<Integer> columnSqlTypes, List<Integer> pkIndices) {
         this.columnSqlTypes = columnSqlTypes.stream().mapToInt(i -> i).toArray();
@@ -121,6 +124,8 @@ public class MySqlDialect implements JdbcDialect {
     public void bindDeleteStatement(PreparedStatement stmt, SinkRow row) throws SQLException {
         // set the values of primary key fields
         int placeholderIdx = 1;
+        LOG.info("pkIndices:{}", pkIndices);
+        LOG.info("pkColumnSqlTypes:{}", pkColumnSqlTypes);
         for (int idx : pkIndices) {
             Object pkField = row.get(idx);
             stmt.setObject(placeholderIdx++, pkField, pkColumnSqlTypes[idx]);
