@@ -54,7 +54,7 @@ else
 end
 
 if ${is_not_release} and ${is_dynamic_linking}
-  set_env RISINGWAVE_FEATURE_FLAGS "--features rw-dynamic-link --no-default-features"
+  set_env RISINGWAVE_FEATURE_FLAGS "--features rw-dynamic-link"
 else
   set_env RISINGWAVE_FEATURE_FLAGS "--features rw-static-link"
 end
