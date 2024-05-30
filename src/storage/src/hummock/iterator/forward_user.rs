@@ -139,7 +139,7 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
         self.try_advance_to_next_valid().await?;
         match &self.key_range.0 {
             Excluded(begin_key) => {
-                if self.key().user_key == begin_key.as_ref() {
+                if self.is_valid() && self.key().user_key == begin_key.as_ref() {
                     self.next().await?;
                 }
             }
@@ -176,6 +176,7 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
         self.try_advance_to_next_valid().await?;
         if let Excluded(begin_key) = &self.key_range.0
             && begin_key.as_ref() >= user_key
+            && self.is_valid()
             && self.key().user_key == begin_key.as_ref()
         {
             self.next().await?;
