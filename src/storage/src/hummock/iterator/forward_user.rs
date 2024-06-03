@@ -14,6 +14,7 @@
 
 use std::ops::Bound::*;
 
+use more_asserts::debug_assert_ge;
 use risingwave_common::must_match;
 use risingwave_common::util::epoch::MAX_SPILL_TIMES;
 use risingwave_hummock_sdk::key::{FullKey, FullKeyTracker, UserKey, UserKeyRange};
@@ -173,10 +174,10 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
 
         self.try_advance_to_next_valid().await?;
         if let Excluded(begin_key) = &self.key_range.0
-            && begin_key.as_ref() >= user_key
             && self.is_valid()
             && self.key().user_key == begin_key.as_ref()
         {
+            debug_assert_ge!(begin_key.as_ref(), user_key);
             self.next().await?;
         }
         Ok(())

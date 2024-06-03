@@ -15,6 +15,7 @@
 use std::ops::Bound::*;
 
 use bytes::Bytes;
+use more_asserts::debug_assert_le;
 use risingwave_hummock_sdk::key::{FullKey, UserKey, UserKeyRange};
 use risingwave_hummock_sdk::{EpochWithGap, HummockEpoch};
 
@@ -226,10 +227,11 @@ impl<I: HummockIterator<Direction = Backward>> BackwardUserIterator<I> {
         self.reset();
         // Handle range scan when key < begin_key
         self.next().await?;
-        if let Excluded(end_key) = &self.key_range.1 {
-            if self.is_valid() && self.last_key.user_key.as_ref() == end_key.as_ref() {
-                self.next().await?;
-            }
+        if let Excluded(end_key) = &self.key_range.1
+            && self.is_valid()
+            && self.key().user_key == end_key.as_ref()
+        {
+            self.next().await?;
         }
         Ok(())
     }
@@ -259,10 +261,10 @@ impl<I: HummockIterator<Direction = Backward>> BackwardUserIterator<I> {
         // Handle range scan when key < begin_key
         self.next().await?;
         if let Excluded(end_key) = &self.key_range.1
-            && end_key.as_ref() >= user_key
             && self.is_valid()
             && self.key().user_key == end_key.as_ref()
         {
+            debug_assert_le!(end_key.as_ref(), user_key);
             self.next().await?;
         }
         Ok(())
@@ -759,6 +761,11 @@ mod tests {
         assert_eq!(bui.key(), iterator_test_bytes_key_of_epoch(3, 100).to_ref());
         bui.next().await.unwrap();
         assert!(!bui.is_valid());
+        bui.seek(iterator_test_user_key_of(7).as_ref())
+            .await
+            .unwrap();
+        assert!(bui.is_valid());
+        assert_eq!(bui.key(), iterator_test_bytes_key_of_epoch(3, 100).to_ref());
     }
 
     // left..
