@@ -692,11 +692,17 @@ mod tests {
         ];
         let sstable =
             gen_iterator_test_sstable_from_kv_pair(0, kv_pairs, sstable_store.clone()).await;
-        let backward_iters = vec![BackwardSstableIterator::new(sstable, sstable_store)];
+        let backward_iters = vec![BackwardSstableIterator::new(
+            sstable.clone(),
+            sstable_store.clone(),
+        )];
         let bmi = MergeIterator::new(backward_iters);
         let end_key = Included(iterator_test_bytes_user_key_of(7));
 
-        let mut bui = BackwardUserIterator::for_test(bmi, (Unbounded, end_key));
+        let mut bui = BackwardUserIterator::for_test(
+            bmi,
+            (Included(iterator_test_bytes_user_key_of(2)), end_key),
+        );
 
         // ----- basic iterate -----
         bui.rewind().await.unwrap();
@@ -705,8 +711,6 @@ mod tests {
         assert_eq!(bui.key(), iterator_test_bytes_key_of_epoch(3, 100).to_ref());
         bui.next().await.unwrap();
         assert_eq!(bui.key(), iterator_test_bytes_key_of_epoch(2, 300).to_ref());
-        bui.next().await.unwrap();
-        assert_eq!(bui.key(), iterator_test_bytes_key_of_epoch(1, 200).to_ref());
         bui.next().await.unwrap();
         assert!(!bui.is_valid());
 
@@ -720,8 +724,6 @@ mod tests {
         bui.next().await.unwrap();
         assert_eq!(bui.key(), iterator_test_bytes_key_of_epoch(2, 300).to_ref());
         bui.next().await.unwrap();
-        assert_eq!(bui.key(), iterator_test_bytes_key_of_epoch(1, 200).to_ref());
-        bui.next().await.unwrap();
         assert!(!bui.is_valid());
 
         // ----- in-range iterate -----
@@ -734,14 +736,28 @@ mod tests {
         bui.next().await.unwrap();
         assert_eq!(bui.key(), iterator_test_bytes_key_of_epoch(2, 300).to_ref());
         bui.next().await.unwrap();
-        assert_eq!(bui.key(), iterator_test_bytes_key_of_epoch(1, 200).to_ref());
-        bui.next().await.unwrap();
         assert!(!bui.is_valid());
 
         // ----- begin-range iterate -----
         bui.seek(iterator_test_user_key_of(0).as_ref())
             .await
             .unwrap();
+        assert!(!bui.is_valid());
+
+        let end_key = Excluded(iterator_test_bytes_user_key_of(6));
+        let backward_iters = vec![BackwardSstableIterator::new(sstable, sstable_store)];
+        let bmi = MergeIterator::new(backward_iters);
+        let mut bui = BackwardUserIterator::for_test(
+            bmi,
+            (Excluded(iterator_test_bytes_user_key_of(2)), end_key),
+        );
+        // ----- basic iterate -----
+        bui.seek(iterator_test_user_key_of(6).as_ref())
+            .await
+            .unwrap();
+        assert!(bui.is_valid());
+        assert_eq!(bui.key(), iterator_test_bytes_key_of_epoch(3, 100).to_ref());
+        bui.next().await.unwrap();
         assert!(!bui.is_valid());
     }
 
