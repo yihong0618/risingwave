@@ -570,7 +570,7 @@ mod tests {
         let table =
             gen_iterator_test_sstable_from_kv_pair(0, kv_pairs, sstable_store.clone()).await;
         let read_options = Arc::new(SstableIteratorReadOptions::default());
-        let iters = vec![SstableIterator::create(table, sstable_store, read_options)];
+        let iters = vec![SstableIterator::create(table.clone(), sstable_store.clone(), read_options.clone())];
         let mi = MergeIterator::new(iters);
 
         let begin_key = Included(iterator_test_bytes_user_key_of(2));
@@ -623,6 +623,36 @@ mod tests {
             .await
             .unwrap();
         assert!(!ui.is_valid());
+
+        let iters = vec![SstableIterator::create(table, sstable_store, read_options)];
+        let mi = MergeIterator::new(iters);
+
+        let begin_key = Excluded(iterator_test_bytes_user_key_of(2));
+        let end_key = Excluded(iterator_test_bytes_user_key_of(7));
+
+        let mut ui = UserIterator::for_test(mi, (begin_key, end_key));
+        // ----- after-end-range iterate -----
+        ui.seek(iterator_test_bytes_user_key_of(1).as_ref())
+            .await
+            .unwrap();
+        assert!(ui.is_valid());
+        assert_eq!(ui.key(), iterator_test_bytes_key_of_epoch(3, 100).to_ref());
+        ui.seek(iterator_test_bytes_user_key_of(2).as_ref())
+            .await
+            .unwrap();
+        assert!(ui.is_valid());
+        assert_eq!(ui.key(), iterator_test_bytes_key_of_epoch(3, 100).to_ref());
+        ui.seek(iterator_test_bytes_user_key_of(3).as_ref())
+            .await
+            .unwrap();
+        assert!(ui.is_valid());
+        assert_eq!(ui.key(), iterator_test_bytes_key_of_epoch(3, 100).to_ref());
+        ui.seek(iterator_test_bytes_user_key_of(4).as_ref())
+            .await
+            .unwrap();
+        assert!(ui.is_valid());
+        assert_eq!(ui.key(), iterator_test_bytes_key_of_epoch(6, 100).to_ref());
+
     }
 
     // ..=right
