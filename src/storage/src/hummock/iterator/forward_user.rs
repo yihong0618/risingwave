@@ -126,10 +126,10 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
         match &self.key_range.0 {
             Included(begin_key) | Excluded(begin_key) => {
                 let full_key = FullKey {
-                    user_key: begin_key.clone(),
+                    user_key: begin_key.as_ref(),
                     epoch_with_gap: EpochWithGap::new(self.read_epoch, MAX_SPILL_TIMES),
                 };
-                self.iterator.seek(full_key.to_ref()).await?;
+                self.iterator.seek(full_key).await?;
             }
             Unbounded => {
                 self.iterator.rewind().await?;
@@ -137,13 +137,11 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
         };
 
         self.try_advance_to_next_valid().await?;
-        match &self.key_range.0 {
-            Excluded(begin_key) => {
-                if self.is_valid() && self.key().user_key == begin_key.as_ref() {
-                    self.next().await?;
-                }
-            }
-            _ => {}
+        if let Excluded(begin_key) = &self.key_range.0
+            && self.is_valid()
+            && self.key().user_key == begin_key.as_ref()
+        {
+            self.next().await?;
         }
         Ok(())
     }
@@ -168,7 +166,7 @@ impl<I: HummockIterator<Direction = Forward>> UserIterator<I> {
         };
 
         let full_key = FullKey {
-            user_key: seek_key.clone(),
+            user_key: seek_key,
             epoch_with_gap: EpochWithGap::new(self.read_epoch, MAX_SPILL_TIMES),
         };
         self.iterator.seek(full_key).await?;

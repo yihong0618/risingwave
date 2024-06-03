@@ -214,10 +214,10 @@ impl<I: HummockIterator<Direction = Backward>> BackwardUserIterator<I> {
         match &self.key_range.1 {
             Included(end_key) | Excluded(end_key) => {
                 let full_key = FullKey {
-                    user_key: end_key.clone(),
+                    user_key: end_key.as_ref(),
                     epoch_with_gap: EpochWithGap::new_min_epoch(),
                 };
-                self.iterator.seek(full_key.to_ref()).await?;
+                self.iterator.seek(full_key).await?;
             }
             Unbounded => self.iterator.rewind().await?,
         };
@@ -249,7 +249,7 @@ impl<I: HummockIterator<Direction = Backward>> BackwardUserIterator<I> {
             Unbounded => user_key,
         };
         let full_key = FullKey {
-            user_key: seek_key.clone(),
+            user_key: seek_key,
             epoch_with_gap: EpochWithGap::new_min_epoch(),
         };
         self.iterator.seek(full_key).await?;
@@ -260,10 +260,10 @@ impl<I: HummockIterator<Direction = Backward>> BackwardUserIterator<I> {
         self.next().await?;
         if let Excluded(end_key) = &self.key_range.1
             && end_key.as_ref() >= user_key
+            && self.is_valid()
+            && self.key().user_key == end_key.as_ref()
         {
-            if self.is_valid() && self.key().user_key == end_key.as_ref() {
-                self.next().await?;
-            }
+            self.next().await?;
         }
         Ok(())
     }
