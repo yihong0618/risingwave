@@ -5065,9 +5065,8 @@ dependencies = [
 
 [[package]]
 name = "foyer"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81ab8e6a1bb279ba241bbae9b48b5f2945dc31a7a0a06b3ee8c85a00efbcd3f3"
+version = "0.9.2"
+source = "git+https://github.com/mrcroxx/foyer?rev=9b03b6c#9b03b6c4bfb1501f015f71c9148c72bd2190e46b"
 dependencies = [
  "ahash 0.8.11",
  "anyhow",
@@ -5080,9 +5079,8 @@ dependencies = [
 
 [[package]]
 name = "foyer-common"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "291f8aedeef1bfd12745a77c3d78369a017ee017b6564e746597a4693b4e7bd2"
+version = "0.7.2"
+source = "git+https://github.com/mrcroxx/foyer?rev=9b03b6c#9b03b6c4bfb1501f015f71c9148c72bd2190e46b"
 dependencies = [
  "bytes",
  "cfg-if",
@@ -5099,9 +5097,8 @@ dependencies = [
 
 [[package]]
 name = "foyer-intrusive"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb45e7a2b0d040a15587b07d1680788d5edf1086c9d6565c37546b9d58688dbe"
+version = "0.7.1"
+source = "git+https://github.com/mrcroxx/foyer?rev=9b03b6c#9b03b6c4bfb1501f015f71c9148c72bd2190e46b"
 dependencies = [
  "foyer-common",
  "itertools 0.13.0",
@@ -5109,9 +5106,8 @@ dependencies = [
 
 [[package]]
 name = "foyer-memory"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9555ad68b65a7f8b8081c78010c500742fe3fc7b98ac833a385e5c8a07834598"
+version = "0.5.1"
+source = "git+https://github.com/mrcroxx/foyer?rev=9b03b6c#9b03b6c4bfb1501f015f71c9148c72bd2190e46b"
 dependencies = [
  "ahash 0.8.11",
  "bitflags 2.5.0",
@@ -5130,9 +5126,8 @@ dependencies = [
 
 [[package]]
 name = "foyer-storage"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef35399969ada7554733d160b88e5b264fd6c2288820d3609cb382b4dfb1d275"
+version = "0.8.3"
+source = "git+https://github.com/mrcroxx/foyer?rev=9b03b6c#9b03b6c4bfb1501f015f71c9148c72bd2190e46b"
 dependencies = [
  "ahash 0.8.11",
  "allocator-api2",
@@ -5148,6 +5143,7 @@ dependencies = [
  "futures",
  "itertools 0.13.0",
  "lazy_static",
+ "libc",
  "lz4",
  "madsim-tokio",
  "parking_lot 0.12.1",
