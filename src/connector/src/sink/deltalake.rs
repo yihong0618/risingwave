@@ -19,14 +19,15 @@ use std::sync::Arc;
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
 use deltalake::kernel::{Action, Add, DataType as DeltaLakeDataType, PrimitiveType, StructType};
+use deltalake::operations::transaction::CommitBuilder;
 use deltalake::protocol::{DeltaOperation, SaveMode};
-use deltalake::table::builder::s3_storage_options::{
+use deltalake::aws::storage::s3_constants::{
     AWS_ACCESS_KEY_ID, AWS_ALLOW_HTTP, AWS_ENDPOINT_URL, AWS_REGION, AWS_S3_ALLOW_UNSAFE_RENAME,
     AWS_SECRET_ACCESS_KEY,
 };
 use deltalake::writer::{DeltaWriter, RecordBatchWriter};
 use deltalake::DeltaTable;
-use risingwave_common::array::arrow::DeltaLakeConvert;
+use risingwave_common::array::arrow::IcebergArrowConvert;
 use risingwave_common::array::StreamChunk;
 use risingwave_common::bail;
 use risingwave_common::buffer::Bitmap;
@@ -351,7 +352,6 @@ impl Sink for DeltaLakeSink {
         let deltalake_fields: HashMap<&String, &DeltaLakeDataType> = table
             .get_schema()?
             .fields()
-            .iter()
             .map(|f| (f.name(), f.data_type()))
             .collect();
         if deltalake_fields.len() != self.param.schema().fields().len() {
@@ -438,7 +438,7 @@ impl DeltaLakeSinkWriter {
     }
 
     async fn write(&mut self, chunk: StreamChunk) -> Result<()> {
-        let a = DeltaLakeConvert
+        let a = IcebergArrowConvert
             .to_record_batch(self.dl_schema.clone(), &chunk)
             .context("convert record batch error")
             .map_err(SinkError::DeltaLake)?;
@@ -521,7 +521,7 @@ impl SinkCommitCoordinator for DeltaLakeSinkCommitter {
         if write_adds.is_empty() {
             return Ok(());
         }
-        let partition_cols = self.table.get_metadata()?.partition_columns.clone();
+        let partition_cols = self.table.metadata()?.partition_columns.clone();
         let partition_by = if !partition_cols.is_empty() {
             Some(partition_cols)
         } else {
@@ -532,14 +532,12 @@ impl SinkCommitCoordinator for DeltaLakeSinkCommitter {
             partition_by,
             predicate: None,
         };
-        let version = deltalake::operations::transaction::commit(
-            self.table.log_store().as_ref(),
-            &write_adds,
-            operation,
-            &self.table.state,
-            None,
-        )
-        .await?;
+        let version = CommitBuilder::default()
+        .with_actions(write_adds)
+        .build(Some(self.table.snapshot()?), self.table.log_store().clone(), operation)
+        .map_err(|err|{SinkError::DeltaLake(anyhow!(err))})?
+        .await?
+        .version();
         self.table.update().await?;
         tracing::info!(
             "Succeeded to commit ti DeltaLake table in epoch {epoch} version {version}."
