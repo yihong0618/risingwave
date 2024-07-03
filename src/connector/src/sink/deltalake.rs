@@ -18,13 +18,13 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
-use deltalake::kernel::{Action, Add, DataType as DeltaLakeDataType, PrimitiveType, StructType};
-use deltalake::operations::transaction::CommitBuilder;
-use deltalake::protocol::{DeltaOperation, SaveMode};
 use deltalake::aws::storage::s3_constants::{
     AWS_ACCESS_KEY_ID, AWS_ALLOW_HTTP, AWS_ENDPOINT_URL, AWS_REGION, AWS_S3_ALLOW_UNSAFE_RENAME,
     AWS_SECRET_ACCESS_KEY,
 };
+use deltalake::kernel::{Action, Add, DataType as DeltaLakeDataType, PrimitiveType, StructType};
+use deltalake::operations::transaction::CommitBuilder;
+use deltalake::protocol::{DeltaOperation, SaveMode};
 use deltalake::writer::{DeltaWriter, RecordBatchWriter};
 use deltalake::DeltaTable;
 use risingwave_common::array::arrow::IcebergArrowConvert;
@@ -34,7 +34,7 @@ use risingwave_common::buffer::Bitmap;
 use risingwave_common::catalog::Schema;
 use risingwave_common::session_config::sink_decouple::SinkDecouple;
 use risingwave_common::types::DataType;
-use risingwave_common::util::iter_util::ZipEqFast;
+use risingwave_common::util::iter_util::{ZipEqDebug, ZipEqFast};
 use risingwave_pb::connector_service::sink_metadata::Metadata::Serialized;
 use risingwave_pb::connector_service::sink_metadata::SerializedMetadata;
 use risingwave_pb::connector_service::SinkMetadata;
@@ -247,7 +247,7 @@ fn check_field_type(rw_data_type: &DataType, dl_data_type: &DeltaLakeDataType) -
                 for ((rw_name, rw_type), dl_field) in rw_struct
                     .names()
                     .zip_eq_fast(rw_struct.types())
-                    .zip_eq_fast(dl_struct.fields())
+                    .zip_eq_debug(dl_struct.fields())
                 {
                     result = check_field_type(rw_type, dl_field.data_type())?
                         && result
@@ -533,11 +533,14 @@ impl SinkCommitCoordinator for DeltaLakeSinkCommitter {
             predicate: None,
         };
         let version = CommitBuilder::default()
-        .with_actions(write_adds)
-        .build(Some(self.table.snapshot()?), self.table.log_store().clone(), operation)
-        .map_err(|err|{SinkError::DeltaLake(anyhow!(err))})?
-        .await?
-        .version();
+            .with_actions(write_adds)
+            .build(
+                Some(self.table.snapshot()?),
+                self.table.log_store().clone(),
+                operation,
+            )
+            .await?
+            .version();
         self.table.update().await?;
         tracing::info!(
             "Succeeded to commit ti DeltaLake table in epoch {epoch} version {version}."
