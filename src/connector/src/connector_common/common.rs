@@ -18,11 +18,8 @@ use std::io::Write;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context};
-use async_nats::jetstream::consumer::AckPolicy;
-use async_nats::jetstream::consumer::DeliverPolicy;
-use async_nats::jetstream::consumer::ReplayPolicy;
+use async_nats::jetstream::consumer::{AckPolicy, DeliverPolicy, ReplayPolicy};
 use async_nats::jetstream::{self};
-
 use aws_sdk_kinesis::Client as KinesisClient;
 use pulsar::authentication::oauth2::{OAuth2Authentication, OAuth2Params};
 use pulsar::{Authentication, Pulsar, TokioExecutor};
@@ -622,7 +619,6 @@ impl NatsCommon {
         num_replicas: Option<usize>,
         memory_storage: Option<bool>,
         backoff: Option<Vec<Duration>>,
-
     ) -> ConnectorResult<
         async_nats::jetstream::consumer::Consumer<async_nats::jetstream::consumer::pull::Config>,
     > {

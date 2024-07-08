@@ -35,7 +35,7 @@ pub struct NatsProperties {
 
     #[serde(rename = "scan.startup.mode")]
     pub scan_startup_mode: Option<String>,
-    
+
     #[serde(
         rename = "scan.startup.timestamp.millis",
         alias = "scan.startup.timestamp_millis"
@@ -82,7 +82,7 @@ pub struct NatsProperties {
     /// When consuming from a Stream with many subjects, or wildcards, this selects only specific incoming subjects. Supports wildcards.
     #[serde(rename = "consumer.filter_subject")]
     pub filter_subject: Option<String>,
-    
+
     /// Fulfills the same role as [Config::filter_subject], but allows filtering by many subjects.
     #[serde(rename = "consumer.filter_subjects")]
     pub filter_subjects: Option<String>,
@@ -98,7 +98,7 @@ pub struct NatsProperties {
     /// What percentage of acknowledgments should be samples for observability, 0-100
     #[serde(rename = "consumer.sample_frequency")]
     pub sample_frequency: Option<String>,
-    
+
     /// The maximum number of waiting consumers.
     #[serde(rename = "consumer.max_waiting")]
     pub max_waiting: Option<String>,
@@ -132,10 +132,7 @@ pub struct NatsProperties {
     pub inactive_threshold: Option<String>,
 
     /// Number of consumer replicas
-    #[serde(
-        rename = "consumer.num.replicas",
-        alias = "consumer.num_replicas"
-    )]
+    #[serde(rename = "consumer.num.replicas", alias = "consumer.num_replicas")]
     pub num_replicas: Option<String>,
 
     /// Force consumer to use memory storage.

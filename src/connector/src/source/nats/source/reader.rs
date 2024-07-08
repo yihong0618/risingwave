@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
+
 use anyhow::Context as _;
 use async_nats::jetstream::consumer;
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures_async_stream::try_stream;
 use risingwave_common::bail;
-use std::time::Duration;
+
 use super::message::NatsMessage;
 use super::{NatsOffset, NatsSplit};
 use crate::error::ConnectorResult as Result;
@@ -86,23 +88,75 @@ impl SplitReader for NatsSplitReader {
                 properties.durable_name.clone(),
                 properties.description.clone(),
                 properties.ack_policy.clone(),
-                properties.ack_wait.clone().map(|s| Duration::from_secs(s.parse::<u64>().expect("failed to parse ack_wait to u64"))),
-                properties.max_deliver.clone().map(|s| s.parse::<i64>().expect("failed to parse max_deliver to i64")),
+                properties.ack_wait.clone().map(|s| {
+                    Duration::from_secs(s.parse::<u64>().expect("failed to parse ack_wait to u64"))
+                }),
+                properties.max_deliver.clone().map(|s| {
+                    s.parse::<i64>()
+                        .expect("failed to parse max_deliver to i64")
+                }),
                 properties.filter_subject.clone(),
-                properties.filter_subjects.clone().map(|s| s.split(',').map(|s| s.to_string()).collect()),
+                properties
+                    .filter_subjects
+                    .clone()
+                    .map(|s| s.split(',').map(|s| s.to_string()).collect()),
                 properties.replay_policy.clone(),
-                properties.rate_limit.clone().map(|s| s.parse::<u64>().expect("failed to parse rate_limit to u64")),
-                properties.sample_frequency.clone().map(|s| s.parse::<u8>().expect("failed to parse sample_frequency to u8")),
-                properties.max_waiting.clone().map(|s| s.parse::<i64>().expect("failed to parse max_waiting to i64")),
-                properties.max_ack_pending.clone().map(|s| s.parse::<i64>().expect("failed to parse max_ack_pending to i64")),
-                properties.idle_heartbeat.clone().map(|s| Duration::from_secs(s.parse::<u64>().expect("failed to parse idle_heartbeat to u64"))),
-                properties.max_batch.clone().map(|s| s.parse::<i64>().expect("failed to parse max_batch to i64")),
-                properties.max_bytes.clone().map(|s| s.parse::<i64>().expect("failed to parse max_bytes to i64")),
-                properties.max_expires.clone().map(|s| Duration::from_secs(s.parse::<u64>().expect("failed to parse ack_wait to u64"))),
-                properties.inactive_threshold.clone().map(|s| Duration::from_secs(s.parse::<u64>().expect("failed to parse inactive_threshold to u64"))),
-                properties.num_replicas.clone().map(|s| s.parse::<usize>().expect("failed to parse num_replicas to usize")),
-                properties.memory_storage.clone().map(|s| s.parse::<bool>().expect("failed to parse memory_storage to bool")),
-                properties.backoff.clone().map(|s| s.split(',').map(|s| Duration::from_secs(s.parse::<u64>().expect("failed to parse backoff to u64"))).collect()),
+                properties
+                    .rate_limit
+                    .clone()
+                    .map(|s| s.parse::<u64>().expect("failed to parse rate_limit to u64")),
+                properties.sample_frequency.clone().map(|s| {
+                    s.parse::<u8>()
+                        .expect("failed to parse sample_frequency to u8")
+                }),
+                properties.max_waiting.clone().map(|s| {
+                    s.parse::<i64>()
+                        .expect("failed to parse max_waiting to i64")
+                }),
+                properties.max_ack_pending.clone().map(|s| {
+                    s.parse::<i64>()
+                        .expect("failed to parse max_ack_pending to i64")
+                }),
+                properties.idle_heartbeat.clone().map(|s| {
+                    Duration::from_secs(
+                        s.parse::<u64>()
+                            .expect("failed to parse idle_heartbeat to u64"),
+                    )
+                }),
+                properties
+                    .max_batch
+                    .clone()
+                    .map(|s| s.parse::<i64>().expect("failed to parse max_batch to i64")),
+                properties
+                    .max_bytes
+                    .clone()
+                    .map(|s| s.parse::<i64>().expect("failed to parse max_bytes to i64")),
+                properties.max_expires.clone().map(|s| {
+                    Duration::from_secs(s.parse::<u64>().expect("failed to parse ack_wait to u64"))
+                }),
+                properties.inactive_threshold.clone().map(|s| {
+                    Duration::from_secs(
+                        s.parse::<u64>()
+                            .expect("failed to parse inactive_threshold to u64"),
+                    )
+                }),
+                properties.num_replicas.clone().map(|s| {
+                    s.parse::<usize>()
+                        .expect("failed to parse num_replicas to usize")
+                }),
+                properties.memory_storage.clone().map(|s| {
+                    s.parse::<bool>()
+                        .expect("failed to parse memory_storage to bool")
+                }),
+                properties.backoff.clone().map(|s| {
+                    s.split(',')
+                        .map(|s| {
+                            Duration::from_secs(
+                                s.parse::<u64>().expect("failed to parse backoff to u64"),
+                            )
+                        })
+                        .collect()
+                }),
             )
             .await?;
 
