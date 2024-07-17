@@ -174,7 +174,7 @@ impl S3StreamingUploader {
         // Get the data to upload for the next part.
         let data = self.buf.drain(..).collect_vec();
         let len = self.not_uploaded_len;
-        debug_assert_eq!(
+        assert_eq!(
             data.iter().map(|b| b.len()).sum::<usize>(),
             self.not_uploaded_len
         );
@@ -329,9 +329,13 @@ impl StreamingUploader for S3StreamingUploader {
         ));
 
         if self.upload_id.is_none() {
-            debug_assert!(self.join_handles.is_empty());
+            assert!(
+                self.join_handles.is_empty(),
+                "join handles num {}",
+                self.join_handles.len()
+            );
             if self.buf.is_empty() {
-                debug_assert_eq!(self.not_uploaded_len, 0);
+                assert_eq!(self.not_uploaded_len, 0);
                 Err(ObjectError::internal("upload empty object"))
             } else {
                 let operation_type = OperationType::Upload;
@@ -459,6 +463,7 @@ impl ObjectStore for S3ObjectStore {
                 })?
                 .into_bytes(),
             Err(sdk_err) => {
+                tracing::error!(?sdk_err, path, "!!!");
                 return Err(set_error_should_retry::<GetObjectError>(
                     self.config.clone(),
                     sdk_err.into(),
