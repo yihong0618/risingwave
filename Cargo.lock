@@ -915,9 +915,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76cb6d108605c5489fff1ef9c520656946ad05ed0de3ea6d26d56bcb34bdb8c5"
 dependencies = [
  "anyhow",
- "arrow-array 50.0.0",
- "arrow-buffer 50.0.0",
- "arrow-schema 50.0.0",
+ "arrow-array 52.0.0",
+ "arrow-buffer 52.0.0",
+ "arrow-schema 52.0.0",
  "atomic-time",
  "rquickjs",
 ]
@@ -929,10 +929,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4506efc6fbc200c083add2a7ed4e3616a859941a745e922320ae7051d90d12ec"
 dependencies = [
  "anyhow",
- "arrow-array 50.0.0",
- "arrow-buffer 50.0.0",
- "arrow-ipc 50.0.0",
- "arrow-schema 50.0.0",
+ "arrow-array 52.0.0",
+ "arrow-buffer 52.0.0",
+ "arrow-ipc 52.0.0",
+ "arrow-schema 52.0.0",
  "lazy_static",
  "pyo3",
  "pyo3-build-config",
@@ -945,9 +945,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb829e25925161d93617d4b053bae03fe51e708f2cce088d85df856011d4f369"
 dependencies = [
  "anyhow",
- "arrow-array 50.0.0",
- "arrow-ipc 50.0.0",
- "arrow-schema 50.0.0",
+ "arrow-array 52.0.0",
+ "arrow-ipc 52.0.0",
+ "arrow-schema 52.0.0",
  "async-trait",
  "base64 0.22.0",
  "genawaiter",
@@ -5304,7 +5304,7 @@ dependencies = [
  "http 0.2.9",
  "thiserror",
  "tokio",
- "tonic 0.10.2",
+ "tonic 0.11.0",
  "tower",
  "tracing",
  "trust-dns-resolver 0.23.2",
@@ -6043,7 +6043,7 @@ dependencies = [
  "log",
  "murmur3",
  "once_cell",
- "opendal 0.47.2",
+ "opendal 0.49.0",
  "ordered-float 3.9.1",
  "parquet 52.0.0",
  "prometheus",
@@ -7827,7 +7827,6 @@ dependencies = [
  "md-5",
  "once_cell",
  "percent-encoding",
- "prometheus",
  "quick-xml 0.31.0",
  "reqsign 0.15.2",
  "reqwest 0.12.4",
@@ -7859,6 +7858,7 @@ dependencies = [
  "md-5",
  "once_cell",
  "percent-encoding",
+ "prometheus",
  "quick-xml 0.36.1",
  "reqsign 0.16.0",
  "reqwest 0.12.4",
@@ -9057,7 +9057,7 @@ checksum = "8bdf592881d821b83d471f8af290226c8d51402259e9bb5be7f9f8bdebbb11ac"
 dependencies = [
  "bytes",
  "heck 0.4.1",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "log",
  "multimap 0.8.3",
  "once_cell",
@@ -9112,7 +9112,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "265baba7fabd416cf5078179f7d2cbeca4ce7a9041111900675ea7c4cb8a4c32"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "proc-macro2",
  "quote",
  "syn 2.0.66",
@@ -9295,7 +9295,7 @@ dependencies = [
  "indoc",
  "libc",
  "memoffset",
- "parking_lot 0.11.2",
+ "parking_lot 0.12.1",
  "portable-atomic",
  "pyo3-build-config",
  "pyo3-ffi",
@@ -9533,9 +9533,9 @@ checksum = "0b97c0a6319ae55341eb213c8ef97002630a3a5bd6f287f0124d077121d3f2a5"
 
 [[package]]
 name = "redis"
-version = "0.25.1"
+version = "0.25.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14c442de91f2a085154b1e1b374d5d5edf5bc49d2ebbfdf47e67edd6c2df568d"
+checksum = "e0d7a6955c7511f60f3ba9e86c6d02b3c3f144f8c24b288d1f4e18074ab8bbec"
 dependencies = [
  "async-std",
  "async-trait",
@@ -14294,10 +14294,7 @@ dependencies = [
  "percent-encoding",
  "pin-project",
  "prost 0.12.1",
- "rustls 0.21.11",
- "rustls-pemfile 1.0.4",
  "tokio",
- "tokio-rustls 0.24.1",
  "tokio-stream 0.1.15 (registry+https://github.com/rust-lang/crates.io-index)",
  "tower",
  "tower-layer",
@@ -14324,7 +14321,10 @@ dependencies = [
  "percent-encoding",
  "pin-project",
  "prost 0.12.1",
+ "rustls-pemfile 2.1.1",
+ "rustls-pki-types",
  "tokio",
+ "tokio-rustls 0.25.0",
  "tokio-stream 0.1.15 (registry+https://github.com/rust-lang/crates.io-index)",
  "tower",
  "tower-layer",
