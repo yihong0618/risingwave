@@ -194,13 +194,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // If any configuration for `prost_build` is not exposed by `tonic_build`, specify it here.
     let mut prost_config = prost_build::Config::new();
-    prost_config.skip_debug([
-        "meta.SystemParams",
-        "plan_common.ColumnDesc",
-        "data.DataType",
-        // TODO:
-        //"stream_plan.StreamNode"
-    ]);
+    prost_config.skip_debug(["meta.SystemParams"]);
+
     // Compile the proto files.
     tonic_config
         .out_dir(out_dir.as_path())
