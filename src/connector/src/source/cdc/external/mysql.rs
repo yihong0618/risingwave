@@ -27,6 +27,7 @@ use risingwave_common::catalog::{ColumnDesc, ColumnId, Schema, OFFSET_COLUMN_NAM
 use risingwave_common::row::OwnedRow;
 use risingwave_common::types::DataType;
 use risingwave_common::util::iter_util::ZipEqFast;
+use risingwave_pb::plan_common::DefaultColumnDesc;
 use sea_schema::mysql::def::{ColumnKey, ColumnType};
 use sea_schema::mysql::discovery::SchemaDiscovery;
 use sea_schema::mysql::query::SchemaQueryBuilder;
@@ -109,11 +110,17 @@ impl MySqlExternalTable {
             let data_type = mysql_type_to_rw_type(&col.col_type)?;
             // column name in mysql is case-insensitive, convert to lowercase
             let col_name = col.name.to_lowercase();
-            column_descs.push(ColumnDesc::named(
-                col_name.clone(),
-                ColumnId::placeholder(),
-                data_type,
-            ));
+            // let default_column = DefaultColumnDesc {
+            //
+            // }
+            // let column_desc = ColumnDesc::named_with_default_value(
+            //     col_name.clone(),
+            //     ColumnId::placeholder(),
+            //     data_type,
+            //
+            // );
+
+            column_descs.push(column_desc);
             if matches!(col.key, ColumnKey::Primary) {
                 pk_names.push(col_name);
             }
