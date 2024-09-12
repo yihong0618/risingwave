@@ -1631,6 +1631,13 @@ impl DdlController {
 
         let parallelism = parallelism.min(MAX_PARALLELISM);
 
+        // match stream_job {
+        //     StreamingJob::MaterializedView(job) => {
+        //
+        //     }
+        //     _ => {}
+        // }
+
         let actor_graph_builder =
             ActorGraphBuilder::new(id, complete_graph, cluster_info, parallelism)?;
 
