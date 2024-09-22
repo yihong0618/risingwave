@@ -221,7 +221,7 @@ impl HummockManager {
             self.env.notification_manager(),
             &self.metrics,
         );
-        let mut new_version_delta = version.new_delta(None);
+        let mut new_version_delta = version.new_delta();
 
         for (table_id, raw_group_id) in pairs {
             let mut group_id = *raw_group_id;
@@ -293,7 +293,7 @@ impl HummockManager {
             self.env.notification_manager(),
             &self.metrics,
         );
-        let mut new_version_delta = version.new_delta(None);
+        let mut new_version_delta = version.new_delta();
         let mut modified_groups: HashMap<CompactionGroupId, /* #member table */ u64> =
             HashMap::new();
         // Remove member tables
@@ -481,7 +481,7 @@ impl HummockManager {
             self.env.notification_manager(),
             &self.metrics,
         );
-        let mut new_version_delta = version.new_delta(None);
+        let mut new_version_delta = version.new_delta();
 
         let new_sst_start_id = next_sstable_object_id(
             &self.env,

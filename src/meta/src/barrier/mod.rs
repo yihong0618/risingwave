@@ -1183,7 +1183,6 @@ impl GlobalBarrierManagerContext {
             change_log_delta: Default::default(),
             committed_epoch: epoch,
             tables_to_commit,
-            is_visible_table_committed_epoch: false,
         };
         self.hummock_manager.commit_epoch(info).await?;
         Ok(())
@@ -1778,6 +1777,5 @@ fn collect_commit_epoch_info(
         change_log_delta: table_new_change_log,
         committed_epoch: epoch,
         tables_to_commit,
-        is_visible_table_committed_epoch: true,
     }
 }

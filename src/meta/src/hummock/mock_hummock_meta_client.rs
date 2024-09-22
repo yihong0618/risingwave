@@ -216,7 +216,6 @@ impl HummockMetaClient for MockHummockMetaClient {
                     .cloned()
                     .map(TableId::from)
                     .collect(),
-                is_visible_table_committed_epoch: true,
             })
             .await
             .map_err(mock_err)?;

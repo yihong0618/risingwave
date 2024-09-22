@@ -1447,8 +1447,7 @@ async fn test_replicated_local_hummock_storage() {
             },
             change_log_delta: Default::default(),
             committed_epoch: epoch0,
-            tables_to_commit: Default::default(),
-            is_visible_table_committed_epoch: true,
+            tables_to_commit: HashSet::from_iter([TEST_TABLE_ID]),
         })
         .await
         .unwrap();

@@ -2581,44 +2581,40 @@ async fn test_commit_multi_epoch() {
         .await
         .max_committed_epoch_for_test();
 
-    let commit_epoch = |epoch,
-                        sst: SstableInfo,
+    let commit_epoch =
+        |epoch, sst: SstableInfo, new_table_fragment_info, tables_to_commit: &[TableId]| {
+            let manager = &test_env.manager;
+            let tables_to_commit = tables_to_commit.iter().cloned().collect();
+            async move {
+                manager
+                    .commit_epoch(CommitEpochInfo {
+                        new_table_watermarks: Default::default(),
+                        sst_to_context: context_id_map(&[sst.object_id]),
+                        sstables: vec![LocalSstableInfo {
+                            table_stats: sst
+                                .table_ids
+                                .iter()
+                                .map(|&table_id| {
+                                    (
+                                        table_id,
+                                        TableStats {
+                                            total_compressed_size: 10,
+                                            ..Default::default()
+                                        },
+                                    )
+                                })
+                                .collect(),
+                            sst_info: sst,
+                        }],
                         new_table_fragment_info,
-                        tables_to_commit: &[TableId],
-                        is_visible_table_committed_epoch| {
-        let manager = &test_env.manager;
-        let tables_to_commit = tables_to_commit.iter().cloned().collect();
-        async move {
-            manager
-                .commit_epoch(CommitEpochInfo {
-                    new_table_watermarks: Default::default(),
-                    sst_to_context: context_id_map(&[sst.object_id]),
-                    sstables: vec![LocalSstableInfo {
-                        table_stats: sst
-                            .table_ids
-                            .iter()
-                            .map(|&table_id| {
-                                (
-                                    table_id,
-                                    TableStats {
-                                        total_compressed_size: 10,
-                                        ..Default::default()
-                                    },
-                                )
-                            })
-                            .collect(),
-                        sst_info: sst,
-                    }],
-                    new_table_fragment_info,
-                    change_log_delta: Default::default(),
-                    committed_epoch: epoch,
-                    tables_to_commit,
-                    is_visible_table_committed_epoch,
-                })
-                .await
-                .unwrap();
-        }
-    };
+                        change_log_delta: Default::default(),
+                        committed_epoch: epoch,
+                        tables_to_commit,
+                    })
+                    .await
+                    .unwrap();
+            }
+        };
 
     let epoch1 = initial_epoch.next_epoch();
     let sst1_epoch1 = SstableInfo {
@@ -2638,7 +2634,6 @@ async fn test_commit_multi_epoch() {
             internal_table_ids: vec![existing_table_id],
         },
         &[existing_table_id],
-        true,
     )
     .await;
 
@@ -2687,7 +2682,6 @@ async fn test_commit_multi_epoch() {
         sst1_epoch2.clone(),
         NewTableFragmentInfo::None,
         &[existing_table_id],
-        true,
     )
     .await;
 
@@ -2740,7 +2734,6 @@ async fn test_commit_multi_epoch() {
             table_ids: HashSet::from_iter([new_table_id]),
         },
         &[new_table_id],
-        false,
     )
     .await;
 
@@ -2782,7 +2775,6 @@ async fn test_commit_multi_epoch() {
         sst2_epoch2.clone(),
         NewTableFragmentInfo::None,
         &[new_table_id],
-        false,
     )
     .await;
 
@@ -2824,7 +2816,6 @@ async fn test_commit_multi_epoch() {
         sst_epoch3.clone(),
         NewTableFragmentInfo::None,
         &[existing_table_id, new_table_id],
-        true,
     )
     .await;
 

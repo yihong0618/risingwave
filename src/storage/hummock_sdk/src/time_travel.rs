@@ -83,6 +83,7 @@ fn refill_sstable_info(
 impl From<(&HummockVersion, &HashSet<CompactionGroupId>)> for IncompleteHummockVersion {
     fn from(p: (&HummockVersion, &HashSet<CompactionGroupId>)) -> Self {
         let (version, select_group) = p;
+        #[expect(deprecated)]
         Self {
             id: version.id,
             levels: version
@@ -128,6 +129,7 @@ pub type IncompleteHummockVersionDelta = HummockVersionDeltaCommon<SstableIdInVe
 impl From<(&HummockVersionDelta, &HashSet<CompactionGroupId>)> for IncompleteHummockVersionDelta {
     fn from(p: (&HummockVersionDelta, &HashSet<CompactionGroupId>)) -> Self {
         let (delta, select_group) = p;
+        #[expect(deprecated)]
         Self {
             id: delta.id,
             prev_id: delta.prev_id,
