@@ -223,6 +223,15 @@ impl HummockManager {
         );
         let mut new_version_delta = version.new_delta();
 
+        let committed_epoch = new_version_delta
+            .latest_version()
+            .state_table_info
+            .info()
+            .values()
+            .map(|info| info.committed_epoch)
+            .max()
+            .unwrap_or(INVALID_EPOCH);
+
         for (table_id, raw_group_id) in pairs {
             let mut group_id = *raw_group_id;
             if group_id == StaticCompactionGroupId::NewCompactionGroup as u64 {
@@ -265,7 +274,7 @@ impl HummockManager {
                 .insert(
                     TableId::new(*table_id),
                     PbStateTableInfoDelta {
-                        committed_epoch: INVALID_EPOCH,
+                        committed_epoch,
                         compaction_group_id: *raw_group_id,
                     }
                 )
