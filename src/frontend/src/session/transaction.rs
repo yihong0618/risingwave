@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
@@ -22,9 +21,8 @@ use risingwave_hummock_sdk::EpochWithGap;
 
 use super::SessionImpl;
 use crate::catalog::catalog_service::CatalogWriter;
-use crate::catalog::TableId;
 use crate::error::{ErrorCode, Result};
-use crate::scheduler::{QuerySnapshot, ReadSnapshot};
+use crate::scheduler::ReadSnapshot;
 use crate::user::user_service::UserInfoWriter;
 
 /// Globally unique transaction id in this frontend instance.
@@ -215,9 +213,8 @@ impl SessionImpl {
     /// Acquires and pins a snapshot for the current transaction.
     ///
     /// If a snapshot is already acquired, returns it directly.
-    pub fn pinned_snapshot(&self, scan_tables: HashSet<TableId>) -> QuerySnapshot {
-        let snapshot = self
-            .txn_ctx()
+    pub fn pinned_snapshot(&self) -> ReadSnapshot {
+        self.txn_ctx()
             .snapshot
             .get_or_insert_with(|| {
                 // query_epoch must be pure epoch
@@ -229,7 +226,7 @@ impl SessionImpl {
                 if let Some(query_epoch) = query_epoch {
                     ReadSnapshot::Other(query_epoch)
                 } else if self.is_barrier_read() {
-                    ReadSnapshot::BarrierRead
+                    ReadSnapshot::ReadUncommitted
                 } else {
                     // Acquire hummock snapshot for execution.
                     let hummock_snapshot_manager = self.env().hummock_snapshot_manager();
@@ -240,8 +237,7 @@ impl SessionImpl {
                     }
                 }
             })
-            .clone();
-        QuerySnapshot::new(snapshot, scan_tables)
+            .clone()
     }
 }
 

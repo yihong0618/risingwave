@@ -38,7 +38,7 @@ pub enum ReadSnapshot {
         snapshot: PinnedSnapshotRef,
     },
 
-    BarrierRead,
+    ReadUncommitted,
 
     /// Other arbitrary epoch, e.g. user specified.
     /// Availability and consistency of underlying data should be guaranteed accordingly.
@@ -46,28 +46,19 @@ pub enum ReadSnapshot {
     Other(Epoch),
 }
 
-pub struct QuerySnapshot {
-    snapshot: ReadSnapshot,
-    scan_tables: HashSet<TableId>,
-}
-
-impl QuerySnapshot {
-    pub fn new(snapshot: ReadSnapshot, scan_tables: HashSet<TableId>) -> Self {
-        Self {
-            snapshot,
-            scan_tables,
-        }
-    }
-
+impl ReadSnapshot {
     /// Get the [`BatchQueryEpoch`] for this snapshot.
-    pub fn batch_query_epoch(&self) -> Result<BatchQueryEpoch, SchedulerError> {
-        Ok(match &self.snapshot {
+    pub fn batch_query_epoch(
+        &self,
+        read_storage_tables: &HashSet<TableId>,
+    ) -> Result<BatchQueryEpoch, SchedulerError> {
+        Ok(match self {
             ReadSnapshot::FrontendPinned { snapshot } => BatchQueryEpoch {
                 epoch: Some(batch_query_epoch::Epoch::Committed(
-                    snapshot.batch_query_epoch(&self.scan_tables)?.0,
+                    snapshot.batch_query_epoch(read_storage_tables)?.0,
                 )),
             },
-            ReadSnapshot::BarrierRead => BatchQueryEpoch {
+            ReadSnapshot::ReadUncommitted => BatchQueryEpoch {
                 epoch: Some(batch_query_epoch::Epoch::Current(u64::MAX)),
             },
             ReadSnapshot::Other(e) => BatchQueryEpoch {
@@ -76,20 +67,23 @@ impl QuerySnapshot {
         })
     }
 
-    pub fn inline_now_proc_time(&self) -> Result<InlineNowProcTime, SchedulerError> {
-        let epoch = match &self.snapshot {
-            ReadSnapshot::FrontendPinned { snapshot, .. } => {
-                snapshot.batch_query_epoch(&self.scan_tables)?
-            }
+    pub fn inline_now_proc_time(&self) -> InlineNowProcTime {
+        let epoch = match self {
+            ReadSnapshot::FrontendPinned { snapshot } => snapshot
+                .value
+                .state_table_info
+                .max_table_committed_epoch()
+                .map(Epoch)
+                .unwrap_or_else(Epoch::now),
+            ReadSnapshot::ReadUncommitted => Epoch::now(),
             ReadSnapshot::Other(epoch) => *epoch,
-            ReadSnapshot::BarrierRead => Epoch::now(),
         };
-        Ok(InlineNowProcTime::new(epoch))
+        InlineNowProcTime::new(epoch)
     }
 
     /// Returns true if this snapshot is a barrier read.
     pub fn support_barrier_read(&self) -> bool {
-        matches!(&self.snapshot, ReadSnapshot::BarrierRead)
+        matches!(self, ReadSnapshot::ReadUncommitted)
     }
 }
 
@@ -109,9 +103,12 @@ impl std::fmt::Debug for PinnedSnapshot {
 pub type PinnedSnapshotRef = Arc<PinnedSnapshot>;
 
 impl PinnedSnapshot {
-    fn batch_query_epoch(&self, scan_tables: &HashSet<TableId>) -> Result<Epoch, SchedulerError> {
+    fn batch_query_epoch(
+        &self,
+        read_storage_tables: &HashSet<TableId>,
+    ) -> Result<Epoch, SchedulerError> {
         // use the min committed epoch of tables involved in the scan
-        let epoch = scan_tables
+        let epoch = read_storage_tables
             .iter()
             .map(|table_id| {
                 self.value
@@ -124,7 +121,7 @@ impl PinnedSnapshot {
             .try_fold(None, |prev_min_committed_epoch, committed_epoch| {
                 committed_epoch.map(|committed_epoch| {
                     if let Some(prev_min_committed_epoch) = prev_min_committed_epoch
-                        && prev_min_committed_epoch >= committed_epoch
+                        && prev_min_committed_epoch <= committed_epoch
                     {
                         Some(prev_min_committed_epoch)
                     } else {
@@ -132,7 +129,13 @@ impl PinnedSnapshot {
                     }
                 })
             })?
-            .unwrap_or_else(Epoch::now);
+            .unwrap_or_else(|| {
+                self.value
+                    .state_table_info
+                    .max_table_committed_epoch()
+                    .map(Epoch)
+                    .unwrap_or_else(Epoch::now)
+            });
         Ok(epoch)
     }
 
