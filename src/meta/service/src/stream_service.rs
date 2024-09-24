@@ -16,6 +16,7 @@ use std::collections::{HashMap, HashSet};
 
 use itertools::Itertools;
 use risingwave_common::catalog::TableId;
+use risingwave_common::hash::VnodeCountCompat;
 use risingwave_meta::manager::{LocalNotification, MetadataManager};
 use risingwave_meta::model;
 use risingwave_meta::model::ActorId;
@@ -321,6 +322,7 @@ impl StreamManagerService for StreamServiceImpl {
                                 upstream_fragment_ids: fragment.upstream_fragment_ids.clone(),
                                 fragment_type_mask: fragment.fragment_type_mask,
                                 parallelism: fragment.actors.len() as _,
+                                vnode_count: fragment.vnode_count() as _,
                             }
                         })
                     })
@@ -343,6 +345,7 @@ impl StreamManagerService for StreamServiceImpl {
                                 .into_u32_array(),
                             fragment_type_mask: fragment_desc.fragment_type_mask as _,
                             parallelism: fragment_desc.parallelism as _,
+                            vnode_count: fragment_desc.vnode_count as _,
                         }
                     })
                     .collect_vec()
