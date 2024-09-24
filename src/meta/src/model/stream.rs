@@ -21,6 +21,7 @@ use risingwave_common::hash::{VnodeCountCompat, WorkerSlotId};
 use risingwave_connector::source::SplitImpl;
 use risingwave_pb::common::PbActorLocation;
 use risingwave_pb::meta::table_fragments::actor_status::ActorState;
+use risingwave_pb::meta::table_fragments::fragment::FragmentDistributionType;
 use risingwave_pb::meta::table_fragments::{ActorStatus, Fragment, State};
 use risingwave_pb::meta::table_parallelism::{
     FixedParallelism, Parallelism, PbAdaptiveParallelism, PbCustomParallelism, PbFixedParallelism,
@@ -263,16 +264,15 @@ impl TableFragments {
         self.ctx.timezone.clone()
     }
 
-    /// Returns the max vnode count of all fragments in the table.
-    ///
-    /// Setting the parallelism of a streaming job to a value greater than this will result in
-    /// an error, as there won't be any fragment that fits that value.
-    pub fn max_vnode_count(&self) -> usize {
+    /// Returns the maximum value of the `vnode_count` of all hash-distributed fragments.
+    /// Returns 1 if all fragments are singleton.
+    pub fn max_parallelism(&self) -> usize {
         self.fragments
             .values()
+            .filter(|f| matches!(f.distribution_type(), FragmentDistributionType::Hash))
             .map(|f| f.vnode_count())
             .max()
-            .expect("should be at least one fragment")
+            .unwrap_or(1) // if all fragments are singleton, return 1
     }
 
     /// Returns whether the table fragments is in `Created` state.

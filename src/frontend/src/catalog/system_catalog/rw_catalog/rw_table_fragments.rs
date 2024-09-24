@@ -41,7 +41,7 @@ async fn read_rw_table_fragments_info(
                 table_id: state.table_id as i32,
                 status: state.state().as_str_name().into(),
                 parallelism: parallelism.to_uppercase(),
-                max_parallelism: state.max_vnode_count as i32,
+                max_parallelism: state.max_parallelism as i32,
             }
         })
         .collect())

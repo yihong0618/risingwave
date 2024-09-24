@@ -228,7 +228,7 @@ message ListTableFragmentStatesResponse {
     uint32 table_id = 1;
     TableFragments.State state = 2;
     TableParallelism parallelism = 3;
-    uint32 max_vnode_count = 4;
+    uint32 max_parallelism = 4;
   }
   repeated TableFragmentState states = 1;
 }
