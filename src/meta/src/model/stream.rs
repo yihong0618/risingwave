@@ -17,7 +17,7 @@ use std::ops::AddAssign;
 
 use itertools::Itertools;
 use risingwave_common::catalog::TableId;
-use risingwave_common::hash::WorkerSlotId;
+use risingwave_common::hash::{VnodeCountCompat, WorkerSlotId};
 use risingwave_connector::source::SplitImpl;
 use risingwave_pb::common::PbActorLocation;
 use risingwave_pb::meta::table_fragments::actor_status::ActorState;
@@ -261,6 +261,18 @@ impl TableFragments {
     /// Returns the timezone of the table
     pub fn timezone(&self) -> Option<String> {
         self.ctx.timezone.clone()
+    }
+
+    /// Returns the max vnode count of all fragments in the table.
+    ///
+    /// Setting the parallelism of a streaming job to a value greater than this will result in
+    /// an error, as there won't be any fragment that fits that value.
+    pub fn max_vnode_count(&self) -> usize {
+        self.fragments
+            .values()
+            .map(|f| f.vnode_count())
+            .max()
+            .expect("should be at least one fragment")
     }
 
     /// Returns whether the table fragments is in `Created` state.

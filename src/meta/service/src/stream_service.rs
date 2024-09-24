@@ -271,6 +271,7 @@ impl StreamManagerService for StreamServiceImpl {
                             table_id: tf.table_id().table_id,
                             state: tf.state() as i32,
                             parallelism: Some(tf.assigned_parallelism.into()),
+                            max_vnode_count: tf.max_vnode_count() as _,
                         },
                     )
                     .collect_vec()
@@ -292,6 +293,7 @@ impl StreamManagerService for StreamServiceImpl {
                             table_id: table_id as _,
                             state: PbState::from(state) as _,
                             parallelism: Some(parallelism.into()),
+                            max_vnode_count: 0, // TODO(var-vnode): write query to obtain this from `fragment`
                         }
                     })
                     .collect_vec()
